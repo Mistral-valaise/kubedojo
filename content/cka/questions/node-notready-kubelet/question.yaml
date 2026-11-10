@@ -22,19 +22,25 @@ checks:
     title: The kubelet service on the worker is running
     type: exec
     on: worker
-    run: systemctl is-active kubelet
+    run: |-
+      systemctl is-active kubelet
     expect: {equals: active}
-    explain: The kubelet is not a Pod — it is a systemd service on every node. If it is not active, the node cannot run or report anything.
+    explain: >-
+      The kubelet is not a Pod — it is a systemd service on every node. If it is not active, the node cannot run or report anything.
   - id: unit-path
     title: The kubelet unit starts an existing binary
     type: exec
     on: worker
-    run: bin=$(systemctl show kubelet -p ExecStart --value | grep -o 'path=[^ ;]*' | head -1 | cut -d= -f2); test -x "$bin" && echo ok
+    run: |-
+      bin=$(systemctl show kubelet -p ExecStart --value | grep -o 'path=[^ ;]*' | head -1 | cut -d= -f2); test -x "$bin" && echo ok
     expect: {equals: ok}
-    explain: The service failed with "No such file or directory" because ExecStart pointed to a wrong path. After editing a unit file, systemd needs `daemon-reload`.
+    explain: >-
+      The service failed with "No such file or directory" because ExecStart pointed to a wrong path. After editing a unit file, systemd needs `daemon-reload`.
   - id: node-ready
     title: The node is Ready
     type: exec
-    run: kubectl get node ${KD_HOST}-worker -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+    run: |-
+      kubectl get node ${KD_HOST}-worker -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
     expect: {equals: "True"}
-    explain: Once the kubelet runs again it renews its lease and the node controller marks the node Ready.
+    explain: >-
+      Once the kubelet runs again it renews its lease and the node controller marks the node Ready.

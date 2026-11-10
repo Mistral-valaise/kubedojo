@@ -28,7 +28,8 @@ checks:
     namespace: team-lynx
     jsonpath: "{.spec.template.spec.containers[0].image}"
     expect: {matches: "^(docker\\.io/(library/)?)?nginx:1\\.27(\\.\\d+)?-alpine$"}
-    explain: The Pods were stuck in ImagePullBackOff because the tag had a typo. `kubectl describe pod` shows the failing pull in its Events.
+    explain: >-
+      The Pods were stuck in ImagePullBackOff because the tag had a typo. `kubectl describe pod` shows the failing pull in its Events.
   - id: ready
     title: Deployment web has 3 ready replicas
     type: resource
@@ -36,13 +37,16 @@ checks:
     namespace: team-lynx
     jsonpath: "{.status.readyReplicas}"
     expect: {equals: "3"}
-    explain: The rollout only completes when new Pods become Ready.
+    explain: >-
+      The rollout only completes when new Pods become Ready.
   - id: endpoints
     title: Service web has 3 endpoints
     type: exec
-    run: kubectl -n team-lynx get endpointslices -l kubernetes.io/service-name=web -o jsonpath='{range .items[*].endpoints[*]}{.addresses[0]}{"\n"}{end}' | grep -c .
+    run: |-
+      kubectl -n team-lynx get endpointslices -l kubernetes.io/service-name=web -o jsonpath='{range .items[*].endpoints[*]}{.addresses[0]}{"\n"}{end}' | grep -c .
     expect: {equals: "3"}
-    explain: A Service selects Pods by label. If the selector does not match the Pod template labels, the Service has no endpoints and connections are refused.
+    explain: >-
+      A Service selects Pods by label. If the selector does not match the Pod template labels, the Service has no endpoints and connections are refused.
   - id: reachable
     title: The Service answers HTTP requests
     type: exec
@@ -50,7 +54,8 @@ checks:
       kubectl -n team-lynx run probe-$RANDOM --rm -i --restart=Never --quiet --image=busybox:1.36
       -- wget -qO- -T 5 http://web.team-lynx.svc.cluster.local 2>/dev/null | grep -q 'Welcome to nginx' && echo reachable
     expect: {equals: reachable}
-    explain: Even with endpoints, the Service must send traffic to the port the container actually listens on (targetPort 80 for nginx).
+    explain: >-
+      Even with endpoints, the Service must send traffic to the port the container actually listens on (targetPort 80 for nginx).
   - id: not-recreated
     title: The Deployment was repaired in place and is healthy
     type: exec
@@ -58,4 +63,5 @@ checks:
       kubectl -n team-lynx get deployment web
       -o jsonpath='{.metadata.annotations.kubedojo\.dev/original}/{.status.readyReplicas}'
     expect: {equals: "true/3"}
-    explain: In production you fix a live object in place (edit, set image, patch) — recreating it causes avoidable downtime and loses rollout history.
+    explain: >-
+      In production you fix a live object in place (edit, set image, patch) — recreating it causes avoidable downtime and loses rollout history.

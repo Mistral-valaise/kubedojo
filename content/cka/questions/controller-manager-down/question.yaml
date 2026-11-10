@@ -21,15 +21,19 @@ checks:
   - id: kcm-ready
     title: kube-controller-manager is running and ready
     type: exec
-    run: kubectl -n kube-system get pod -l component=kube-controller-manager -o jsonpath='{.items[0].status.containerStatuses[0].ready}'
+    run: |-
+      kubectl -n kube-system get pod -l component=kube-controller-manager -o jsonpath='{.items[0].status.containerStatuses[0].ready}'
     expect: {equals: "true"}
-    explain: The controller manager runs the control loops that turn desired state into objects, e.g. Deployment → ReplicaSet → Pods. Without it, the API accepts objects but nothing acts on them.
+    explain: >-
+      The controller manager runs the control loops that turn desired state into objects, e.g. Deployment → ReplicaSet → Pods. Without it, the API accepts objects but nothing acts on them.
   - id: replicaset
     title: Deployment ghost has a ReplicaSet
     type: exec
-    run: kubectl -n team-stork get rs -l app=ghost -o name | wc -l | xargs
+    run: |-
+      kubectl -n team-stork get rs -l app=ghost -o name | wc -l | xargs
     expect: {equals: "1"}
-    explain: As soon as the deployment controller runs again it reconciles all existing Deployments. Nothing needs to be recreated.
+    explain: >-
+      As soon as the deployment controller runs again it reconciles all existing Deployments. Nothing needs to be recreated.
   - id: original
     title: The Deployment was not recreated
     type: resource
@@ -37,4 +41,5 @@ checks:
     namespace: team-stork
     jsonpath: "{.metadata.annotations.kubedojo\\.dev/original}"
     expect: {equals: "true"}
-    explain: The Deployment itself was fine. Recreating objects hides a broken control plane instead of fixing it.
+    explain: >-
+      The Deployment itself was fine. Recreating objects hides a broken control plane instead of fixing it.

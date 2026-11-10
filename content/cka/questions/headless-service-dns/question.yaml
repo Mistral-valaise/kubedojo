@@ -1,0 +1,43 @@
+title: Stable DNS names for a StatefulSet
+domain: services-networking
+difficulty: medium
+minutes: 7
+environment: base
+tags: [headless-service, statefulset, dns]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  StatefulSet `kv` in Namespace `team-robin` runs two replicas that must reach each other by name,
+  for example `kv-1`. The StatefulSet is configured with `serviceName: kv`, but that Service was never
+  created, so the per-Pod DNS names do not resolve.
+
+  1. Create the missing Service so that every Pod of the StatefulSet gets its own DNS name. It must
+     expose port `80`.
+  2. Write the fully qualified domain name of Pod `kv-1` to `/opt/course/robin/fqdn` on `{{host}}`.
+hints:
+  - "Per-Pod DNS records are only created for a **headless** Service, i.e. one with `clusterIP: None`, whose name equals the StatefulSet's `serviceName`."
+  - "`kubectl -n team-robin create service clusterip kv --clusterip=None --tcp=80:80` creates one; check that its selector matches the Pod labels (`app=kv`)."
+  - "The name pattern is `<pod>.<service>.<namespace>.svc.cluster.local`."
+checks:
+  - id: headless
+    title: Service kv is headless and selects the StatefulSet's Pods
+    type: resource
+    resource: service/kv
+    namespace: team-robin
+    jsonpath: "{.spec.clusterIP} {.spec.selector.app} {.spec.ports[0].port}"
+    expect: {equals: None kv 80}
+    explain: >-
+      With clusterIP None there is no virtual IP; DNS returns the Pod IPs directly and creates an A record per Pod of a StatefulSet that names this Service.
+  - id: resolves
+    title: kv-1 resolves to its Pod IP
+    type: exec
+    run: '[ "$(dig +short +time=2 +tries=1 @$(kubectl -n kube-system get svc kube-dns -o jsonpath={.spec.clusterIP}) kv-1.kv.team-robin.svc.cluster.local)" = "$(kubectl -n team-robin get pod kv-1 -o jsonpath={.status.podIP})" ] && echo ok'
+    expect: {equals: ok}
+    explain: >-
+      The record only exists if the Service name equals the StatefulSet's serviceName and the Service selects the Pod.
+  - id: fqdn
+    title: The FQDN of kv-1 is written down correctly
+    type: file
+    path: /opt/course/robin/fqdn
+    expect: {matches: "^kv-1\\.kv\\.team-robin\\.svc\\.cluster\\.local\\.?$"}
+    explain: "Pod names of a StatefulSet are stable (kv-0, kv-1, ...), which makes these DNS names stable too: pod.service.namespace.svc.cluster-domain."

@@ -25,28 +25,35 @@ checks:
   - id: can-update
     title: The ServiceAccount can update Backups in team-egret
     type: exec
-    run: kubectl -n team-egret auth can-i update backups.ops.kubedojo.dev --as system:serviceaccount:team-egret:backup-operator
+    run: |-
+      kubectl -n team-egret auth can-i update backups.ops.kubedojo.dev --as system:serviceaccount:team-egret:backup-operator
     expect: {equals: "yes"}
-    explain: Custom resources are addressed in RBAC like built-in ones — plural resource name plus API group of the CRD.
+    explain: >-
+      Custom resources are addressed in RBAC like built-in ones — plural resource name plus API group of the CRD.
   - id: cannot-delete
     title: The ServiceAccount cannot delete Backups
     type: exec
-    run: kubectl -n team-egret auth can-i delete backups.ops.kubedojo.dev --as system:serviceaccount:team-egret:backup-operator
+    run: |-
+      kubectl -n team-egret auth can-i delete backups.ops.kubedojo.dev --as system:serviceaccount:team-egret:backup-operator
     expect: {equals: "no", exitCode: 1}
-    explain: Only four verbs were requested. Wildcards would let a compromised operator destroy all backups.
+    explain: >-
+      Only four verbs were requested. Wildcards would let a compromised operator destroy all backups.
   - id: scoped
     title: The permissions do not apply in other Namespaces
     type: exec
-    run: kubectl -n default auth can-i list backups.ops.kubedojo.dev --as system:serviceaccount:team-egret:backup-operator
+    run: |-
+      kubectl -n default auth can-i list backups.ops.kubedojo.dev --as system:serviceaccount:team-egret:backup-operator
     expect: {equals: "no", exitCode: 1}
-    explain: ClusterRole + RoleBinding grants the role's rules in the binding's Namespace only. A ClusterRoleBinding would grant them everywhere.
+    explain: >-
+      ClusterRole + RoleBinding grants the role's rules in the binding's Namespace only. A ClusterRoleBinding would grant them everywhere.
   - id: clusterrole
     title: The rules live in ClusterRole backup-operator
     type: resource
     resource: clusterrole/backup-operator
     jsonpath: "{.rules[0].resources[0]}"
     expect: {equals: backups}
-    explain: ClusterRoles are reusable definitions; the same role can be bound in other team Namespaces later.
+    explain: >-
+      ClusterRoles are reusable definitions; the same role can be bound in other team Namespaces later.
   - id: backup
     title: Backup nightly exists with the requested spec
     type: resource
@@ -54,4 +61,5 @@ checks:
     namespace: team-egret
     jsonpath: "{.spec.schedule}|{.spec.retentionDays}"
     expect: {equals: "0 2 * * *|14"}
-    explain: A CRD extends the API. Its schema defines the fields — `kubectl explain` works for custom resources too.
+    explain: >-
+      A CRD extends the API. Its schema defines the fields — `kubectl explain` works for custom resources too.

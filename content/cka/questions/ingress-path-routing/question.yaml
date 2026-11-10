@@ -1,0 +1,56 @@
+title: Route traffic with an Ingress
+domain: services-networking
+difficulty: medium
+minutes: 6
+environment: base
+tags: [ingress]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Namespace `team-wren` runs two Services: `shop` (port `80`) and `shop-api` (port `8080`).
+
+  Create an Ingress named `shop` in Namespace `team-wren` that uses the IngressClass `nginx` and routes
+  requests for host `shop.wren.example`:
+
+  - path prefix `/api` to Service `shop-api` on port `8080`
+  - path prefix `/` to Service `shop` on port `80`
+
+  No ingress controller is installed in this cluster; the Ingress object only has to be correct.
+hints:
+  - "`kubectl create ingress -h` shows examples. A rule has the form `host/path=service:port`; a trailing `*` makes the path type `Prefix`."
+  - "`kubectl -n team-wren create ingress shop --class=nginx --rule=\"shop.wren.example/api*=shop-api:8080\" --rule=\"shop.wren.example/*=shop:80\"`"
+checks:
+  - id: class
+    title: The Ingress uses IngressClass nginx
+    type: resource
+    resource: ingress/shop
+    namespace: team-wren
+    jsonpath: "{.spec.ingressClassName}"
+    expect: {equals: nginx}
+    explain: >-
+      ingressClassName selects which controller implements the Ingress. Without it (and without a default class) no controller picks the object up.
+  - id: host
+    title: The rule applies to host shop.wren.example
+    type: resource
+    resource: ingress/shop
+    namespace: team-wren
+    jsonpath: "{.spec.rules[0].host}"
+    expect: {equals: shop.wren.example}
+    explain: >-
+      Rules are matched by the HTTP Host header first, then by path.
+  - id: api
+    title: /api is routed to shop-api:8080 as a prefix
+    type: exec
+    run: |-
+      kubectl -n team-wren get ingress shop -o jsonpath='{range .spec.rules[0].http.paths[*]}{.path}|{.pathType}|{.backend.service.name}:{.backend.service.port.number}{"\n"}{end}' | grep -c '^/api|Prefix|shop-api:8080$'
+    expect: {equals: "1"}
+    explain: >-
+      pathType Prefix matches /api and everything below it. Exact would match only /api itself.
+  - id: root
+    title: / is routed to shop:80 as a prefix
+    type: exec
+    run: |-
+      kubectl -n team-wren get ingress shop -o jsonpath='{range .spec.rules[0].http.paths[*]}{.path}|{.pathType}|{.backend.service.name}:{.backend.service.port.number}{"\n"}{end}' | grep -c '^/|Prefix|shop:80$'
+    expect: {equals: "1"}
+    explain: >-
+      The longest matching prefix wins, so /api requests go to shop-api and everything else to shop.

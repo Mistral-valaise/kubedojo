@@ -26,14 +26,16 @@ checks:
     namespace: team-osprey
     jsonpath: "{.status.phase} {.spec.volumeName}"
     expect: {equals: Bound osprey-pv}
-    explain: The claim asked for 10Gi and ReadWriteMany; the volume offers 5Gi and ReadWriteOnce. A claim only binds to a volume that is at least as large and offers the requested access mode.
+    explain: >-
+      The claim asked for 10Gi and ReadWriteMany; the volume offers 5Gi and ReadWriteOnce. A claim only binds to a volume that is at least as large and offers the requested access mode.
   - id: pv-unchanged
     title: The PersistentVolume is unchanged
     type: resource
     resource: pv/osprey-pv
     jsonpath: "{.spec.capacity.storage} {.spec.accessModes[0]} {.metadata.annotations.kubedojo\\.dev/original}"
     expect: {equals: 5Gi ReadWriteOnce true}
-    explain: Claims adapt to the storage that exists, not the other way round.
+    explain: >-
+      Claims adapt to the storage that exists, not the other way round.
   - id: ready
     title: Deployment ledger is running
     type: resource
@@ -41,4 +43,5 @@ checks:
     namespace: team-osprey
     jsonpath: "{.status.readyReplicas}"
     expect: {equals: "1"}
-    explain: Once the claim is bound, the scheduler can place the Pod and the kubelet mounts the volume.
+    explain: >-
+      Once the claim is bound, the scheduler can place the Pod and the kubelet mounts the volume.

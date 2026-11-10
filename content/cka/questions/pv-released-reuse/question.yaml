@@ -25,11 +25,13 @@ checks:
     namespace: team-kestrel
     jsonpath: "{.status.phase} {.spec.volumeName}"
     expect: {equals: Bound kestrel-pv}
-    explain: A Released volume keeps the claimRef (with the UID) of its old claim and is never bound again automatically, to protect the data. Removing the claimRef makes it Available.
+    explain: >-
+      A Released volume keeps the claimRef (with the UID) of its old claim and is never bound again automatically, to protect the data. Removing the claimRef makes it Available.
   - id: same-pv
     title: kestrel-pv was not deleted and recreated
     type: resource
     resource: pv/kestrel-pv
     jsonpath: "{.metadata.annotations.kubedojo\\.dev/original} {.spec.persistentVolumeReclaimPolicy}"
     expect: {equals: "true Retain"}
-    explain: With real storage, the PV object is the only pointer to the data. Editing the object in place keeps that link.
+    explain: >-
+      With real storage, the PV object is the only pointer to the data. Editing the object in place keeps that link.

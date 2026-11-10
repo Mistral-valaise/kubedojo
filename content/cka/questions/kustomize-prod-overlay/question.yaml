@@ -26,9 +26,11 @@ checks:
   - id: renders
     title: The overlay renders and references the base
     type: exec
-    run: kubectl kustomize /opt/course/kustomize/overlays/prod >/dev/null && grep -Eq 'base' /opt/course/kustomize/overlays/prod/kustomization.yaml && echo ok
+    run: |-
+      kubectl kustomize /opt/course/kustomize/overlays/prod >/dev/null && grep -Eq 'base' /opt/course/kustomize/overlays/prod/kustomization.yaml && echo ok
     expect: {equals: ok}
-    explain: An overlay never copies manifests; it lists the base as a resource and describes only the differences.
+    explain: >-
+      An overlay never copies manifests; it lists the base as a resource and describes only the differences.
   - id: deployed
     title: Deployment prod-notifier runs 3 replicas in team-swift
     type: resource
@@ -36,16 +38,20 @@ checks:
     namespace: team-swift
     jsonpath: "{.spec.replicas}"
     expect: {equals: "3"}
-    explain: namePrefix and namespace rewrite every resource, replicas patches a named Deployment. `kubectl apply -k` renders and applies in one step.
+    explain: >-
+      namePrefix and namespace rewrite every resource, replicas patches a named Deployment. `kubectl apply -k` renders and applies in one step.
   - id: label
     title: Deployment and Service carry the label env=prod
     type: exec
-    run: kubectl -n team-swift get deploy/prod-notifier svc/prod-notifier -o jsonpath='{range .items[*]}{.metadata.labels.env}{" "}{end}' | xargs
+    run: |-
+      kubectl -n team-swift get deploy/prod-notifier svc/prod-notifier -o jsonpath='{range .items[*]}{.metadata.labels.env}{" "}{end}' | xargs
     expect: {equals: prod prod}
-    explain: The labels field adds labels to all resources of the overlay in one place.
+    explain: >-
+      The labels field adds labels to all resources of the overlay in one place.
   - id: base-untouched
     title: The base is unchanged
     type: exec
     run: "grep -c 'replicas: 1' /opt/course/kustomize/base/deployment.yaml"
     expect: {equals: "1"}
-    explain: The point of overlays is that the base stays environment-neutral and can be reused by dev, staging and prod.
+    explain: >-
+      The point of overlays is that the base stays environment-neutral and can be reused by dev, staging and prod.

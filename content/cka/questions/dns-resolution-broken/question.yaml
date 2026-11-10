@@ -22,15 +22,19 @@ checks:
   - id: corefile
     title: The Corefile serves the zone cluster.local
     type: exec
-    run: kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' | grep -E '^\s*kubernetes\s' | head -1 | xargs
+    run: |-
+      kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' | grep -E '^\s*kubernetes\s' | head -1 | xargs
     expect: {matches: "^kubernetes cluster\\.local "}
-    explain: The `kubernetes` plugin answers queries only for the zones listed on its line. With a wrong zone, queries for *.cluster.local fall through to the upstream resolver, which does not know them.
+    explain: >-
+      The `kubernetes` plugin answers queries only for the zones listed on its line. With a wrong zone, queries for *.cluster.local fall through to the upstream resolver, which does not know them.
   - id: resolves
     title: kubernetes.default.svc.cluster.local resolves
     type: exec
-    run: dig +short +time=2 +tries=1 @$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}') kubernetes.default.svc.cluster.local
+    run: |-
+      dig +short +time=2 +tries=1 @$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}') kubernetes.default.svc.cluster.local
     expect: {matches: "^\\d+\\.\\d+\\.\\d+\\.\\d+$"}
-    explain: This is the same query every Pod makes through /etc/resolv.conf. CoreDNS picks up ConfigMap changes through its `reload` plugin, which can take up to a minute.
+    explain: >-
+      This is the same query every Pod makes through /etc/resolv.conf. CoreDNS picks up ConfigMap changes through its `reload` plugin, which can take up to a minute.
   - id: coredns-up
     title: CoreDNS is available
     type: resource
@@ -38,4 +42,5 @@ checks:
     namespace: kube-system
     jsonpath: "{.status.availableReplicas}"
     expect: {gte: 1}
-    explain: A syntax error in the Corefile would make new CoreDNS Pods crash — after editing, make sure they are still healthy.
+    explain: >-
+      A syntax error in the Corefile would make new CoreDNS Pods crash — after editing, make sure they are still healthy.

@@ -1,0 +1,59 @@
+title: Roll back and roll forward safely
+domain: workloads-scheduling
+difficulty: medium
+minutes: 8
+environment: base
+tags: [deployment, rollout, strategy]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A colleague started a rollout of Deployment `gateway` in Namespace `team-dove` with an image that
+  does not exist. The rollout is stuck.
+
+  1. Roll the Deployment back to its previous, working revision.
+  2. Configure its rolling update strategy so that during future rollouts no Pod becomes unavailable
+     and at most one extra Pod is created.
+  3. Then update the image to `nginx:1.27-alpine` and make sure the rollout completes.
+
+  Do not delete the Deployment.
+hints:
+  - "`kubectl -n team-dove rollout history deployment gateway` and `kubectl -n team-dove rollout undo deployment gateway`."
+  - "The strategy fields are `spec.strategy.rollingUpdate.maxUnavailable` and `maxSurge` (`kubectl explain deploy.spec.strategy.rollingUpdate`)."
+  - "`kubectl -n team-dove set image deployment gateway nginx=nginx:1.27-alpine` and `kubectl -n team-dove rollout status deployment gateway`."
+checks:
+  - id: image
+    title: The Deployment runs nginx:1.27-alpine
+    type: resource
+    resource: deployment/gateway
+    namespace: team-dove
+    jsonpath: "{.spec.template.spec.containers[0].image}"
+    expect: {equals: "nginx:1.27-alpine"}
+    explain: >-
+      After the rollback the Deployment is on the old image; the task asks for a new, correct rollout on top.
+  - id: complete
+    title: The rollout is complete with 4 ready replicas
+    type: resource
+    resource: deployment/gateway
+    namespace: team-dove
+    jsonpath: "{.status.readyReplicas}/{.status.updatedReplicas}/{.status.replicas}"
+    expect: {equals: 4/4/4}
+    explain: >-
+      updatedReplicas == replicas means no Pod of an old revision is left; readyReplicas tells you they actually work.
+  - id: strategy
+    title: The strategy is maxUnavailable 0 and maxSurge 1
+    type: resource
+    resource: deployment/gateway
+    namespace: team-dove
+    jsonpath: "{.spec.strategy.type} {.spec.strategy.rollingUpdate.maxUnavailable} {.spec.strategy.rollingUpdate.maxSurge}"
+    expect: {equals: RollingUpdate 0 1}
+    explain: >-
+      maxUnavailable 0 keeps full capacity during a rollout; maxSurge 1 limits the extra Pods. A broken image then blocks the rollout without taking any capacity away.
+  - id: history
+    title: The Deployment kept its rollout history
+    type: resource
+    resource: deployment/gateway
+    namespace: team-dove
+    jsonpath: "{.metadata.annotations.deployment\\.kubernetes\\.io/revision}"
+    expect: {gte: 4}
+    explain: >-
+      Every change of the Pod template creates a revision; rollout undo creates a new one too. A recreated Deployment would start again at revision 1.

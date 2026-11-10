@@ -24,14 +24,16 @@ checks:
     resource: pv/archive-pv
     jsonpath: "{.spec.capacity.storage}"
     expect: {equals: 2Gi}
-    explain: PersistentVolumes are cluster scoped. The capacity is what claims are matched against.
+    explain: >-
+      PersistentVolumes are cluster scoped. The capacity is what claims are matched against.
   - id: pv-hostpath
     title: archive-pv uses hostPath /var/lib/archive
     type: resource
     resource: pv/archive-pv
     jsonpath: "{.spec.hostPath.path}"
     expect: {equals: /var/lib/archive}
-    explain: The volume source defines where data physically lives.
+    explain: >-
+      The volume source defines where data physically lives.
   - id: pvc-bound
     title: Claim archive-pvc is Bound to archive-pv
     type: resource
@@ -50,7 +52,8 @@ checks:
     namespace: team-heron
     jsonpath: "{.status.readyReplicas}"
     expect: {equals: "1"}
-    explain: The Pod only starts when its claim is bound and the volume can be mounted.
+    explain: >-
+      The Pod only starts when its claim is bound and the volume can be mounted.
   - id: mount
     title: The claim is mounted at /usr/local/apache2/htdocs
     type: exec
@@ -58,7 +61,8 @@ checks:
       kubectl -n team-heron get deploy archive
       -o jsonpath='{range .spec.template.spec.containers[*].volumeMounts[*]}{.mountPath}{"\n"}{end}'
     expect: {contains: [/usr/local/apache2/htdocs]}
-    explain: volumes declares the claim on Pod level, volumeMounts places it into the container's filesystem.
+    explain: >-
+      volumes declares the claim on Pod level, volumeMounts places it into the container's filesystem.
   - id: uses-claim
     title: The Deployment uses claim archive-pvc
     type: resource
@@ -66,4 +70,5 @@ checks:
     namespace: team-heron
     jsonpath: "{.spec.template.spec.volumes[*].persistentVolumeClaim.claimName}"
     expect: {equals: archive-pvc}
-    explain: The Pod must reference the claim — not the PV directly and not an emptyDir.
+    explain: >-
+      The Pod must reference the claim — not the PV directly and not an emptyDir.

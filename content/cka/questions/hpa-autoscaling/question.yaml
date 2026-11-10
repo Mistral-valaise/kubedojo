@@ -1,0 +1,58 @@
+title: Autoscale a Deployment
+domain: workloads-scheduling
+difficulty: medium
+minutes: 7
+environment: base
+tags: [hpa, autoscaling, resources]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `renderer` in Namespace `team-teal` must scale with its load.
+
+  1. Give its container a CPU request of `100m`.
+  2. Create a HorizontalPodAutoscaler named `renderer` for it: minimum `2`, maximum `6` replicas,
+     target average CPU utilization `60` percent.
+  3. To avoid flapping, the autoscaler must wait `60` seconds before it scales **down**.
+
+  There is no metrics-server in this cluster, so the autoscaler will not show current metrics. Only the
+  configuration is evaluated.
+hints:
+  - "`kubectl -n team-teal set resources deployment renderer --requests=cpu=100m` and `kubectl -n team-teal autoscale deployment renderer --min=2 --max=6 --cpu-percent=60`."
+  - "The scale-down delay is not available as a flag. Look at `kubectl explain hpa.spec.behavior.scaleDown`."
+  - "`spec.behavior.scaleDown.stabilizationWindowSeconds: 60`"
+checks:
+  - id: request
+    title: The container requests 100m CPU
+    type: resource
+    resource: deployment/renderer
+    namespace: team-teal
+    jsonpath: "{.spec.template.spec.containers[0].resources.requests.cpu}"
+    expect: {equals: 100m}
+    explain: >-
+      CPU utilization is measured relative to the request. Without a request the autoscaler cannot compute a percentage and reports "missing request for cpu".
+  - id: target
+    title: The HPA targets Deployment renderer with 2 to 6 replicas
+    type: resource
+    resource: hpa/renderer
+    namespace: team-teal
+    jsonpath: "{.spec.scaleTargetRef.kind}/{.spec.scaleTargetRef.name} {.spec.minReplicas} {.spec.maxReplicas}"
+    expect: {equals: Deployment/renderer 2 6}
+    explain: >-
+      scaleTargetRef names the object whose replica count the autoscaler owns from now on.
+  - id: metric
+    title: The target is 60% average CPU utilization
+    type: resource
+    resource: hpa/renderer
+    namespace: team-teal
+    jsonpath: "{.spec.metrics[0].resource.name} {.spec.metrics[0].resource.target.type} {.spec.metrics[0].resource.target.averageUtilization}"
+    expect: {equals: cpu Utilization 60}
+    explain: "In autoscaling/v2 metrics are a list; a resource metric of type Utilization compares usage with the Pods' requests."
+  - id: behavior
+    title: Scale-down waits 60 seconds
+    type: resource
+    resource: hpa/renderer
+    namespace: team-teal
+    jsonpath: "{.spec.behavior.scaleDown.stabilizationWindowSeconds}"
+    expect: {equals: "60"}
+    explain: >-
+      The stabilization window makes the autoscaler use the highest recommendation of the last N seconds, so short dips do not remove Pods. The default for scale-down is 300 seconds.

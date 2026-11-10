@@ -1,0 +1,47 @@
+title: At most one replica per node
+domain: workloads-scheduling
+difficulty: hard
+minutes: 9
+environment: base
+tags: [affinity, anti-affinity, topology-spread]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Create a Deployment named `ledger-sync` in Namespace `team-ruff` with `3` replicas of image
+  `nginx:1.27-alpine` and Pod label `app=ledger-sync`.
+
+  For licensing reasons **no two replicas may ever run on the same node**. The Deployment must only use
+  worker nodes.
+
+  The cluster has two worker nodes, so the expected result is: two replicas `Running` on different
+  nodes, one replica `Pending`. Do not use a DaemonSet.
+hints:
+  - "Two mechanisms can express this: `podAntiAffinity` or `topologySpreadConstraints`."
+  - "With anti-affinity: `requiredDuringSchedulingIgnoredDuringExecution` with a `labelSelector` matching the Deployment's own Pods and `topologyKey: kubernetes.io/hostname`."
+  - "`preferredDuringScheduling...` is only a wish — the scheduler would still put the third replica next to another one. It must be `required`."
+checks:
+  - id: replicas
+    title: The Deployment wants 3 replicas
+    type: resource
+    resource: deployment/ledger-sync
+    namespace: team-ruff
+    jsonpath: "{.spec.replicas}"
+    expect: {equals: "3"}
+    explain: >-
+      The desired count stays 3; the rule decides how many of them can actually be placed.
+  - id: spread
+    title: Two replicas run on two different worker nodes
+    type: exec
+    run: |-
+      kubectl -n team-ruff get pod -l app=ledger-sync --field-selector=status.phase=Running -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' | sort | uniq -c | awk '{n++; if ($1!=1 || $2 ~ /control-plane/) bad=1} END {print (n==2 && !bad) ? "ok" : "nodes=" n " bad=" bad}'
+    expect: {equals: ok}
+    explain: >-
+      topologyKey kubernetes.io/hostname makes "the same node" the forbidden domain. The control plane node stays excluded by its taint.
+  - id: pending
+    title: The third replica is Pending
+    type: exec
+    run: |-
+      kubectl -n team-ruff get pod -l app=ledger-sync --field-selector=status.phase=Pending --no-headers | wc -l | xargs
+    expect: {equals: "1"}
+    explain: >-
+      A required rule is a hard constraint. When no node satisfies it the Pod waits instead of violating the rule — a preferred rule would have scheduled it anyway.

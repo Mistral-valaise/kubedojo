@@ -22,13 +22,16 @@ checks:
     type: file
     path: /opt/course/join/join.sh
     expect: {matches: "kubeadm join \\S+:6443 --token [a-z0-9]{6}\\.[a-z0-9]{16} --discovery-token-ca-cert-hash sha256:[a-f0-9]{64}"}
-    explain: A worker needs the API endpoint, a bootstrap token to authenticate, and the hash of the cluster CA to verify it talks to the right cluster. --print-join-command assembles all three.
+    explain: >-
+      A worker needs the API endpoint, a bootstrap token to authenticate, and the hash of the cluster CA to verify it talks to the right cluster. --print-join-command assembles all three.
   - id: token-exists
     title: The token in the file exists in the cluster
     type: exec
-    run: id=$(grep -o -- '--token [a-z0-9]*' /opt/course/join/join.sh | cut -d' ' -f2); kubectl -n kube-system get secret bootstrap-token-$id -o name
+    run: |-
+      id=$(grep -o -- '--token [a-z0-9]*' /opt/course/join/join.sh | cut -d' ' -f2); kubectl -n kube-system get secret bootstrap-token-$id -o name
     expect: {matches: "^secret/bootstrap-token-"}
-    explain: Bootstrap tokens are Secrets of type bootstrap.kubernetes.io/token in kube-system. A token copied from documentation or an expired one would not let the node join.
+    explain: >-
+      Bootstrap tokens are Secrets of type bootstrap.kubernetes.io/token in kube-system. A token copied from documentation or an expired one would not let the node join.
   - id: ttl
     title: The token expires within 2 hours
     type: exec
@@ -37,4 +40,5 @@ checks:
       exp=$(kubectl -n kube-system get secret bootstrap-token-$id -o jsonpath='{.data.expiration}' | base64 -d);
       left=$(( $(date -d "$exp" +%s) - $(date +%s) )); [ $left -gt 0 ] && [ $left -le 7200 ] && echo ok
     expect: {equals: ok}
-    explain: The default lifetime is 24h. Short-lived tokens limit the window in which a leaked join command can be abused; --ttl sets it.
+    explain: >-
+      The default lifetime is 24h. Short-lived tokens limit the window in which a leaked join command can be abused; --ttl sets it.

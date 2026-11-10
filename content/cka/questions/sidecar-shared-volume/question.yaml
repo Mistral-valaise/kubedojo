@@ -1,0 +1,57 @@
+title: Sidecar with a shared volume
+domain: workloads-scheduling
+difficulty: hard
+minutes: 9
+environment: base
+tags: [sidecar, init-container, emptydir]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Create a Pod named `web-logger` in Namespace `team-tern`:
+
+  - Container `web`, image `nginx:1.27-alpine`. nginx writes its access log to the directory
+    `/var/log/nginx`.
+  - A **sidecar** named `log-tail`, image `busybox:1.36`, that runs
+    `tail -F /var/log/nginx/access.log` and thereby prints the access log to its own stdout.
+  - Both share the directory `/var/log/nginx` through a volume that lives as long as the Pod.
+
+  Define the sidecar as a native sidecar container: it must start **before** `web` and keep running for
+  the whole lifetime of the Pod.
+hints:
+  - "The shared volume is an `emptyDir`, mounted at `/var/log/nginx` in both containers."
+  - "A native sidecar is an entry in `initContainers` with `restartPolicy: Always`. Unlike a normal init container it is not expected to exit."
+  - "Test it: `kubectl -n team-tern exec web-logger -c web -- wget -qO- localhost >/dev/null` and then `kubectl -n team-tern logs web-logger -c log-tail`."
+checks:
+  - id: running
+    title: Pod web-logger is running with both containers ready
+    type: exec
+    run: |-
+      kubectl -n team-tern get pod web-logger -o jsonpath='{.status.phase} {.status.containerStatuses[?(@.name=="web")].ready} {.status.initContainerStatuses[?(@.name=="log-tail")].ready}'
+    expect: {equals: Running true true}
+    explain: >-
+      A sidecar defined under initContainers reports its state in initContainerStatuses and counts towards READY 2/2.
+  - id: native
+    title: log-tail is a native sidecar
+    type: resource
+    resource: pod/web-logger
+    namespace: team-tern
+    jsonpath: "{.spec.initContainers[?(@.name==\"log-tail\")].restartPolicy}"
+    expect: {equals: Always}
+    explain: >-
+      restartPolicy Always on an init container turns it into a sidecar — started before the main containers, restarted if it dies, and stopped after them. As a plain second container it would have no start-order guarantee.
+  - id: volume
+    title: Both containers share an emptyDir at /var/log/nginx
+    type: exec
+    run: |-
+      kubectl -n team-tern get pod web-logger -o json | jq -r '(.spec.volumes[] | select(.emptyDir != null) | .name) as $v | [(.spec.containers[] | select(.name=="web") | .volumeMounts[] | select(.name==$v and .mountPath=="/var/log/nginx")), (.spec.initContainers[] | select(.name=="log-tail") | .volumeMounts[] | select(.name==$v and .mountPath=="/var/log/nginx"))] | length'
+    expect: {equals: "2"}
+    explain: >-
+      Containers of a Pod have separate filesystems. An emptyDir mounted into both is the standard way to hand files from one to the other.
+  - id: works
+    title: Requests to nginx show up in the sidecar's log
+    type: exec
+    run: |-
+      kubectl -n team-tern exec web-logger -c web -- wget -qO- http://localhost/kubedojo-probe >/dev/null 2>&1; sleep 2; kubectl -n team-tern logs web-logger -c log-tail --tail=50 | grep -c kubedojo-probe
+    expect: {gte: 1}
+    explain: >-
+      This is the whole point of the pattern — the application keeps writing to a file, and the sidecar turns it into a log stream that `kubectl logs` and log collectors can read.

@@ -23,34 +23,45 @@ checks:
     type: resource
     resource: serviceaccount/pipeline
     namespace: team-orca
-    explain: Identities for workloads are ServiceAccounts. They are namespaced, so it must be created in team-orca.
+    explain: >-
+      Identities for workloads are ServiceAccounts. They are namespaced, so it must be created in team-orca.
   - id: can-create-deploy
     title: The ServiceAccount can create Deployments
     type: exec
-    run: kubectl -n team-orca auth can-i create deployments.apps --as system:serviceaccount:team-orca:pipeline
+    run: |-
+      kubectl -n team-orca auth can-i create deployments.apps --as system:serviceaccount:team-orca:pipeline
     expect: {equals: "yes"}
-    explain: Deployments belong to the API group "apps". A Role that names the resource without the right apiGroup grants nothing.
+    explain: >-
+      Deployments belong to the API group "apps". A Role that names the resource without the right apiGroup grants nothing.
   - id: can-list-cm
     title: The ServiceAccount can list ConfigMaps
     type: exec
-    run: kubectl -n team-orca auth can-i list configmaps --as system:serviceaccount:team-orca:pipeline
+    run: |-
+      kubectl -n team-orca auth can-i list configmaps --as system:serviceaccount:team-orca:pipeline
     expect: {equals: "yes"}
-    explain: ConfigMaps are in the core API group (apiGroups [""]).
+    explain: >-
+      ConfigMaps are in the core API group (apiGroups [""]).
   - id: cannot-delete
     title: The ServiceAccount cannot delete Deployments
     type: exec
-    run: kubectl -n team-orca auth can-i delete deployments.apps --as system:serviceaccount:team-orca:pipeline
+    run: |-
+      kubectl -n team-orca auth can-i delete deployments.apps --as system:serviceaccount:team-orca:pipeline
     expect: {equals: "no", exitCode: 1}
-    explain: Least privilege — only the verbs create and list were requested. Wildcards or extra verbs fail this check.
+    explain: >-
+      Least privilege — only the verbs create and list were requested. Wildcards or extra verbs fail this check.
   - id: cannot-secrets
     title: The ServiceAccount cannot list Secrets
     type: exec
-    run: kubectl -n team-orca auth can-i list secrets --as system:serviceaccount:team-orca:pipeline
+    run: |-
+      kubectl -n team-orca auth can-i list secrets --as system:serviceaccount:team-orca:pipeline
     expect: {equals: "no", exitCode: 1}
-    explain: Only deployments and configmaps were requested. Binding a broad ClusterRole such as edit would expose Secrets.
+    explain: >-
+      Only deployments and configmaps were requested. Binding a broad ClusterRole such as edit would expose Secrets.
   - id: namespaced
     title: Access is limited to team-orca
     type: exec
-    run: kubectl -n default auth can-i list configmaps --as system:serviceaccount:team-orca:pipeline
+    run: |-
+      kubectl -n default auth can-i list configmaps --as system:serviceaccount:team-orca:pipeline
     expect: {equals: "no", exitCode: 1}
-    explain: A RoleBinding grants access in its own Namespace only. A ClusterRoleBinding would grant it cluster-wide.
+    explain: >-
+      A RoleBinding grants access in its own Namespace only. A ClusterRoleBinding would grant it cluster-wide.

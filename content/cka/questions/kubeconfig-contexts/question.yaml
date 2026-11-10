@@ -33,6 +33,8 @@ checks:
   - id: cert
     title: lena.crt is lena's decoded certificate
     type: exec
-    run: openssl x509 -in /opt/course/kubeconfig/lena.crt -noout -subject | tr -d ' '
+    run: |-
+      openssl x509 -in /opt/course/kubeconfig/lena.crt -noout -subject | tr -d ' '
     expect: {contains: ["CN=lena"]}
-    explain: Certificates are embedded base64-encoded in *-data fields. Decoded, the file starts with -----BEGIN CERTIFICATE----- and openssl can read its subject. Users are matched by name, not by position in the list.
+    explain: >-
+      Certificates are embedded base64-encoded in *-data fields. Decoded, the file starts with -----BEGIN CERTIFICATE----- and openssl can read its subject. Users are matched by name, not by position in the list.

@@ -22,15 +22,19 @@ checks:
   - id: running
     title: The static Pod is running on the control plane node
     type: exec
-    run: kubectl -n default get pod sentinel-${KD_HOST}-control-plane -o jsonpath='{.status.phase}'
+    run: |-
+      kubectl -n default get pod sentinel-${KD_HOST}-control-plane -o jsonpath='{.status.phase}'
     expect: {equals: Running}
-    explain: The kubelet creates a read-only "mirror Pod" in the API for each static Pod and appends the node name to its name.
+    explain: >-
+      The kubelet creates a read-only "mirror Pod" in the API for each static Pod and appends the node name to its name.
   - id: static
     title: The Pod is defined by a manifest file, not through the API
     type: exec
-    run: kubectl -n default get pod sentinel-${KD_HOST}-control-plane -o jsonpath='{.metadata.annotations.kubernetes\.io/config\.source}'
+    run: |-
+      kubectl -n default get pod sentinel-${KD_HOST}-control-plane -o jsonpath='{.metadata.annotations.kubernetes\.io/config\.source}'
     expect: {equals: file}
-    explain: A Pod created with kubectl apply/run is scheduled by the scheduler and owned by the API server. A static Pod has config.source "file" and is recreated by the kubelet even if you delete it via kubectl.
+    explain: >-
+      A Pod created with kubectl apply/run is scheduled by the scheduler and owned by the API server. A static Pod has config.source "file" and is recreated by the kubelet even if you delete it via kubectl.
   - id: spec
     title: Image, requests and label are as requested
     type: exec
@@ -38,4 +42,5 @@ checks:
       kubectl -n default get pod sentinel-${KD_HOST}-control-plane
       -o jsonpath='{.spec.containers[0].image} {.spec.containers[0].resources.requests.cpu} {.spec.containers[0].resources.requests.memory} {.metadata.labels.role}'
     expect: {equals: "nginx:1.27-alpine 10m 20Mi sentinel"}
-    explain: To change a static Pod you edit its file; the kubelet notices and recreates the Pod.
+    explain: >-
+      To change a static Pod you edit its file; the kubelet notices and recreates the Pod.

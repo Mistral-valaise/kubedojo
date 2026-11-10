@@ -1,0 +1,54 @@
+title: Expose a Deployment
+domain: services-networking
+difficulty: easy
+minutes: 5
+environment: base
+tags: [service, nodeport]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `catalog` in Namespace `team-gull` serves HTTP on container port `80`.
+
+  1. Create a Service named `catalog` of type `ClusterIP` that listens on port `8080` and forwards to the
+     Pods' port `80`.
+  2. Create a second Service named `catalog-external` of type `NodePort` that listens on port `80` and is
+     reachable on every node on port `30080`.
+hints:
+  - "`kubectl -n team-gull expose deployment catalog -h` — look at `--name`, `--port`, `--target-port` and `--type`."
+  - "`kubectl expose` cannot set a fixed nodePort. Generate YAML with `$do`, add `nodePort: 30080` under `ports`, then apply."
+  - "Test from the node: `curl -s <node-ip>:30080` (node IPs: `kubectl get nodes -o wide`)."
+checks:
+  - id: clusterip
+    title: Service catalog maps port 8080 to targetPort 80
+    type: resource
+    resource: service/catalog
+    namespace: team-gull
+    jsonpath: "{.spec.type} {.spec.ports[0].port} {.spec.ports[0].targetPort}"
+    expect: {equals: ClusterIP 8080 80}
+    explain: >-
+      port is what clients inside the cluster connect to, targetPort is the container port. They are independent.
+  - id: endpoints
+    title: Service catalog has endpoints
+    type: exec
+    run: |-
+      kubectl -n team-gull get endpointslices -l kubernetes.io/service-name=catalog -o jsonpath='{range .items[*].endpoints[*]}{.addresses[0]}{"\n"}{end}' | grep -c .
+    expect: {equals: "2"}
+    explain: >-
+      The Service must select the Deployment's Pods by their label (app=catalog). kubectl expose copies the selector from the Deployment.
+  - id: nodeport
+    title: Service catalog-external uses nodePort 30080
+    type: resource
+    resource: service/catalog-external
+    namespace: team-gull
+    jsonpath: "{.spec.type} {.spec.ports[0].port} {.spec.ports[0].nodePort}"
+    expect: {equals: NodePort 80 30080}
+    explain: >-
+      Without an explicit nodePort Kubernetes picks a random port from 30000-32767.
+  - id: reachable
+    title: The application answers on node port 30080
+    type: exec
+    run: |-
+      curl -s -m 4 "$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}'):30080" | grep -q 'Welcome to nginx' && echo reachable
+    expect: {equals: reachable}
+    explain: >-
+      kube-proxy opens the node port on every node, also on nodes that run none of the Pods.

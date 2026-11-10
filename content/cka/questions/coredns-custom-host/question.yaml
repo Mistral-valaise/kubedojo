@@ -1,0 +1,47 @@
+title: Add a custom DNS record to CoreDNS
+domain: services-networking
+difficulty: hard
+minutes: 9
+environment: base
+tags: [coredns, dns, configmap]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A legacy database outside the cluster has no DNS entry. All Pods in the cluster must be able to
+  resolve the name `legacy-db.corp.internal` to the IP address `10.20.30.40`.
+
+  1. Save a backup of the current CoreDNS configuration (the Corefile) to
+     `/opt/course/dns/Corefile.bak` on `{{host}}` before you change anything.
+  2. Extend the CoreDNS configuration so that `legacy-db.corp.internal` resolves to `10.20.30.40`.
+     Cluster-internal and external names must keep working.
+
+  CoreDNS reloads a changed configuration by itself within about a minute.
+hints:
+  - "The configuration is the key `Corefile` of ConfigMap `coredns` in `kube-system`. Backup: `kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' > /opt/course/dns/Corefile.bak`."
+  - "The CoreDNS plugin `hosts` serves static records, in the syntax of /etc/hosts. Add a `hosts { ... }` block inside the `.:53 { }` server block."
+  - "The block must contain `fallthrough`, otherwise CoreDNS answers *only* from the hosts list and every other name stops resolving: `hosts { 10.20.30.40 legacy-db.corp.internal; fallthrough }` (use line breaks instead of `;`)."
+checks:
+  - id: backup
+    title: The backup contains the original Corefile
+    type: exec
+    run: |-
+      grep -q 'kubernetes cluster.local' /opt/course/dns/Corefile.bak && ! grep -q 'legacy-db' /opt/course/dns/Corefile.bak && echo ok
+    expect: {equals: ok}
+    explain: >-
+      A broken Corefile takes down name resolution for the whole cluster. A backup taken before the change is the fastest way back.
+  - id: custom
+    title: legacy-db.corp.internal resolves to 10.20.30.40
+    type: exec
+    run: |-
+      dig +short +time=2 +tries=1 @$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}') legacy-db.corp.internal
+    expect: {equals: 10.20.30.40}
+    explain: >-
+      The hosts plugin answers static records from inside CoreDNS, so every Pod sees them without changes to the Pods.
+  - id: cluster
+    title: Cluster-internal names still resolve
+    type: exec
+    run: |-
+      dig +short +time=2 +tries=1 @$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}') kubernetes.default.svc.cluster.local
+    expect: {matches: "^\\d+\\.\\d+\\.\\d+\\.\\d+$"}
+    explain: >-
+      Without `fallthrough` in the hosts block, queries that are not in the list get NXDOMAIN instead of being passed on to the kubernetes and forward plugins.

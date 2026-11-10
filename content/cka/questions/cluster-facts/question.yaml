@@ -25,13 +25,15 @@ checks:
     type: exec
     run: '[ "$(cat /opt/course/facts/service-cidr)" = "$(grep -o -- "--service-cluster-ip-range=[^ ]*" /etc/kubernetes/manifests/kube-apiserver.yaml | cut -d= -f2)" ] && echo ok'
     expect: {equals: ok}
-    explain: The API server allocates ClusterIPs, so the range is its flag --service-cluster-ip-range.
+    explain: >-
+      The API server allocates ClusterIPs, so the range is its flag --service-cluster-ip-range.
   - id: pod-cidr
     title: The Pod CIDR is correct
     type: exec
     run: '[ "$(cat /opt/course/facts/pod-cidr)" = "$(grep -o -- "--cluster-cidr=[^ ]*" /etc/kubernetes/manifests/kube-controller-manager.yaml | cut -d= -f2)" ] && echo ok'
     expect: {equals: ok}
-    explain: The controller manager hands each node a slice of --cluster-cidr (see `kubectl get node -o jsonpath='{.spec.podCIDR}'`); the CNI plugin assigns Pod IPs from that slice.
+    explain: >-
+      The controller manager hands each node a slice of --cluster-cidr (see `kubectl get node -o jsonpath='{.spec.podCIDR}'`); the CNI plugin assigns Pod IPs from that slice.
   - id: authz
     title: The authorization modes are correct
     type: exec
@@ -43,4 +45,5 @@ checks:
     type: exec
     run: '[ "$(cat /opt/course/facts/cni-config)" = "$(ls /etc/cni/net.d/ | head -1)" ] && echo ok'
     expect: {equals: ok}
-    explain: The container runtime reads the first file in /etc/cni/net.d to decide which CNI plugin wires up Pod networking.
+    explain: >-
+      The container runtime reads the first file in /etc/cni/net.d to decide which CNI plugin wires up Pod networking.

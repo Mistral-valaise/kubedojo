@@ -24,15 +24,19 @@ checks:
   - id: frontend-ok
     title: frontend reaches the backend
     type: exec
-    run: kubectl -n team-crane exec deploy/frontend -- wget -qO- -T 4 http://backend 2>/dev/null | grep -q 'Welcome to nginx' && echo reachable
+    run: |-
+      kubectl -n team-crane exec deploy/frontend -- wget -qO- -T 4 http://backend 2>/dev/null | grep -q 'Welcome to nginx' && echo reachable
     expect: {equals: reachable}
-    explain: The policy's podSelector under `from` must match the labels of the calling Pods, and `ports` must list the port the destination Pods listen on.
+    explain: >-
+      The policy's podSelector under `from` must match the labels of the calling Pods, and `ports` must list the port the destination Pods listen on.
   - id: intruder-blocked
     title: Other Pods are still blocked
     type: exec
-    run: kubectl -n team-crane exec deploy/intruder -- wget -qO- -T 4 http://backend >/dev/null 2>&1 && echo reachable || echo blocked
+    run: |-
+      kubectl -n team-crane exec deploy/intruder -- wget -qO- -T 4 http://backend >/dev/null 2>&1 && echo reachable || echo blocked
     expect: {equals: blocked}
-    explain: Deleting the policy, or allowing an empty podSelector, would open the backend to every Pod. The fix must stay as narrow as intended.
+    explain: >-
+      Deleting the policy, or allowing an empty podSelector, would open the backend to every Pod. The fix must stay as narrow as intended.
   - id: policy-kept
     title: NetworkPolicy backend-allow still protects app=backend
     type: resource
@@ -40,4 +44,5 @@ checks:
     namespace: team-crane
     jsonpath: "{.spec.podSelector.matchLabels.app}"
     expect: {equals: backend}
-    explain: spec.podSelector selects the Pods the policy protects — that part was correct.
+    explain: >-
+      spec.podSelector selects the Pods the policy protects — that part was correct.

@@ -1,0 +1,57 @@
+title: Restrict access to a database
+domain: services-networking
+difficulty: hard
+minutes: 9
+environment: base
+tags: [networkpolicy, namespaceSelector]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  In Namespace `team-ibex` every Pod can currently connect to the database Pods (label `app=db`,
+  TCP port `5432`).
+
+  Create a NetworkPolicy named `db-access` in Namespace `team-ibex` so that the `db` Pods accept
+  connections on port `5432` only from:
+
+  - Pods labeled `app=api` in Namespace `team-ibex`
+  - any Pod in Namespace `team-ibex-monitoring`
+
+  All other incoming traffic to the `db` Pods must be blocked. Do not restrict any other Pods.
+hints:
+  - "`spec.podSelector` selects the Pods the policy protects (the db). `ingress[].from` lists who may connect."
+  - "Namespaces are selected by label. Every Namespace automatically has the label `kubernetes.io/metadata.name: <name>`."
+  - "The two sources are alternatives: write them as **two separate list items** under `from`. A `podSelector` and a `namespaceSelector` in the same item would mean *both must match*."
+checks:
+  - id: api-allowed
+    title: api Pods can connect to the database
+    type: exec
+    run: |-
+      kubectl -n team-ibex exec deploy/api -- nc -z -w 3 db 5432 && echo open || echo blocked
+    expect: {equals: open}
+    explain: >-
+      A podSelector without namespaceSelector matches Pods in the policy's own Namespace.
+  - id: monitoring-allowed
+    title: Pods in team-ibex-monitoring can connect
+    type: exec
+    run: |-
+      kubectl -n team-ibex-monitoring exec deploy/probe -- nc -z -w 3 db.team-ibex 5432 && echo open || echo blocked
+    expect: {equals: open}
+    explain: >-
+      Other Namespaces are matched with a namespaceSelector, usually on the automatic label kubernetes.io/metadata.name.
+  - id: web-blocked
+    title: Other Pods in team-ibex are blocked
+    type: exec
+    run: |-
+      kubectl -n team-ibex exec deploy/web -- nc -z -w 3 db 5432 && echo open || echo blocked
+    expect: {equals: blocked}
+    explain: >-
+      As soon as a policy selects a Pod for Ingress, everything not explicitly allowed is denied. If web still connects, the policy does not select the db Pods or allows too much.
+  - id: scope
+    title: The policy selects only the db Pods
+    type: resource
+    resource: networkpolicy/db-access
+    namespace: team-ibex
+    jsonpath: "{.spec.podSelector.matchLabels.app}"
+    expect: {equals: db}
+    explain: >-
+      An empty podSelector would apply the rules to every Pod in the Namespace and break traffic to api and web.

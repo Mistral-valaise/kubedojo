@@ -1,0 +1,56 @@
+title: Inject configuration into a Deployment
+domain: workloads-scheduling
+difficulty: medium
+minutes: 8
+environment: base
+tags: [configmap, secret, env, volume]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `app` in Namespace `team-lark` needs configuration.
+
+  1. Create a ConfigMap `app-config` with the key `LOG_LEVEL` = `debug` and a key `app.properties`
+     whose content is the single line `mode=production`.
+  2. Create a Secret `app-secret` with the key `DB_PASSWORD` = `s3cr3t-lark`.
+  3. Change the Deployment `app` so that its container gets:
+     - the environment variable `LOG_LEVEL` from the ConfigMap key `LOG_LEVEL`
+     - all keys of the Secret as environment variables
+     - the ConfigMap key `app.properties` as the file `/etc/app/app.properties`
+hints:
+  - "`kubectl create configmap ... --from-literal=key=value` can be repeated; `kubectl create secret generic ... --from-literal=...` works the same way."
+  - "Single key → `env[].valueFrom.configMapKeyRef`. All keys → `envFrom[].secretRef`. Files → a `configMap` volume plus `volumeMounts`."
+  - "Mounting the whole ConfigMap at `/etc/app` would also create a file `LOG_LEVEL`. Select keys with `volumes[].configMap.items` (`key: app.properties`, `path: app.properties`)."
+checks:
+  - id: env-cm
+    title: LOG_LEVEL is set from the ConfigMap
+    type: exec
+    run: |-
+      kubectl -n team-lark get deploy app -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="LOG_LEVEL")].valueFrom.configMapKeyRef.name}'; echo " $(kubectl -n team-lark exec deploy/app -- sh -c 'echo $LOG_LEVEL')"
+    expect: {equals: app-config debug}
+    explain: >-
+      valueFrom.configMapKeyRef references one key. A literal `value: debug` in the Deployment would work once, but changes to the ConfigMap would never reach the Pods.
+  - id: env-secret
+    title: The Secret's keys are environment variables
+    type: exec
+    run: |-
+      kubectl -n team-lark get deploy app -o jsonpath='{.spec.template.spec.containers[0].envFrom[*].secretRef.name}'; echo " $(kubectl -n team-lark exec deploy/app -- sh -c 'echo $DB_PASSWORD')"
+    expect: {equals: app-secret s3cr3t-lark}
+    explain: >-
+      envFrom imports every key of a Secret or ConfigMap as a variable, without listing them one by one.
+  - id: file
+    title: /etc/app/app.properties contains the ConfigMap key
+    type: exec
+    run: |-
+      kubectl -n team-lark exec deploy/app -- cat /etc/app/app.properties
+    expect: {equals: mode=production}
+    explain: >-
+      A configMap volume turns keys into files. The mount path is a directory; each key (or each entry of items) becomes a file in it.
+  - id: secret-kind
+    title: DB_PASSWORD is stored in a Secret
+    type: resource
+    resource: secret/app-secret
+    namespace: team-lark
+    jsonpath: "{.data.DB_PASSWORD}"
+    expect: {equals: czNjcjN0LWxhcms=}
+    explain: >-
+      Credentials belong into Secrets — they can be protected separately by RBAC and encrypted at rest. The value is stored base64-encoded.

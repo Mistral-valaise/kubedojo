@@ -1,0 +1,44 @@
+title: Alias a Service from another Namespace
+domain: services-networking
+difficulty: easy
+minutes: 5
+environment: base
+tags: [service, externalname, dns]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Applications in Namespace `team-quail-dev` are configured to call the host name `billing`.
+  The real billing Service runs in Namespace `team-quail-prod` (Service `billing`).
+
+  Without changing the applications, make the name `billing` inside Namespace `team-quail-dev` point to
+  the billing Service in `team-quail-prod`.
+
+  Then write the fully qualified domain name of the Service in `team-quail-prod` to
+  `/opt/course/quail/fqdn` on `{{host}}`.
+hints:
+  - "A Service of type `ExternalName` is a DNS alias (CNAME): it has no selector and no ClusterIP."
+  - "`kubectl -n team-quail-dev create service externalname billing --external-name <target-fqdn>`"
+  - "The target is `billing.team-quail-prod.svc.cluster.local`."
+checks:
+  - id: type
+    title: Service billing in team-quail-dev is an ExternalName Service
+    type: resource
+    resource: service/billing
+    namespace: team-quail-dev
+    jsonpath: "{.spec.type} {.spec.externalName}"
+    expect: {matches: "^ExternalName billing\\.team-quail-prod\\.svc\\.cluster\\.local\\.?$"}
+    explain: >-
+      A short name like "billing" is resolved in the caller's own Namespace first. An ExternalName Service there returns a CNAME to any other DNS name — here a Service in another Namespace.
+  - id: resolves
+    title: billing.team-quail-dev resolves to the prod Service's ClusterIP
+    type: exec
+    run: '[ "$(dig +short +time=2 +tries=1 @$(kubectl -n kube-system get svc kube-dns -o jsonpath={.spec.clusterIP}) billing.team-quail-dev.svc.cluster.local | tail -1)" = "$(kubectl -n team-quail-prod get svc billing -o jsonpath={.spec.clusterIP})" ] && echo ok'
+    expect: {equals: ok}
+    explain: >-
+      The alias must use the full name of the target. A typo in the Namespace or domain produces a CNAME that leads nowhere.
+  - id: fqdn
+    title: The FQDN of the prod Service is written down
+    type: file
+    path: /opt/course/quail/fqdn
+    expect: {matches: "^billing\\.team-quail-prod\\.svc\\.cluster\\.local\\.?$"}
+    explain: "Service DNS names follow the pattern service.namespace.svc.cluster-domain."

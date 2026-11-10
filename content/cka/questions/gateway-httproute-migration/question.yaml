@@ -1,0 +1,62 @@
+title: Migrate an Ingress to the Gateway API
+domain: services-networking
+difficulty: hard
+minutes: 9
+environment: base
+tags: [gateway-api, httproute, ingress]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The platform team is replacing Ingress with the Gateway API. Gateway `main` already exists in
+  Namespace `team-plover`.
+
+  1. Create an HTTPRoute named `portal` in Namespace `team-plover` that is attached to Gateway `main`
+     and replicates all routes of the existing Ingress `portal`.
+  2. Delete the Ingress `portal` afterwards.
+hints:
+  - "Read the source first: `kubectl -n team-plover get ingress portal -o yaml`. Then `kubectl explain httproute.spec` (and `.rules`, `.rules.matches`, `.rules.backendRefs`)."
+  - "Mapping: Ingress `host` → `spec.hostnames`, `path` → `rules[].matches[].path` (`type: PathPrefix`, `value`), backend service → `rules[].backendRefs[]` (`name`, `port`). The Gateway is referenced under `spec.parentRefs`."
+  - "The Ingress has two paths, so the HTTPRoute needs two rules: `/docs` → `portal-docs:8080` and `/` → `portal-web:80`."
+checks:
+  - id: parent
+    title: HTTPRoute portal is attached to Gateway main
+    type: resource
+    resource: httproute.gateway.networking.k8s.io/portal
+    namespace: team-plover
+    jsonpath: "{.spec.parentRefs[0].name}"
+    expect: {equals: main}
+    explain: >-
+      A route does nothing on its own. parentRefs attaches it to a Gateway, whose listeners define ports, protocols and TLS.
+  - id: hostname
+    title: The route serves host portal.plover.example
+    type: resource
+    resource: httproute.gateway.networking.k8s.io/portal
+    namespace: team-plover
+    jsonpath: "{.spec.hostnames[0]}"
+    expect: {equals: portal.plover.example}
+    explain: >-
+      The Ingress rule's host becomes an entry in spec.hostnames.
+  - id: docs
+    title: /docs is routed to portal-docs:8080
+    type: exec
+    run: |-
+      kubectl -n team-plover get httproute portal -o json | jq -r '[.spec.rules[] | select(any(.matches[]?; .path.value=="/docs" and (.path.type // "PathPrefix")=="PathPrefix")) | .backendRefs[] | "\(.name):\(.port)"] | join(",")'
+    expect: {equals: "portal-docs:8080"}
+    explain: >-
+      Each Ingress path becomes a rule with a path match and backendRefs pointing to Service name and port.
+  - id: root
+    title: / is routed to portal-web:80
+    type: exec
+    run: |-
+      kubectl -n team-plover get httproute portal -o json | jq -r '[.spec.rules[] | select((.matches == null) or any(.matches[]?; .path.value=="/" and (.path.type // "PathPrefix")=="PathPrefix")) | .backendRefs[] | "\(.name):\(.port)"] | join(",")'
+    expect: {equals: "portal-web:80"}
+    explain: >-
+      A rule without matches, or with PathPrefix "/", catches everything not matched by a more specific rule.
+  - id: ingress-gone
+    title: Ingress portal is deleted
+    type: resource
+    resource: ingress/portal
+    namespace: team-plover
+    absent: true
+    explain: >-
+      After a migration the old object is removed so that there is exactly one source of truth for routing.
