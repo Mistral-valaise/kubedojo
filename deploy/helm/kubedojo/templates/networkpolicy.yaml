@@ -1,0 +1,34 @@
+{{- if .Values.sandbox.networkPolicy.enabled }}
+# Sandbox Pods expose an unauthenticated Docker daemon. Nothing but the
+# kubedojo server may connect to them, and they may not reach the cluster's
+# own Pods or API server (the internet stays open for image pulls).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kubedojo.name" . }}-sandbox
+  labels: {{- include "kubedojo.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kubedojo
+      app.kubernetes.io/component: sandbox
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {{- include "kubedojo.selector" . | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 2375}
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10]
+{{- end }}

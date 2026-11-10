@@ -1,0 +1,8 @@
+apiVersion: v2
+name: kubedojo
+description: Hands-on Kubernetes exam training (CKA, CKS) with real clusters and a browser terminal
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/kubedojo/kubedojo
+keywords: [kubernetes, training, cka, cks, exam]

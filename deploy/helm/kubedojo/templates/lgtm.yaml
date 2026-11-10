@@ -1,0 +1,67 @@
+{{- if .Values.lgtm.enabled }}
+{{- $name := printf "%s-lgtm" (include "kubedojo.name" .) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: {{- include "kubedojo.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: kubedojo-lgtm, app.kubernetes.io/instance: {{ .Release.Name }}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: kubedojo-lgtm, app.kubernetes.io/instance: {{ .Release.Name }}}
+    spec:
+      containers:
+        - name: lgtm
+          image: {{ .Values.lgtm.image }}
+          ports:
+            - {name: grafana, containerPort: 3000}
+            - {name: otlp-grpc, containerPort: 4317}
+            - {name: otlp-http, containerPort: 4318}
+          readinessProbe:
+            exec: {command: [cat, /tmp/ready]}
+            periodSeconds: 5
+            failureThreshold: 60
+          resources: {{- toYaml .Values.lgtm.resources | nindent 12 }}
+          volumeMounts:
+            - {name: dashboards, mountPath: /otel-lgtm/kubedojo-dashboards}
+            - {name: provisioning, mountPath: /otel-lgtm/grafana/conf/provisioning/dashboards/kubedojo.yaml, subPath: kubedojo.yaml}
+      volumes:
+        - name: provisioning
+          configMap: {name: {{ $name }}-provisioning}
+        - name: dashboards
+          projected:
+            sources:
+              {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+              - configMap: {name: {{ include "kubedojo.name" $ }}-dashboard-{{ base $path | trimSuffix ".json" }}}
+              {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-provisioning
+  labels: {{- include "kubedojo.labels" . | nindent 4 }}
+data:
+  kubedojo.yaml: |
+    apiVersion: 1
+    providers:
+      - name: kubedojo
+        folder: kubedojo
+        type: file
+        options:
+          path: /otel-lgtm/kubedojo-dashboards
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels: {{- include "kubedojo.labels" . | nindent 4 }}
+spec:
+  selector: {app.kubernetes.io/name: kubedojo-lgtm, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports:
+    - {name: grafana, port: 3000}
+    - {name: otlp-grpc, port: 4317}
+    - {name: otlp-http, port: 4318}
+{{- end }}

@@ -1,0 +1,155 @@
+{{- $name := include "kubedojo.name" . -}}
+{{- $tag := default .Chart.AppVersion .Values.image.tag -}}
+{{- $k8s := .Values.sandbox.kubernetesVersion -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: {{- include "kubedojo.labels" . | nindent 4 }}
+spec:
+  # Sessions and the SQLite database live in this one Pod.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {{- include "kubedojo.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "kubedojo.selector" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $name }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: kubedojo
+          image: "{{ .Values.image.repository }}:{{ $tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - serve
+            - --max-sessions={{ .Values.maxSessions }}
+            - --idle-ttl={{ .Values.idleTTL }}
+            - --sandbox-host=kubernetes
+            - --kubernetes-version={{ $k8s }}
+            {{- if .Values.oidc.enabled }}
+            - --addr=127.0.0.1:4400
+            - --user-header=X-Forwarded-Email
+            {{- end }}
+          env:
+            - name: HOME
+              value: /tmp
+            - name: KUBEDOJO_SANDBOX_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: KUBEDOJO_SANDBOX_IMAGE
+              value: "{{ .Values.sandbox.image.repository }}:{{ default .Chart.AppVersion .Values.sandbox.image.tag }}"
+            - name: KUBEDOJO_NODE_IMAGE
+              value: {{ default (printf "kubedojo/node:%s" $k8s) .Values.sandbox.nodeImage | quote }}
+            - name: KUBEDOJO_TERMINAL_IMAGE
+              value: {{ default (printf "kubedojo/terminal:%s" $k8s) .Values.sandbox.terminalImage | quote }}
+            - name: KUBEDOJO_SANDBOX_CPU_REQUEST
+              value: {{ .Values.sandbox.resources.cpuRequest | quote }}
+            - name: KUBEDOJO_SANDBOX_MEMORY_REQUEST
+              value: {{ .Values.sandbox.resources.memoryRequest | quote }}
+            - name: KUBEDOJO_SANDBOX_MEMORY_LIMIT
+              value: {{ .Values.sandbox.resources.memoryLimit | quote }}
+            {{- if .Values.sandbox.nodeSelector }}
+            - name: KUBEDOJO_SANDBOX_NODE_SELECTOR
+              value: {{ $sel := list }}{{ range $k, $v := .Values.sandbox.nodeSelector }}{{ $sel = append $sel (printf "%s=%s" $k $v) }}{{ end }}{{ join "," $sel | quote }}
+            {{- end }}
+            {{- if .Values.sandbox.tolerationKey }}
+            - name: KUBEDOJO_SANDBOX_TOLERATION
+              value: {{ .Values.sandbox.tolerationKey | quote }}
+            {{- end }}
+            {{- with (first (default (list (dict "name" "")) .Values.imagePullSecrets)) }}{{ if .name }}
+            - name: KUBEDOJO_SANDBOX_PULL_SECRET
+              value: {{ .name | quote }}
+            {{- end }}{{ end }}
+            {{- if .Values.tutor.existingSecret }}
+            - name: ANTHROPIC_API_KEY
+              valueFrom: {secretKeyRef: {name: {{ .Values.tutor.existingSecret }}, key: api-key}}
+            {{- if .Values.tutor.model }}
+            - name: KUBEDOJO_TUTOR_MODEL
+              value: {{ .Values.tutor.model | quote }}
+            {{- end }}
+            {{- end }}
+            {{- with (include "kubedojo.otlpEndpoint" .) }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ . | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: kubedojo
+            - name: K8S_POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: K8S_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace={{ $.Release.Namespace }},k8s.namespace.name=$(K8S_NAMESPACE),k8s.pod.name=$(K8S_POD_NAME){{ range $k, $v := $.Values.telemetry.resourceAttributes }},{{ $k }}={{ $v }}{{ end }}"
+            {{- end }}
+          ports:
+            - {name: http, containerPort: 4400}
+          {{- if not .Values.oidc.enabled }}
+          readinessProbe:
+            httpGet: {path: /api/health, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /api/health, port: http}
+            periodSeconds: 20
+            failureThreshold: 5
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+        {{- if .Values.oidc.enabled }}
+        - name: oauth2-proxy
+          image: {{ .Values.oidc.image }}
+          args:
+            - --provider=oidc
+            - --oidc-issuer-url={{ required "oidc.issuerURL is required" .Values.oidc.issuerURL }}
+            - --client-id={{ required "oidc.clientID is required" .Values.oidc.clientID }}
+            - --http-address=0.0.0.0:4180
+            - --upstream=http://127.0.0.1:4400
+            - --reverse-proxy=true
+            - --pass-user-headers=true
+            - --skip-provider-button=true
+            - --cookie-secure=true
+            {{- range .Values.oidc.emailDomains }}
+            - --email-domain={{ . }}
+            {{- end }}
+            {{- range .Values.oidc.extraArgs }}
+            - {{ . }}
+            {{- end }}
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: {{ required "oidc.existingSecret is required" .Values.oidc.existingSecret }}, key: client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: {{ .Values.oidc.existingSecret }}, key: cookie-secret}}
+          ports:
+            - {name: proxy, containerPort: 4180}
+          readinessProbe:
+            httpGet: {path: /ping, port: proxy}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 128Mi}
+        {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim: {claimName: {{ $name }}}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

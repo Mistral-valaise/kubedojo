@@ -2,7 +2,7 @@ K8S_VERSION ?= v1.36.1
 VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS     := -s -w -X main.version=$(VERSION)
 
-.PHONY: all build web images test lint content-test dev clean
+.PHONY: all build go web images server-image sandbox-host test lint content-test dev clean
 
 all: build
 
@@ -18,6 +18,14 @@ go: ## build the binary without rebuilding the UI
 images: ## build the sandbox images
 	docker build -t kubedojo/node:$(K8S_VERSION) --build-arg K8S_VERSION=$(K8S_VERSION) images/node
 	docker build -t kubedojo/terminal:$(K8S_VERSION) --build-arg K8S_VERSION=$(K8S_VERSION) images/terminal
+
+server-image: ## build the server image for hosted mode
+	docker build -t kubedojo/server:$(VERSION) --build-arg VERSION=$(VERSION) .
+
+sandbox-host: images ## build the Docker-in-Docker sandbox host image (hosted mode)
+	docker save -o images/sandbox-host/node.tar kubedojo/node:$(K8S_VERSION)
+	docker save -o images/sandbox-host/terminal.tar kubedojo/terminal:$(K8S_VERSION)
+	docker build -t kubedojo/sandbox-host:$(VERSION) images/sandbox-host
 
 test: ## unit tests
 	go test ./...

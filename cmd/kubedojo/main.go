@@ -24,6 +24,7 @@ import (
 	"github.com/kubedojo/kubedojo/internal/sandbox"
 	"github.com/kubedojo/kubedojo/internal/session"
 	"github.com/kubedojo/kubedojo/internal/store"
+	"github.com/kubedojo/kubedojo/internal/telemetry"
 	"github.com/kubedojo/kubedojo/internal/webui"
 )
 
@@ -104,6 +105,13 @@ func env(key, def string) string {
 	return def
 }
 
+func envDuration(key string, def time.Duration) time.Duration {
+	if d, err := time.ParseDuration(os.Getenv(key)); err == nil {
+		return d
+	}
+	return def
+}
+
 func (c *common) register(fs *flag.FlagSet) {
 	home, _ := os.UserHomeDir()
 	fs.StringVar(&c.contentDir, "content", env("KUBEDOJO_CONTENT", ""), "load content from this directory instead of the built-in content")
@@ -146,6 +154,8 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 	maxSessions := fl.Int("max-sessions", 3, "maximum number of live sessions")
 	userHeader := fl.String("user-header", env("KUBEDOJO_USER_HEADER", ""), "trusted header carrying the user name (behind an OIDC proxy)")
 	hosts := fl.String("sandbox-host", env("KUBEDOJO_SANDBOX_HOST", "local"), "where sandboxes run: local | kubernetes")
+	idleTTL := fl.Duration("idle-ttl", envDuration("KUBEDOJO_IDLE_TTL", 0), "remove sandboxes that were not used for this long (0 = never)")
+	observability := fl.Bool("observability", false, "start a local Grafana LGTM stack and send traces, metrics and logs to it")
 	devOrigin := fl.String("dev-origin", env("KUBEDOJO_DEV_ORIGIN", ""), "extra allowed WebSocket origin (UI dev server)")
 	if err := fl.Parse(args); err != nil {
 		return err
@@ -155,11 +165,20 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 		log = slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	}
 
-	shutdownTelemetry, hooks, onTerminal, log, err := setupTelemetry(ctx, log)
-	if err != nil {
-		return err
+	if *observability {
+		if err := startObservability(ctx, c.dataDir); err != nil {
+			return fmt.Errorf("observability: %w", err)
+		}
 	}
-	defer shutdownTelemetry()
+	tel, err := telemetry.Setup(ctx, version, log)
+	if err != nil {
+		return fmt.Errorf("telemetry: %w", err)
+	}
+	defer tel.Shutdown()
+	log = tel.Logger
+	if tel.Enabled {
+		log.Info("telemetry enabled", "endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	}
 
 	cat, err := catalog.Load(c.contentFS())
 	if err != nil {
@@ -180,19 +199,19 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 	}
 	defer st.Close()
 
-	hp, err := hostProvider(*hosts, log)
+	hp, err := hostProvider(ctx, *hosts, log)
 	if err != nil {
 		return err
 	}
-	mgr, err := session.NewManager(session.Config{Catalog: cat, Store: st, Driver: drv, Hosts: hp, Logger: log, MaxSessions: *maxSessions, Hooks: hooks})
+	mgr, err := session.NewManager(session.Config{Catalog: cat, Store: st, Driver: drv, Hosts: hp, Logger: log, MaxSessions: *maxSessions, IdleTTL: *idleTTL, Hooks: telemetryHooks(tel)})
 	if err != nil {
 		return err
 	}
 	defer mgr.Close()
-	registerGauges(mgr)
+	tel.ObserveSessions(mgr.ActiveCount)
 
 	srv := &api.Server{Catalog: cat, Sessions: mgr, Store: st, UI: webui.FS(), Log: log, Version: version,
-		UserHeader: *userHeader, OnTerminal: onTerminal, Tutor: newTutor(log)}
+		UserHeader: *userHeader, OnTerminal: tel.Terminal, Tutor: newTutor(log)}
 	if *devOrigin != "" {
 		srv.AllowedOrigins = []string{*devOrigin}
 	}
@@ -200,7 +219,7 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 	if err != nil {
 		return err
 	}
-	hs := &http.Server{Handler: wrapHTTP(srv.Handler()), ReadHeaderTimeout: 10 * time.Second}
+	hs := &http.Server{Handler: tel.HTTP(srv.Handler()), ReadHeaderTimeout: 10 * time.Second}
 	url := "http://" + ln.Addr().String()
 	log.Info("kubedojo is running", "url", url, "version", version)
 	if local {

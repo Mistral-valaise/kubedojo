@@ -16,3 +16,4 @@ internal/webui/dist/*
 .kubedojo/
 .env
 .DS_Store
+images/sandbox-host/*.tar

@@ -1,0 +1,106 @@
+# -- kubedojo server
+image:
+  repository: ghcr.io/kubedojo/server
+  tag: ""            # defaults to the chart's appVersion
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Maximum number of live sessions (each owns a sandbox Pod).
+maxSessions: 5
+# Remove sandboxes nobody used for this long. "0" disables the cleanup.
+idleTTL: 3h
+
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {memory: 512Mi}
+
+# History and progress are stored in SQLite on this volume.
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: kubedojo.example.com
+  tls:
+    enabled: false
+    secretName: kubedojo-tls
+
+# -- Sandboxes
+# Every session gets its own Pod running Docker-in-Docker, in which kubedojo
+# creates the practice clusters. These Pods are PRIVILEGED. Run them on a
+# dedicated, tainted node pool and never on nodes with other tenants' workloads.
+sandbox:
+  image:
+    repository: ghcr.io/kubedojo/sandbox-host
+    tag: ""          # defaults to the chart's appVersion
+  kubernetesVersion: v1.36.1
+  nodeImage: ""      # defaults to kubedojo/node:<kubernetesVersion> (preloaded in the sandbox host image)
+  terminalImage: ""  # defaults to kubedojo/terminal:<kubernetesVersion>
+  resources:
+    cpuRequest: "1"
+    memoryRequest: 3Gi
+    memoryLimit: 8Gi
+  # Schedule sandbox Pods onto a dedicated pool, e.g. {kubedojo.dev/pool: sandbox}
+  nodeSelector: {}
+  # Taint key that pool carries with effect NoSchedule, e.g. kubedojo.dev/sandbox
+  tolerationKey: ""
+  # Only the kubedojo server may reach the Docker daemons of sandbox Pods.
+  # Requires a CNI that enforces NetworkPolicies.
+  networkPolicy:
+    enabled: true
+
+# -- Authentication
+# Without OIDC the UI is open to everyone who can reach it: all visitors share
+# one identity. Enable OIDC (or protect the Ingress otherwise) before exposing it.
+oidc:
+  enabled: false
+  issuerURL: ""
+  clientID: ""
+  # Secret with the keys `client-secret` and `cookie-secret` (32 random bytes, base64).
+  existingSecret: ""
+  emailDomains: ["*"]
+  image: quay.io/oauth2-proxy/oauth2-proxy:v7.9.0
+  extraArgs: []
+
+# -- AI tutor (optional). Secret with the key `api-key`.
+tutor:
+  existingSecret: ""
+  model: ""
+
+# -- Observability
+telemetry:
+  # OTLP/HTTP endpoint that receives traces, metrics and logs,
+  # e.g. Grafana Alloy: http://alloy.monitoring.svc:4318
+  otlpEndpoint: ""
+  resourceAttributes: {}
+
+dashboards:
+  # ConfigMaps picked up by the Grafana dashboard sidecar.
+  enabled: true
+  label: grafana_dashboard
+  labelValue: "1"
+  folderAnnotation: grafana_folder
+  folder: kubedojo
+  namespace: ""      # defaults to the release namespace
+
+alerts:
+  # PrometheusRule (Prometheus Operator, or Alloy's mimir.rules.kubernetes for Mimir).
+  enabled: false
+  labels: {}
+
+# Single-container Grafana LGTM stack for evaluation. Not for production:
+# no persistence, no authentication. Use telemetry.otlpEndpoint with your own
+# stack instead.
+lgtm:
+  enabled: false
+  image: grafana/otel-lgtm:latest
+  resources:
+    requests: {cpu: 200m, memory: 1Gi}

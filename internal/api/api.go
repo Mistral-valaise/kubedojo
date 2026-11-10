@@ -601,12 +601,12 @@ func (s *Server) progress(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "unknown track")
 		return
 	}
-	attempts, err := s.Store.Attempts(t.ID)
+	attempts, err := s.Store.Attempts(t.ID, s.owner(r))
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	exams, err := s.Store.Exams(t.ID)
+	exams, err := s.Store.Exams(t.ID, s.owner(r))
 	if err != nil {
 		s.fail(w, err)
 		return

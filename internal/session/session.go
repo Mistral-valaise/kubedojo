@@ -91,6 +91,7 @@ type Session struct {
 	Report          *Report           `json:"report,omitempty"`
 	Keys            sandbox.KeyPair   `json:"keys"`
 	Owner           string            `json:"owner,omitempty"`
+	TouchedAt       time.Time         `json:"touchedAt"`
 
 	op sync.Mutex // serialises long sandbox operations of this session
 }
@@ -143,6 +144,7 @@ type Manager struct {
 	hosts  HostProvider
 	log    *slog.Logger
 	max    int
+	ttl    time.Duration
 	hooks  Hooks
 	mu     sync.Mutex
 	byID   map[string]*Session
@@ -156,12 +158,14 @@ type Config struct {
 	Hosts       HostProvider
 	Logger      *slog.Logger
 	MaxSessions int
-	Hooks       Hooks
+	// IdleTTL removes sandboxes nobody looked at for this long (0 = never).
+	IdleTTL time.Duration
+	Hooks   Hooks
 }
 
 func NewManager(c Config) (*Manager, error) {
 	m := &Manager{cat: c.Catalog, st: c.Store, drv: c.Driver, hosts: c.Hosts, log: c.Logger,
-		max: c.MaxSessions, hooks: c.Hooks, byID: map[string]*Session{}, stopCh: make(chan struct{})}
+		max: c.MaxSessions, ttl: c.IdleTTL, hooks: c.Hooks, byID: map[string]*Session{}, stopCh: make(chan struct{})}
 	if m.hosts == nil {
 		m.hosts = LocalHosts()
 	}
@@ -190,6 +194,9 @@ func NewManager(c Config) (*Manager, error) {
 				q.Status, q.Error = "error", "interrupted by a server restart"
 			}
 		}
+		if s.TouchedAt.IsZero() {
+			s.TouchedAt = time.Now().UTC()
+		}
 		m.byID[s.ID] = s
 	}
 	go m.clock()
@@ -209,12 +216,23 @@ func (m *Manager) clock() {
 		case now := <-t.C:
 			m.mu.Lock()
 			var due []string
+			var idle []string
 			for _, s := range m.byID {
 				if s.Status == StatusRunning && s.Deadline != nil && now.After(*s.Deadline) {
 					due = append(due, s.ID)
 				}
+				if m.ttl > 0 && s.Status != StatusDestroyed && s.Status != StatusRunning &&
+					s.Status != StatusProvisioning && s.Status != StatusGrading && now.Sub(s.TouchedAt) > m.ttl {
+					idle = append(idle, s.ID)
+				}
 			}
 			m.mu.Unlock()
+			for _, id := range idle {
+				m.log.Info("removing idle sandbox", "session", id)
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				_ = m.Destroy(ctx, id)
+				cancel()
+			}
 			for _, id := range due {
 				m.log.Info("exam time is up", "session", id)
 				_ = m.Finish(context.Background(), id)
@@ -257,6 +275,7 @@ func (m *Manager) get(id string) (*Session, error) {
 	if !ok || s.Status == StatusDestroyed {
 		return nil, ErrNotFound
 	}
+	s.TouchedAt = time.Now().UTC()
 	return s, nil
 }
 
@@ -314,7 +333,7 @@ func (m *Manager) Practice(track, owner string) (*Session, error) {
 		return nil, err
 	}
 	s := &Session{ID: newID(), Mode: ModePractice, Track: track, Status: StatusReady, CreatedAt: time.Now().UTC(),
-		Envs: map[string]string{}, Keys: keys, Owner: owner}
+		TouchedAt: time.Now().UTC(), Envs: map[string]string{}, Keys: keys, Owner: owner}
 	m.byID[s.ID] = s
 	m.save(s)
 	return s, nil
@@ -351,7 +370,7 @@ func (m *Manager) NewExam(track string, opt ExamOptions) (*Session, error) {
 		m.mu.Unlock()
 		return nil, ErrLimit
 	}
-	s := &Session{ID: newID(), Mode: ModeExam, Track: track, Status: StatusProvisioning, CreatedAt: time.Now().UTC(),
+	s := &Session{ID: newID(), Mode: ModeExam, Track: track, Status: StatusProvisioning, CreatedAt: time.Now().UTC(), TouchedAt: time.Now().UTC(),
 		DurationMinutes: opt.Minutes, Envs: map[string]string{}, Keys: keys, Owner: opt.Owner}
 	for _, q := range picked {
 		s.Questions = append(s.Questions, &QState{ID: q.ID, Status: "pending"})
@@ -710,7 +729,7 @@ func (m *Manager) Check(ctx context.Context, id, qid string) (*checker.Result, e
 	m.update(s, func() { qs.Last = &res })
 	if mode == ModePractice {
 		_ = m.st.AddAttempt(store.Attempt{SessionID: s.ID, Mode: mode, Track: s.Track, Domain: q.Domain,
-			QuestionID: q.ID, Score: res.Score, Max: res.Max, At: res.At})
+			QuestionID: q.ID, Score: res.Score, Max: res.Max, At: res.At, Owner: s.Owner})
 	}
 	if m.hooks.Checked != nil {
 		m.hooks.Checked(s.Track, q.ID, mode, res)
@@ -775,7 +794,7 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 			dom[q.Domain].Score += res.Score
 			dom[q.Domain].Max += res.Max
 			_ = m.st.AddAttempt(store.Attempt{SessionID: s.ID, Mode: ModeExam, Track: s.Track, Domain: q.Domain,
-				QuestionID: q.ID, Score: res.Score, Max: res.Max, At: res.At})
+				QuestionID: q.ID, Score: res.Score, Max: res.Max, At: res.At, Owner: s.Owner})
 			if m.hooks.Checked != nil {
 				m.hooks.Checked(s.Track, q.ID, ModeExam, res)
 			}
@@ -795,7 +814,7 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 		m.update(s, func() { s.Report, s.Status = &rep, StatusFinished })
 		db, _ := json.Marshal(rep.Domains)
 		_ = m.st.AddExam(store.Exam{SessionID: s.ID, Track: s.Track, Score: rep.Score, Max: rep.Max,
-			Percent: rep.Percent, Passed: rep.Passed, FinishedAt: *s.FinishedAt, Domains: db})
+			Percent: rep.Percent, Passed: rep.Passed, FinishedAt: *s.FinishedAt, Domains: db, Owner: s.Owner})
 		if m.hooks.ExamDone != nil {
 			m.hooks.ExamDone(s.Track, rep)
 		}

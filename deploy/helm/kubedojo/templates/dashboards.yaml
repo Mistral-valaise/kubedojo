@@ -1,0 +1,18 @@
+{{- if .Values.dashboards.enabled }}
+{{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubedojo.name" $ }}-dashboard-{{ base $path | trimSuffix ".json" }}
+  namespace: {{ default $.Release.Namespace $.Values.dashboards.namespace }}
+  labels:
+    {{- include "kubedojo.labels" $ | nindent 4 }}
+    {{ $.Values.dashboards.label }}: {{ $.Values.dashboards.labelValue | quote }}
+  annotations:
+    {{ $.Values.dashboards.folderAnnotation }}: {{ $.Values.dashboards.folder | quote }}
+data:
+  {{ base $path }}: |-
+    {{- $.Files.Get $path | nindent 4 }}
+{{- end }}
+{{- end }}

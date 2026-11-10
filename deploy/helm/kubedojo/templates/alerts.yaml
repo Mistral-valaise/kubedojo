@@ -1,0 +1,55 @@
+{{- if .Values.alerts.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "kubedojo.name" . }}
+  labels:
+    {{- include "kubedojo.labels" . | nindent 4 }}
+    {{- with .Values.alerts.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: kubedojo
+      rules:
+        - alert: KubedojoDown
+          expr: absent(kubedojo_sessions_active)
+          for: 10m
+          labels: {severity: critical}
+          annotations:
+            summary: kubedojo reports no metrics
+            description: No kubedojo_sessions_active series for 10 minutes. The server is down or telemetry is broken.
+        - alert: KubedojoSandboxProvisioningFails
+          expr: |
+            sum(rate(kubedojo_sandbox_provision_duration_seconds_count{result="error"}[15m]))
+              / sum(rate(kubedojo_sandbox_provision_duration_seconds_count[15m])) > 0.2
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: More than 20% of sandboxes fail to start
+            description: Learners cannot start sessions. Check sandbox Pods (kubectl get pod -l app.kubernetes.io/component=sandbox) and node capacity.
+        - alert: KubedojoSandboxProvisioningSlow
+          expr: |
+            histogram_quantile(0.95, sum by (le) (rate(kubedojo_sandbox_provision_duration_seconds_bucket{result="ok"}[30m]))) > 300
+          for: 15m
+          labels: {severity: warning}
+          annotations:
+            summary: Sandboxes take more than 5 minutes to start (p95)
+            description: Usually image loading on cold nodes or CPU pressure on the sandbox pool.
+        - alert: KubedojoSessionLimitReached
+          expr: sum(kubedojo_sessions_active) >= {{ .Values.maxSessions }}
+          for: 15m
+          labels: {severity: info}
+          annotations:
+            summary: All {{ .Values.maxSessions }} session slots are in use
+            description: New sessions are rejected. Raise maxSessions (and node capacity) or lower idleTTL.
+        - alert: KubedojoHighErrorRate
+          expr: |
+            sum(rate(http_server_request_duration_seconds_count{service_name="kubedojo",http_response_status_code=~"5.."}[10m]))
+              / sum(rate(http_server_request_duration_seconds_count{service_name="kubedojo"}[10m])) > 0.05
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: More than 5% of API requests fail
+            description: Check the kubedojo logs and traces for the failing routes.
+{{- end }}

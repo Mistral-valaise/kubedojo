@@ -1,0 +1,28 @@
+kubedojo is installed.
+
+{{- if .Values.ingress.enabled }}
+  Open: http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}
+{{- else }}
+  Open it with a port-forward:
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "kubedojo.name" . }} 4400:{{ .Values.service.port }}
+    http://localhost:4400
+{{- end }}
+
+{{- if not .Values.oidc.enabled }}
+
+  WARNING: authentication is disabled. Everyone who can reach the UI gets a
+  root shell in a privileged sandbox Pod. Enable `oidc` or restrict access
+  before exposing kubedojo.
+{{- end }}
+
+{{- if not .Values.sandbox.nodeSelector }}
+
+  WARNING: sandbox Pods are privileged and may run on any node. Set
+  `sandbox.nodeSelector` and `sandbox.tolerationKey` to a dedicated node pool.
+{{- end }}
+
+{{- if .Values.lgtm.enabled }}
+
+  Grafana (evaluation stack):
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "kubedojo.name" . }}-lgtm 3000:3000
+{{- end }}

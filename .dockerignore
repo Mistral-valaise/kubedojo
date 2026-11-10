@@ -1,0 +1,10 @@
+.git
+bin
+dist
+cka-cks-exam
+web/node_modules
+web/dist
+internal/webui/dist
+images/sandbox-host/*.tar
+.kubedojo
+*.db

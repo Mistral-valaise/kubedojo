@@ -18,11 +18,11 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS attempts (
   id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, mode TEXT NOT NULL,
   track TEXT NOT NULL, domain TEXT NOT NULL, question_id TEXT NOT NULL,
-  score INTEGER NOT NULL, max INTEGER NOT NULL, at TEXT NOT NULL);
+  score INTEGER NOT NULL, max INTEGER NOT NULL, at TEXT NOT NULL, owner TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS attempts_q ON attempts(track, question_id);
 CREATE TABLE IF NOT EXISTS exams (
   session_id TEXT PRIMARY KEY, track TEXT NOT NULL, score INTEGER NOT NULL, max INTEGER NOT NULL,
-  percent REAL NOT NULL, passed INTEGER NOT NULL, finished_at TEXT NOT NULL, domains TEXT NOT NULL);
+  percent REAL NOT NULL, passed INTEGER NOT NULL, finished_at TEXT NOT NULL, domains TEXT NOT NULL, owner TEXT NOT NULL DEFAULT '');
 `
 
 func Open(path string) (*Store, error) {
@@ -33,6 +33,10 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	if _, err := db.Exec(schema); err != nil {
 		return nil, err
+	}
+	// Databases created before per-user history get the owner column added.
+	for _, table := range []string{"attempts", "exams"} {
+		_, _ = db.Exec("ALTER TABLE " + table + " ADD COLUMN owner TEXT NOT NULL DEFAULT ''")
 	}
 	return &Store{db: db}, nil
 }
@@ -77,16 +81,17 @@ type Attempt struct {
 	Score      int       `json:"score"`
 	Max        int       `json:"max"`
 	At         time.Time `json:"at"`
+	Owner      string    `json:"-"`
 }
 
 func (s *Store) AddAttempt(a Attempt) error {
-	_, err := s.db.Exec(`INSERT INTO attempts(session_id,mode,track,domain,question_id,score,max,at) VALUES(?,?,?,?,?,?,?,?)`,
-		a.SessionID, a.Mode, a.Track, a.Domain, a.QuestionID, a.Score, a.Max, a.At.UTC().Format(time.RFC3339))
+	_, err := s.db.Exec(`INSERT INTO attempts(session_id,mode,track,domain,question_id,score,max,at,owner) VALUES(?,?,?,?,?,?,?,?,?)`,
+		a.SessionID, a.Mode, a.Track, a.Domain, a.QuestionID, a.Score, a.Max, a.At.UTC().Format(time.RFC3339), a.Owner)
 	return err
 }
 
-func (s *Store) Attempts(track string) ([]Attempt, error) {
-	rows, err := s.db.Query(`SELECT session_id,mode,track,domain,question_id,score,max,at FROM attempts WHERE track=? ORDER BY id`, track)
+func (s *Store) Attempts(track, owner string) ([]Attempt, error) {
+	rows, err := s.db.Query(`SELECT session_id,mode,track,domain,question_id,score,max,at FROM attempts WHERE track=? AND owner=? ORDER BY id`, track, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -113,16 +118,17 @@ type Exam struct {
 	Passed     bool            `json:"passed"`
 	FinishedAt time.Time       `json:"finishedAt"`
 	Domains    json.RawMessage `json:"domains"`
+	Owner      string          `json:"-"`
 }
 
 func (s *Store) AddExam(e Exam) error {
-	_, err := s.db.Exec(`INSERT OR REPLACE INTO exams(session_id,track,score,max,percent,passed,finished_at,domains) VALUES(?,?,?,?,?,?,?,?)`,
-		e.SessionID, e.Track, e.Score, e.Max, e.Percent, e.Passed, e.FinishedAt.UTC().Format(time.RFC3339), string(e.Domains))
+	_, err := s.db.Exec(`INSERT OR REPLACE INTO exams(session_id,track,score,max,percent,passed,finished_at,domains,owner) VALUES(?,?,?,?,?,?,?,?,?)`,
+		e.SessionID, e.Track, e.Score, e.Max, e.Percent, e.Passed, e.FinishedAt.UTC().Format(time.RFC3339), string(e.Domains), e.Owner)
 	return err
 }
 
-func (s *Store) Exams(track string) ([]Exam, error) {
-	rows, err := s.db.Query(`SELECT session_id,track,score,max,percent,passed,finished_at,domains FROM exams WHERE track=? ORDER BY finished_at`, track)
+func (s *Store) Exams(track, owner string) ([]Exam, error) {
+	rows, err := s.db.Query(`SELECT session_id,track,score,max,percent,passed,finished_at,domains FROM exams WHERE track=? AND owner=? ORDER BY finished_at`, track, owner)
 	if err != nil {
 		return nil, err
 	}

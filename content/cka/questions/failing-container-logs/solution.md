@@ -24,6 +24,9 @@ k -n team-magpie logs batch-worker -c transform --previous
 # FATAL: unsupported schema version 7
 ```
 
+If `--previous` reports that the old container is gone, the current run prints the same line a few
+seconds after it starts — `k -n team-magpie logs batch-worker -c transform` works as well.
+
 Write the answers:
 
 ```bash

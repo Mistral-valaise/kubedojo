@@ -6,6 +6,12 @@
       "runtimeExecutable": "./bin/kubedojo",
       "runtimeArgs": ["up", "--no-open", "--data", ".kubedojo"],
       "port": 4400
+    },
+    {
+      "name": "kubedojo-observability",
+      "runtimeExecutable": "./bin/kubedojo",
+      "runtimeArgs": ["up", "--no-open", "--data", ".kubedojo", "--observability"],
+      "port": 4400
     }
   ]
 }
