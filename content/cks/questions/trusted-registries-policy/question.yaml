@@ -1,0 +1,58 @@
+title: Allow images from trusted registries only
+domain: supply-chain-security
+difficulty: hard
+minutes: 10
+environment: base
+tags: [admission, validatingadmissionpolicy, cel]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  In Namespace `sec-robin` Pods may only use container images from these two sources:
+
+  - `registry.k8s.io/`
+  - `docker.io/library/`
+
+  Enforce this with a **ValidatingAdmissionPolicy** named `trusted-registries` and a
+  ValidatingAdmissionPolicyBinding named `trusted-registries`.
+
+  - The policy must reject the creation of Pods in `sec-robin` whose containers use any other image.
+  - Other Namespaces must not be affected.
+
+  Only the `containers` of a Pod have to be checked.
+hints:
+  - "Search the Kubernetes docs for *Validating Admission Policy* and copy the example policy and binding. A policy has no effect until a binding references it."
+  - "CEL expression: `object.spec.containers.all(c, c.image.startsWith('registry.k8s.io/') || c.image.startsWith('docker.io/library/'))`. The policy must match `pods` in API group `\"\"`, version `v1`, operation `CREATE`."
+  - "Limit the **binding** to the Namespace with `spec.matchResources.namespaceSelector.matchLabels: {kubernetes.io/metadata.name: sec-robin}` and set `validationActions: [Deny]`."
+checks:
+  - id: denied
+    title: A Pod with an untrusted image is rejected in sec-robin
+    type: exec
+    run: |-
+      kubectl -n sec-robin run probe --image=quay.io/prometheus/busybox:latest --dry-run=server -o name >/dev/null 2>&1 && echo admitted || echo denied
+    expect: {equals: denied}
+    explain: >-
+      A ValidatingAdmissionPolicy needs matchConstraints for pods, a CEL validation, and a binding with validationActions [Deny]. Without the binding nothing is enforced.
+  - id: allowed-k8s
+    title: A Pod from registry.k8s.io is admitted
+    type: exec
+    run: |-
+      kubectl -n sec-robin run probe --image=registry.k8s.io/pause:3.10 --dry-run=server -o name >/dev/null 2>&1 && echo admitted || echo denied
+    expect: {equals: admitted}
+    explain: >-
+      The expression must be true for allowed images. `all()` requires every container to match one of the prefixes.
+  - id: allowed-library
+    title: A Pod from docker.io/library is admitted
+    type: exec
+    run: |-
+      kubectl -n sec-robin run probe --image=docker.io/library/nginx:1.27-alpine --dry-run=server -o name >/dev/null 2>&1 && echo admitted || echo denied
+    expect: {equals: admitted}
+    explain: >-
+      Both prefixes are joined with a logical OR inside the all() macro. Admission sees the image string exactly as written in the Pod, so short names like "nginx" would be rejected.
+  - id: scoped
+    title: Other Namespaces are not affected
+    type: exec
+    run: |-
+      kubectl -n default run probe --image=quay.io/prometheus/busybox:latest --dry-run=server -o name >/dev/null 2>&1 && echo admitted || echo denied
+    expect: {equals: admitted}
+    explain: >-
+      The binding decides where a policy applies. Without a namespaceSelector it is cluster-wide — and would block system Pods from other registries.

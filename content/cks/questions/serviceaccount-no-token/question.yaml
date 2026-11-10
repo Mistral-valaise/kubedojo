@@ -1,0 +1,49 @@
+title: Stop mounting API credentials
+domain: cluster-hardening
+difficulty: easy
+minutes: 6
+environment: base
+tags: [serviceaccount, token, automount]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `static-site` in Namespace `sec-ibis` serves static files and never talks to the
+  Kubernetes API. It currently runs with the Namespace's `default` ServiceAccount and has an API token
+  mounted.
+
+  1. Create a ServiceAccount named `static-site` in Namespace `sec-ibis` whose token is **not**
+     mounted into Pods automatically.
+  2. Make the Deployment use this ServiceAccount.
+
+  Afterwards no ServiceAccount token may be present in the running Pods.
+hints:
+  - "The field is `automountServiceAccountToken: false` — a top-level field of a ServiceAccount (and also available in a Pod spec)."
+  - "`kubectl -n sec-ibis create sa static-site $do` gives you YAML to extend. `kubectl -n sec-ibis set serviceaccount deployment static-site static-site` switches the Deployment."
+  - "Verify: `kubectl -n sec-ibis exec deploy/static-site -- ls /var/run/secrets/kubernetes.io/serviceaccount` must fail."
+checks:
+  - id: sa
+    title: ServiceAccount static-site does not automount its token
+    type: resource
+    resource: serviceaccount/static-site
+    namespace: sec-ibis
+    jsonpath: "{.automountServiceAccountToken}"
+    expect: {equals: "false"}
+    explain: >-
+      Set on the ServiceAccount, the rule applies to every Pod that uses it, so nobody has to remember it per workload.
+  - id: uses
+    title: The Deployment uses ServiceAccount static-site
+    type: resource
+    resource: deployment/static-site
+    namespace: sec-ibis
+    jsonpath: "{.spec.template.spec.serviceAccountName}"
+    expect: {equals: static-site}
+    explain: >-
+      A dedicated ServiceAccount per workload keeps permissions separate. Anything granted to `default` is inherited by every Pod that does not name an account.
+  - id: no-token
+    title: The running Pod has no token mounted
+    type: exec
+    run: |-
+      kubectl -n sec-ibis rollout status deploy static-site --timeout=60s >/dev/null 2>&1; kubectl -n sec-ibis exec deploy/static-site -- cat /var/run/secrets/kubernetes.io/serviceaccount/token >/dev/null 2>&1 && echo token-present || echo no-token
+    expect: {equals: no-token}
+    explain: >-
+      A token inside a container is a credential an attacker gets for free after a remote code execution. If the Pod spec sets automountServiceAccountToken: true it overrides the ServiceAccount.

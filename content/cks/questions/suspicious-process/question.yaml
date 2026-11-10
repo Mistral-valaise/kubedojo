@@ -1,0 +1,57 @@
+title: Trace a suspicious process to its workload
+domain: runtime-security
+difficulty: hard
+minutes: 9
+environment: base
+tags: [forensics, crictl, processes]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Host monitoring on node `{{worker}}` reports a process that was started from the file
+  `/tmp/kworkerd` — a name that imitates a kernel thread. It runs inside one of the containers of
+  Namespace `sec-tern`.
+
+  1. Find out which Deployment the process belongs to and write the Deployment's name to
+     `/opt/course/forensics/deployment` on `{{host}}`.
+  2. Stop the workload **without deleting any object**, so that its configuration stays available for
+     the investigation: scale that Deployment to `0` replicas.
+
+  Do not change the other Deployments.
+hints:
+  - "On the node, container processes are ordinary processes: `ssh {{worker}}`, then `ps aux | grep kworkerd` gives you the PID."
+  - "`cat /proc/<pid>/cgroup` contains the container ID. `sudo crictl ps` lists containers with their Pod; `sudo crictl inspect <id> | grep io.kubernetes.pod.name` names the Pod."
+  - "Alternatively look from the cluster side: `kubectl -n sec-tern exec <pod> -- ps` for each Pod."
+checks:
+  - id: found
+    title: The Deployment is identified correctly
+    type: file
+    path: /opt/course/forensics/deployment
+    expect: {equals: metrics-relay}
+    explain: >-
+      A process ID on the node leads to a container (its cgroup path contains the container ID) and the container to a Pod (crictl inspect / crictl ps). The Pod name starts with the Deployment's name.
+  - id: stopped
+    title: The Deployment is scaled to 0 and still exists
+    type: resource
+    resource: deployment/metrics-relay
+    namespace: sec-tern
+    jsonpath: "{.spec.replicas}"
+    expect: {equals: "0"}
+    explain: >-
+      Scaling to zero stops the process but keeps the Deployment, its ReplicaSets and ConfigMaps as evidence. Deleting would destroy what the investigation needs.
+  - id: process-gone
+    title: The process no longer runs on the node
+    type: exec
+    on: worker
+    run: |-
+      pgrep -f '^/bin/sh /tmp/kworkerd' >/dev/null && echo running || echo gone
+    expect: {equals: gone}
+    explain: >-
+      Always verify on the node that the process really ended.
+  - id: others
+    title: The other Deployments are untouched
+    type: exec
+    run: |-
+      kubectl -n sec-tern get deploy frontend order-worker -o jsonpath='{range .items[*]}{.spec.replicas}{" "}{end}' | xargs
+    expect: {equals: 1 1}
+    explain: >-
+      Incident response should be as narrow as the evidence: only the affected workload is stopped.

@@ -1,0 +1,36 @@
+title: Generate and query an SBOM
+domain: supply-chain-security
+difficulty: medium
+minutes: 8
+environment: base
+tags: [sbom, trivy, spdx]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  For a compliance audit you need a software bill of materials. `trivy` is installed on `{{host}}`.
+
+  1. Generate an SBOM of the image `nginx:1.27-alpine` in **SPDX-JSON** format and store it at
+     `/opt/course/sbom/nginx.spdx.json`.
+  2. Using the SBOM, find the version of the package `zlib` contained in the image and write it to
+     `/opt/course/sbom/zlib-version`.
+hints:
+  - "`trivy image --help | grep -A3 format` lists the output formats. `--output` writes to a file."
+  - "`trivy image --format spdx-json --output /opt/course/sbom/nginx.spdx.json nginx:1.27-alpine`"
+  - "In SPDX-JSON every package is an entry of `.packages[]` with `name` and `versionInfo`: `jq -r '.packages[] | select(.name==\"zlib\") | .versionInfo' nginx.spdx.json`"
+checks:
+  - id: spdx
+    title: The file is an SPDX-JSON SBOM of the nginx image
+    type: exec
+    run: |-
+      jq -r '[.spdxVersion, ([.packages[] | select(.name=="nginx")] | length > 0)] | join(" ")' /opt/course/sbom/nginx.spdx.json
+    expect: {matches: "^SPDX-\\d+\\.\\d+ true$"}
+    explain: >-
+      SPDX and CycloneDX are the two standard SBOM formats. An SBOM lists every package in an artifact so that new vulnerabilities can be matched against it later without rescanning the image.
+  - id: zlib
+    title: The zlib version matches the SBOM
+    type: exec
+    run: |-
+      [ "$(tr -d '[:space:]' < /opt/course/sbom/zlib-version)" = "$(jq -r '[.packages[] | select(.name=="zlib") | .versionInfo][0]' /opt/course/sbom/nginx.spdx.json)" ] && echo ok
+    expect: {equals: ok}
+    explain: >-
+      SBOMs are machine-readable: jq answers "do we ship package X, and in which version?" in one line.

@@ -1,0 +1,59 @@
+title: Enable API audit logging
+domain: runtime-security
+difficulty: hard
+minutes: 12
+environment: secure
+freshEnvironment: true
+tags: [audit, apiserver, policy]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Enable audit logging for the kube-apiserver of this cluster.
+
+  1. Create the audit policy `/etc/kubernetes/audit/policy.yaml` on the control plane node with these
+     rules:
+     - log `pods` at level `RequestResponse`
+     - log `secrets` and `configmaps` at level `Metadata`
+     - do **not** log anything else
+  2. Configure the kube-apiserver to use this policy and to write the log to
+     `/var/log/kubernetes/audit/audit.log`, keeping log files for at most `7` days and at most `2` old
+     log files.
+
+  The log file must be available on the node at that path.
+hints:
+  - "Search the Kubernetes docs for *Auditing*. Policy: `apiVersion: audit.k8s.io/v1`, `kind: Policy`, `rules:`. Rules are evaluated in order, first match wins — end with a catch-all `- level: None`."
+  - "Flags: `--audit-policy-file`, `--audit-log-path`, `--audit-log-maxage`, `--audit-log-maxbackup`."
+  - "The static Pod needs two hostPath volumes with volumeMounts: the policy file (read-only) and the log directory `/var/log/kubernetes/audit` (writable, type `DirectoryOrCreate`)."
+checks:
+  - id: flags
+    title: The running API server has the audit flags set
+    type: exec
+    run: |-
+      pgrep -a kube-apiserver | tr ' ' '\n' | grep -E '^--audit-(policy-file|log-path|log-maxage|log-maxbackup)=' | sort | xargs
+    expect: {equals: "--audit-log-maxage=7 --audit-log-maxbackup=2 --audit-log-path=/var/log/kubernetes/audit/audit.log --audit-policy-file=/etc/kubernetes/audit/policy.yaml"}
+    explain: >-
+      The policy decides what is recorded, the log flags where it goes and how long it is kept. Both paths are paths inside the API server container and need hostPath mounts.
+  - id: secrets
+    title: Secret access is logged at level Metadata
+    type: exec
+    run: |-
+      kubectl -n kube-system get secrets >/dev/null 2>&1; sleep 3; tail -n 400 /var/log/kubernetes/audit/audit.log | jq -r 'select(.objectRef.resource=="secrets") | .level' | sort -u | xargs
+    expect: {equals: Metadata}
+    explain: >-
+      Metadata records who did what and when, without bodies. Secrets must never be logged at Request or RequestResponse level — the log would contain their values.
+  - id: pods
+    title: Pod access is logged at level RequestResponse
+    type: exec
+    run: |-
+      kubectl -n default get pods >/dev/null 2>&1; sleep 3; tail -n 400 /var/log/kubernetes/audit/audit.log | jq -r 'select(.objectRef.resource=="pods") | .level' | sort -u | xargs
+    expect: {equals: RequestResponse}
+    explain: >-
+      RequestResponse additionally records the request and response objects. Rules are matched top to bottom; a broader rule placed first would win.
+  - id: nothing-else
+    title: Nothing else is logged
+    type: exec
+    run: |-
+      kubectl get nodes >/dev/null 2>&1; kubectl get namespaces >/dev/null 2>&1; sleep 3; tail -n 400 /var/log/kubernetes/audit/audit.log | jq -r 'select((.objectRef.resource // "non-resource") as $r | ["pods","secrets","configmaps"] | index($r) | not) | .requestURI' | wc -l | xargs
+    expect: {equals: "0"}
+    explain: >-
+      Without a final catch-all rule with level None, requests that match no rule are simply not logged either — but being explicit protects against a later rule change accidentally logging everything. If other resources show up, an earlier rule is too broad.

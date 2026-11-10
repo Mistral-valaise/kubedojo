@@ -1,0 +1,55 @@
+title: Make a container immutable
+domain: microservice-vulnerabilities
+difficulty: medium
+minutes: 8
+environment: base
+tags: [securitycontext, readonly, emptydir]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `cache` in Namespace `sec-osprey` runs `nginx:1.27-alpine`. Harden its container:
+
+  - the root filesystem must be read-only
+  - privilege escalation must not be allowed
+
+  nginx needs to write to the directories `/var/cache/nginx` and `/var/run`. Provide these as volumes
+  that live and die with the Pod. The Deployment must be running and serving HTTP afterwards.
+hints:
+  - "`securityContext.readOnlyRootFilesystem: true` and `allowPrivilegeEscalation: false` are **container**-level fields."
+  - "After setting the read-only flag the Pod crashes. `kubectl -n sec-osprey logs deploy/cache` shows which path nginx cannot write."
+  - "Add two `emptyDir` volumes and mount them at `/var/cache/nginx` and `/var/run`."
+checks:
+  - id: readonly
+    title: The root filesystem is read-only and escalation is disabled
+    type: resource
+    resource: deployment/cache
+    namespace: sec-osprey
+    jsonpath: "{.spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem} {.spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation}"
+    expect: {equals: "true false"}
+    explain: >-
+      With a read-only root filesystem an attacker cannot drop tools, replace binaries or modify the web root. allowPrivilegeEscalation false stops setuid binaries from gaining more rights.
+  - id: ready
+    title: The Deployment is ready with the hardened template
+    type: resource
+    resource: deployment/cache
+    namespace: sec-osprey
+    jsonpath: "{.status.readyReplicas}/{.status.updatedReplicas}"
+    expect: {equals: 1/1}
+    explain: >-
+      Most applications need a few writable paths. Without volumes for them the hardened container crashes at start.
+  - id: immutable
+    title: Writing to the image filesystem fails, the writable paths work
+    type: exec
+    run: |-
+      kubectl -n sec-osprey exec deploy/cache -- sh -c 'touch /usr/share/nginx/html/x 2>/dev/null && echo writable || echo readonly; touch /var/cache/nginx/x /var/run/x && echo volumes-ok'
+    expect: {equals: "readonly\nvolumes-ok"}
+    explain: >-
+      emptyDir volumes are separate mounts and stay writable; everything that comes from the image is read-only.
+  - id: serves
+    title: nginx still serves HTTP
+    type: exec
+    run: |-
+      kubectl -n sec-osprey exec deploy/cache -- wget -qO- -T 3 http://127.0.0.1 | grep -c 'Welcome to nginx'
+    expect: {gte: 1}
+    explain: >-
+      Hardening must not break the workload — always verify the application itself after the change.

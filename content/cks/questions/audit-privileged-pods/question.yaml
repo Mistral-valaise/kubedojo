@@ -1,0 +1,47 @@
+title: Find and remove dangerous Pods
+domain: runtime-security
+difficulty: medium
+minutes: 8
+environment: base
+tags: [audit, privileged, hostpath, jq]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Audit the Pods in Namespace `sec-wader`. A Pod is considered **dangerous** if at least one of the
+  following is true:
+
+  - a container runs with `privileged: true`
+  - the Pod uses the host's network (`hostNetwork`) or process namespace (`hostPID`)
+  - the Pod mounts a `hostPath` volume
+
+  1. Write the names of all dangerous Pods to `/opt/course/audit/dangerous-pods` on `{{host}}`,
+     one per line.
+  2. Delete the dangerous Pods. Leave the others running.
+hints:
+  - "`kubectl -n sec-wader get pod -o yaml | grep -n -E 'privileged|hostNetwork|hostPID|hostPath'` is a quick first look."
+  - "Per Pod: `kubectl -n sec-wader get pod <name> -o jsonpath='{.spec.hostNetwork} {.spec.hostPID} {.spec.volumes[*].hostPath.path} {.spec.containers[*].securityContext.privileged}'`."
+  - "With jq: `kubectl -n sec-wader get pod -o json | jq -r '.items[] | select(.spec.hostNetwork or .spec.hostPID or any(.spec.volumes[]?; .hostPath) or any(.spec.containers[]; .securityContext.privileged)) | .metadata.name'`"
+checks:
+  - id: list
+    title: Exactly the dangerous Pods are listed
+    type: file
+    path: /opt/course/audit/dangerous-pods
+    expect: {sameLines: [debug-shell, log-shipper, net-tools]}
+    explain: >-
+      privileged gives a container root on the node; hostNetwork and hostPID remove namespace isolation; hostPath exposes the node's filesystem. Each one alone is enough for a container escape. A Pod with only an emptyDir or a securityContext without privileged is fine.
+  - id: removed
+    title: The dangerous Pods are deleted
+    type: exec
+    run: |-
+      kubectl -n sec-wader get pod debug-shell log-shipper net-tools --no-headers 2>/dev/null | grep -v Terminating | wc -l | xargs
+    expect: {equals: "0"}
+    explain: >-
+      Bare Pods are not recreated. For Pods owned by a Deployment you would have to fix or remove the owner instead.
+  - id: kept
+    title: The harmless Pods are still running
+    type: exec
+    run: |-
+      kubectl -n sec-wader get pod api cache-warmer --no-headers 2>/dev/null | grep -c Running
+    expect: {equals: "2"}
+    explain: >-
+      An audit must be precise: removing compliant workloads is an outage.

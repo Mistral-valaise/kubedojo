@@ -1,0 +1,57 @@
+title: Issue a client certificate for a user
+domain: cluster-hardening
+difficulty: hard
+minutes: 10
+environment: base
+tags: [csr, certificates, rbac, users]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Auditor `dana` needs read access to Pods in Namespace `sec-kite`. Her private key and a certificate
+  signing request are already on `{{host}}`:
+
+  - `/opt/course/csr/dana.key`
+  - `/opt/course/csr/dana.csr`
+
+  1. Create a Kubernetes CertificateSigningRequest named `dana` from `dana.csr` for client
+     authentication against the API server, and approve it.
+  2. Store the issued certificate (PEM) in `/opt/course/csr/dana.crt`.
+  3. Allow user `dana` to `get` and `list` Pods in Namespace `sec-kite` with a Role and RoleBinding
+     named `pod-auditor`.
+hints:
+  - "Search the Kubernetes docs for *CertificateSigningRequest* and copy the example. `spec.request` is the CSR file base64-encoded on one line: `base64 -w0 /opt/course/csr/dana.csr`."
+  - "`signerName: kubernetes.io/kube-apiserver-client` and `usages: [client auth]`. Approve with `kubectl certificate approve dana`."
+  - "The certificate appears in `.status.certificate` (base64). Bind the Role with `--user=dana`."
+checks:
+  - id: approved
+    title: CertificateSigningRequest dana is approved for client authentication
+    type: exec
+    run: |-
+      kubectl get csr dana -o jsonpath='{.spec.signerName} {.status.conditions[?(@.type=="Approved")].status}'
+    expect: {equals: kubernetes.io/kube-apiserver-client True}
+    explain: >-
+      The signer kubernetes.io/kube-apiserver-client issues certificates the API server accepts for client authentication. A CSR is only signed after it is approved.
+  - id: cert
+    title: dana.crt is a certificate for dana signed by the cluster CA
+    type: exec
+    run: |-
+      openssl verify -CAfile /etc/kubernetes/pki/ca.crt /opt/course/csr/dana.crt >/dev/null 2>&1 && openssl x509 -in /opt/course/csr/dana.crt -noout -subject | tr -d ' '
+    expect: {contains: ["CN=dana"]}
+    explain: >-
+      Kubernetes identifies a user by the CN of a certificate signed by its CA (the O fields are the groups). The status field holds the certificate base64-encoded — decode it before saving.
+  - id: works
+    title: dana can list Pods in sec-kite with her certificate
+    type: exec
+    run: |-
+      kubectl --kubeconfig /dev/null --server https://127.0.0.1:6443 --certificate-authority /etc/kubernetes/pki/ca.crt --client-certificate /opt/course/csr/dana.crt --client-key /opt/course/csr/dana.key -n sec-kite get pods -o name | head -1
+    expect: {matches: "^pod/"}
+    explain: >-
+      Authentication (the certificate) and authorization (RBAC for user "dana") must both be in place. The RoleBinding's subject is kind User, name dana.
+  - id: limited
+    title: dana cannot read Secrets or other Namespaces
+    type: exec
+    run: |-
+      a=$(kubectl -n sec-kite auth can-i get secrets --as dana); b=$(kubectl -n default auth can-i list pods --as dana); echo "$a $b"
+    expect: {equals: "no no"}
+    explain: >-
+      An auditor for one Namespace gets a Role there, not a cluster-wide view role.

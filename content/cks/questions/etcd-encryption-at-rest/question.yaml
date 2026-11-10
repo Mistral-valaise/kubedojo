@@ -1,0 +1,54 @@
+title: Encrypt Secrets at rest
+domain: microservice-vulnerabilities
+difficulty: hard
+minutes: 12
+environment: secure
+freshEnvironment: true
+tags: [etcd, encryption, apiserver, secrets]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Secrets are currently stored unencrypted in etcd. Enable encryption at rest:
+
+  1. Create an EncryptionConfiguration at `/etc/kubernetes/enc/enc.yaml` on the control plane node that
+     encrypts `secrets` with the `aescbc` provider, using one key named `key1` (generate a random
+     32-byte key). Unencrypted Secrets must remain readable.
+  2. Configure the kube-apiserver to use this file.
+  3. Make sure the existing Secret `db-pass` in Namespace `sec-pelican` is stored **encrypted** in etcd.
+hints:
+  - "Search the Kubernetes docs for *Encrypting Confidential Data at Rest* — the page has the EncryptionConfiguration and the steps. Key: `head -c 32 /dev/urandom | base64`."
+  - "The API server needs the flag `--encryption-provider-config=/etc/kubernetes/enc/enc.yaml` **and** a `hostPath` volume plus `volumeMount` for `/etc/kubernetes/enc`, otherwise the file does not exist inside the container."
+  - "Only newly written Secrets are encrypted. Rewrite the existing one: `kubectl -n sec-pelican get secret db-pass -o json | kubectl replace -f -`. List `identity: {}` as the **second** provider so old data stays readable."
+checks:
+  - id: flag
+    title: The running API server uses an encryption provider config
+    type: exec
+    run: |-
+      pgrep -a kube-apiserver | tr ' ' '\n' | grep -- '^--encryption-provider-config=' | cut -d= -f2
+    expect: {equals: /etc/kubernetes/enc/enc.yaml}
+    explain: >-
+      The flag points to a file inside the API server's container. Because the API server is a static Pod, the directory must be mounted with a hostPath volume — a missing mount makes the API server crash at start.
+  - id: config
+    title: aescbc with key1 is the first provider, identity the fallback
+    type: exec
+    run: |-
+      awk '/aescbc:/{a=NR} /name: key1/{k=NR} /identity:/{i=NR} END{print (a && k && i && a<i) ? "ok" : "aescbc=" a " key1=" k " identity=" i}' /etc/kubernetes/enc/enc.yaml
+    expect: {equals: ok}
+    explain: >-
+      The first provider in the list encrypts new writes; all providers are tried for reading. identity (no encryption) as the last entry keeps Secrets readable that were written before encryption was enabled.
+  - id: encrypted
+    title: Secret db-pass is encrypted in etcd
+    type: exec
+    run: |-
+      ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key get /registry/secrets/sec-pelican/db-pass --print-value-only | head -c 40 | grep -a -c 'k8s:enc:aescbc:v1:key1'
+    expect: {equals: "1"}
+    explain: >-
+      Encrypted values in etcd start with k8s:enc:<provider>:v1:<key name>. Existing objects stay in their old form until they are written again, so they have to be replaced once.
+  - id: readable
+    title: The Secret is still readable through the API
+    type: exec
+    run: |-
+      kubectl -n sec-pelican get secret db-pass -o jsonpath='{.data.password}' | base64 -d
+    expect: {equals: pelican-4711}
+    explain: >-
+      Encryption at rest is transparent for API clients: the API server decrypts on read. It protects against access to etcd's data files and backups, not against RBAC mistakes.

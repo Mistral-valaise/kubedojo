@@ -48,6 +48,8 @@ type Driver interface {
 	EnsureTerminal(ctx context.Context, h dockerhost.Host, sessionID string, aliases []string, keys KeyPair) error
 	Exec(ctx context.Context, h dockerhost.Host, sessionID string, t Target, user, script string, env map[string]string) (ExecResult, error)
 	Attach(ctx context.Context, h dockerhost.Host, sessionID string, cols, rows uint) (TTY, error)
+	// DeleteEnv removes a single cluster and leaves the rest of the sandbox alone.
+	DeleteEnv(ctx context.Context, h dockerhost.Host, alias string) error
 	Destroy(ctx context.Context, h dockerhost.Host, sessionID string, aliases []string) error
 }
 

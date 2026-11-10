@@ -1,0 +1,43 @@
+id: cks
+title: Certified Kubernetes Security Specialist
+short: CKS
+description: >-
+  Secure container-based applications and Kubernetes platforms during build,
+  deployment and runtime. Performance-based exam on real clusters; requires CKA-level skills.
+kubernetesVersion: v1.36
+exam:
+  durationMinutes: 120
+  passPercent: 67
+  questions: 16
+domains:
+  - id: cluster-setup
+    title: Cluster Setup
+    weight: 15
+    summary: NetworkPolicies, CIS benchmarks, TLS for Ingress, protecting node endpoints, verifying binaries.
+  - id: cluster-hardening
+    title: Cluster Hardening
+    weight: 15
+    summary: Least-privilege RBAC, ServiceAccount hygiene, API server access and admission, certificates.
+  - id: system-hardening
+    title: System Hardening
+    weight: 10
+    summary: Reduce the host attack surface and restrict containers with kernel features such as seccomp and AppArmor.
+  - id: microservice-vulnerabilities
+    title: Minimize Microservice Vulnerabilities
+    weight: 20
+    summary: Pod Security Standards, security contexts, Secrets management and encryption at rest.
+  - id: supply-chain-security
+    title: Supply Chain Security
+    weight: 20
+    summary: Small and pinned images, trusted registries, admission policies, SBOMs and static analysis.
+  - id: runtime-security
+    title: Monitoring, Logging & Runtime Security
+    weight: 20
+    summary: Audit logs, detecting suspicious behaviour on nodes and in containers, immutable workloads.
+environments:
+  base:
+    workers: 1
+    description: Cluster for workload, policy and supply chain tasks.
+  secure:
+    workers: 1
+    description: Cluster for API server, kubelet and node hardening.

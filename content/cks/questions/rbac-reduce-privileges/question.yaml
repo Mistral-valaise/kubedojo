@@ -1,0 +1,59 @@
+title: Remove excessive RBAC permissions
+domain: cluster-hardening
+difficulty: medium
+minutes: 8
+environment: base
+tags: [rbac, least-privilege]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A security review found that ServiceAccount `report-reader` in Namespace `sec-heron` has far more
+  permissions than it needs. The application only has to **get and list Pods and ConfigMaps in its own
+  Namespace**.
+
+  1. Find out how the ServiceAccount gets its permissions and remove everything that is excessive.
+  2. Grant exactly the permissions it needs with a Role and RoleBinding, both named `report-reader`,
+     in Namespace `sec-heron`.
+hints:
+  - "`kubectl auth can-i --list --as system:serviceaccount:sec-heron:report-reader` shows what it can do. `kubectl get clusterrolebinding,rolebinding -A -o wide | grep report-reader` shows why."
+  - "The ServiceAccount is bound to `cluster-admin` by a ClusterRoleBinding. Delete that binding (not the ClusterRole `cluster-admin`!)."
+  - "`kubectl -n sec-heron create role report-reader --verb=get,list --resource=pods,configmaps` and a matching `create rolebinding`."
+checks:
+  - id: needed
+    title: The ServiceAccount can list Pods and get ConfigMaps in sec-heron
+    type: exec
+    run: |-
+      a=$(kubectl -n sec-heron auth can-i list pods --as system:serviceaccount:sec-heron:report-reader); b=$(kubectl -n sec-heron auth can-i get configmaps --as system:serviceaccount:sec-heron:report-reader); echo "$a $b"
+    expect: {equals: "yes yes"}
+    explain: >-
+      Removing permissions must not break the application: it still needs get and list on Pods and ConfigMaps.
+  - id: no-secrets
+    title: The ServiceAccount cannot read Secrets
+    type: exec
+    run: |-
+      kubectl -n sec-heron auth can-i get secrets --as system:serviceaccount:sec-heron:report-reader
+    expect: {equals: "no", exitCode: 1}
+    explain: >-
+      cluster-admin includes reading every Secret in the cluster. A token of this ServiceAccount, stolen from its Pod, would have been a full cluster compromise.
+  - id: no-other-ns
+    title: The ServiceAccount has no access outside its Namespace
+    type: exec
+    run: |-
+      a=$(kubectl -n kube-system auth can-i list pods --as system:serviceaccount:sec-heron:report-reader); b=$(kubectl auth can-i list nodes --as system:serviceaccount:sec-heron:report-reader 2>/dev/null); echo "$a $b"
+    expect: {equals: "no no"}
+    explain: >-
+      A ClusterRoleBinding grants cluster-wide; a RoleBinding only in its Namespace. Replacing cluster-admin with a ClusterRoleBinding to `view` would still expose all Namespaces.
+  - id: no-write
+    title: The ServiceAccount cannot delete Pods
+    type: exec
+    run: |-
+      kubectl -n sec-heron auth can-i delete pods --as system:serviceaccount:sec-heron:report-reader
+    expect: {equals: "no", exitCode: 1}
+    explain: >-
+      Only the verbs get and list are needed.
+  - id: admin-intact
+    title: ClusterRole cluster-admin still exists
+    type: resource
+    resource: clusterrole/cluster-admin
+    explain: >-
+      The problem was the binding, not the role. cluster-admin is used by the cluster's administrators and must stay.

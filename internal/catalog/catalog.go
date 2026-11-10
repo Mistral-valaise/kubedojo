@@ -60,6 +60,9 @@ type Question struct {
 	// DNS). They need a cleanup.sh that restores a healthy cluster, which
 	// practice mode runs before another question is prepared.
 	Disruptive bool `yaml:"disruptive" json:"disruptive"`
+	// FreshEnvironment marks questions whose effects cannot be undone by a
+	// script (e.g. encrypting etcd). Resetting them recreates the cluster.
+	FreshEnvironment bool `yaml:"freshEnvironment" json:"freshEnvironment"`
 	Task        string   `yaml:"task" json:"-"`
 	Hints       []string `yaml:"hints" json:"-"`
 	Checks      []*Check `yaml:"checks" json:"-"`

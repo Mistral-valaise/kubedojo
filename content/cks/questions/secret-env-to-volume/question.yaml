@@ -1,0 +1,54 @@
+title: Move a credential out of the Pod spec
+domain: microservice-vulnerabilities
+difficulty: medium
+minutes: 8
+environment: base
+tags: [secrets, volumes]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `payments` in Namespace `sec-quail` has its database password written in plain text into
+  an environment variable of the Pod template.
+
+  1. Create a Secret named `payments-db` in Namespace `sec-quail` with the key `password` that holds the
+     current password.
+  2. Change the Deployment so that the password is provided as the file `/etc/payments/password`,
+     mounted read-only from the Secret. The application can only read from files that have mode `0400`.
+  3. Remove the environment variable `DB_PASSWORD` from the Deployment.
+hints:
+  - "`kubectl -n sec-quail get deploy payments -o yaml | grep -A1 DB_PASSWORD` shows the value. `kubectl create secret generic ... --from-literal=password=...`."
+  - "A `secret` volume turns each key into a file named after the key. `defaultMode: 0400` sets the file mode."
+  - "Remove an env var with `kubectl -n sec-quail set env deploy payments DB_PASSWORD-` (note the trailing dash)."
+checks:
+  - id: secret
+    title: Secret payments-db holds the password
+    type: exec
+    run: |-
+      kubectl -n sec-quail get secret payments-db -o jsonpath='{.data.password}' | base64 -d
+    expect: {equals: "hunter2-quail"}
+    explain: >-
+      The value must be the password the application already uses. With --from-literal no trailing newline sneaks in; `echo ... | base64` would add one.
+  - id: no-env
+    title: The password is no longer in the Deployment
+    type: exec
+    run: |-
+      kubectl -n sec-quail get deploy payments -o yaml | grep -c -E 'hunter2-quail|DB_PASSWORD' || true
+    expect: {equals: "0"}
+    explain: >-
+      Everyone who may read Deployments or Pods could read the password. Secrets have their own RBAC resource and can be encrypted at rest.
+  - id: file
+    title: The password is available as /etc/payments/password
+    type: exec
+    run: |-
+      kubectl -n sec-quail rollout status deploy payments --timeout=60s >/dev/null 2>&1; kubectl -n sec-quail exec deploy/payments -- cat /etc/payments/password
+    expect: {equals: "hunter2-quail"}
+    explain: >-
+      Files from a Secret volume live in memory (tmpfs), are updated when the Secret changes and do not leak into `env`, crash dumps or child processes.
+  - id: mode
+    title: The file is read-only for its owner
+    type: exec
+    run: |-
+      kubectl -n sec-quail get deploy payments -o json | jq -r '[.spec.template.spec.volumes[] | select(.secret.secretName=="payments-db") | (.secret.defaultMode // (.secret.items[0].mode // 420))] | .[0]'
+    expect: {equals: "256"}
+    explain: >-
+      defaultMode is written in octal in YAML (0400) and stored as decimal 256. The default 0644 lets every user in the container read the file.

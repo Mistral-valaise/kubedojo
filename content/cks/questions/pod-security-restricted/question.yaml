@@ -1,0 +1,50 @@
+title: Enforce the restricted Pod Security Standard
+domain: microservice-vulnerabilities
+difficulty: medium
+minutes: 9
+environment: base
+tags: [pod-security, securitycontext, admission]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  1. Configure Namespace `sec-magpie` so that the Pod Security Standard `restricted` is **enforced**.
+  2. Deployment `web` in that Namespace must keep running with `2` replicas. Adjust its Pod template
+     so that it complies with `restricted`. Keep the image.
+hints:
+  - "`kubectl label namespace sec-magpie pod-security.kubernetes.io/enforce=restricted`. Existing Pods keep running, but the Deployment can no longer create new ones — try `kubectl -n sec-magpie rollout restart deploy web` and then `kubectl -n sec-magpie describe rs`."
+  - "The ReplicaSet's event lists every violation: allowPrivilegeEscalation, capabilities, runAsNonRoot, seccompProfile."
+  - "Container securityContext: `allowPrivilegeEscalation: false`, `capabilities: {drop: [ALL]}`, `runAsNonRoot: true`, `seccompProfile: {type: RuntimeDefault}`. The image already runs as a non-root user."
+checks:
+  - id: label
+    title: Namespace sec-magpie enforces restricted
+    type: resource
+    resource: namespace/sec-magpie
+    jsonpath: "{.metadata.labels.pod-security\\.kubernetes\\.io/enforce}"
+    expect: {equals: restricted}
+    explain: >-
+      Pod Security Admission is configured per Namespace with labels. Only the mode `enforce` rejects Pods; `warn` and `audit` just report.
+  - id: rejects
+    title: A privileged Pod is rejected in the Namespace
+    type: exec
+    run: |-
+      kubectl -n sec-magpie run psa-probe --image=busybox:1.36 --privileged --dry-run=server -o name 2>&1 | grep -c 'violates PodSecurity'
+    expect: {equals: "1"}
+    explain: >-
+      A server-side dry run sends the object through admission without creating it — the quickest way to test a policy.
+  - id: compliant
+    title: The Deployment's Pod template complies with restricted
+    type: exec
+    run: |-
+      kubectl -n sec-magpie get deploy web -o json | jq '{apiVersion:"v1",kind:"Pod",metadata:{name:"psa-template-probe"},spec:.spec.template.spec}' | kubectl -n sec-magpie apply --dry-run=server -f - 2>&1 | grep -c 'created (server dry run)'
+    expect: {equals: "1"}
+    explain: >-
+      restricted requires, per container: allowPrivilegeEscalation false, all capabilities dropped, runAsNonRoot true and a seccomp profile of RuntimeDefault or Localhost.
+  - id: running
+    title: Deployment web runs 2 ready replicas of the new template
+    type: resource
+    resource: deployment/web
+    namespace: sec-magpie
+    jsonpath: "{.status.readyReplicas}/{.status.updatedReplicas}/{.status.replicas}"
+    expect: {equals: 2/2/2}
+    explain: >-
+      Labeling a Namespace does not evict running Pods. A workload is only really compliant when its new Pods are admitted and become ready.

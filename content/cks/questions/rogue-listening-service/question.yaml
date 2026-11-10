@@ -1,0 +1,55 @@
+title: Remove an unwanted network service
+domain: system-hardening
+difficulty: medium
+minutes: 8
+environment: secure
+tags: [systemd, ports, attack-surface]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A port scan shows that node `{{worker}}` accepts connections on TCP port `9977`. Nobody knows which
+  service this is; it does not belong on a Kubernetes node.
+
+  1. Find the program that listens on port `9977` on `{{worker}}` and write the full path of its
+     binary to `/opt/course/listener/binary` on `{{host}}`.
+  2. Stop the service and make sure it does not start again at boot.
+  3. Delete the binary from `{{worker}}`.
+hints:
+  - "On the node: `sudo ss -ltnp | grep 9977` shows the listening process and its PID. `ls -l /proc/<pid>/exe` shows the binary."
+  - "`systemctl status <pid>` tells you which systemd unit a process belongs to."
+  - "`sudo systemctl disable --now <unit>` stops it and removes it from the boot sequence. Then delete the binary."
+checks:
+  - id: binary
+    title: The binary is identified correctly
+    type: file
+    path: /opt/course/listener/binary
+    expect: {equals: /usr/local/sbin/telemetry-relay}
+    explain: >-
+      `ss -ltnp` maps a listening port to a PID, and /proc/<pid>/exe is a link to the program file — regardless of what the process calls itself.
+  - id: closed
+    title: Nothing listens on port 9977 any more
+    type: exec
+    on: worker
+    run: |-
+      ss -ltn | grep -c ':9977 ' || true
+    expect: {equals: "0"}
+    explain: >-
+      Every open port is attack surface. Nodes should expose only what Kubernetes needs (kubelet, kube-proxy, CNI).
+  - id: disabled
+    title: The service will not start at boot
+    type: exec
+    on: worker
+    run: |-
+      s=$(systemctl is-enabled telemetry-relay 2>/dev/null); case "$s" in enabled|enabled-runtime|static|linked) echo enabled;; *) echo off;; esac
+    expect: {equals: "off"}
+    explain: >-
+      Killing the process is not enough — systemd would start it again on the next boot (or immediately, with Restart=always). `systemctl disable --now` does both.
+  - id: removed
+    title: The binary is deleted
+    type: exec
+    on: worker
+    run: |-
+      test -e /usr/local/sbin/telemetry-relay && echo present || echo removed
+    expect: {equals: removed}
+    explain: >-
+      Software that is not installed cannot be started by mistake or by an attacker.

@@ -1,0 +1,48 @@
+title: Terminate TLS on an Ingress
+domain: cluster-setup
+difficulty: easy
+minutes: 6
+environment: base
+tags: [ingress, tls, secret]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Ingress `portal` in Namespace `sec-finch` serves `portal.finch.example` over plain HTTP.
+  A certificate and its key were issued for this host and are stored on `{{host}}`:
+
+  - `/opt/course/tls/portal.crt`
+  - `/opt/course/tls/portal.key`
+
+  1. Create a TLS Secret named `portal-tls` in Namespace `sec-finch` from these files.
+  2. Configure the Ingress `portal` to terminate TLS for host `portal.finch.example` with that Secret.
+hints:
+  - "`kubectl create secret tls -h`"
+  - "`kubectl -n sec-finch create secret tls portal-tls --cert=/opt/course/tls/portal.crt --key=/opt/course/tls/portal.key`"
+  - "Add `spec.tls` to the Ingress: a list with `hosts: [portal.finch.example]` and `secretName: portal-tls`."
+checks:
+  - id: secret
+    title: Secret portal-tls is a TLS Secret with the issued certificate
+    type: exec
+    run: |-
+      t=$(kubectl -n sec-finch get secret portal-tls -o jsonpath='{.type}'); s=$(kubectl -n sec-finch get secret portal-tls -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -subject | tr -d ' '); echo "$t $s"
+    expect: {matches: "^kubernetes\\.io/tls .*CN=portal\\.finch\\.example"}
+    explain: >-
+      Ingress controllers expect Secrets of type kubernetes.io/tls with the keys tls.crt and tls.key. `kubectl create secret tls` builds exactly that and validates that certificate and key belong together.
+  - id: ingress
+    title: The Ingress terminates TLS for the host with that Secret
+    type: resource
+    resource: ingress/portal
+    namespace: sec-finch
+    jsonpath: "{.spec.tls[0].secretName} {.spec.tls[0].hosts[0]}"
+    expect: {equals: portal-tls portal.finch.example}
+    explain: >-
+      spec.tls maps host names to a Secret in the same Namespace. Without the host entry the controller may serve its default (self-signed) certificate instead.
+  - id: rule-kept
+    title: The routing rule is unchanged
+    type: resource
+    resource: ingress/portal
+    namespace: sec-finch
+    jsonpath: "{.spec.rules[0].host} {.spec.rules[0].http.paths[0].backend.service.name}"
+    expect: {equals: portal.finch.example portal}
+    explain: >-
+      TLS is added next to the rules; the routing itself does not change.

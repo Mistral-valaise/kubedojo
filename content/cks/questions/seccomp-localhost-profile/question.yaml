@@ -1,0 +1,46 @@
+title: Apply a custom seccomp profile
+domain: system-hardening
+difficulty: medium
+minutes: 8
+environment: base
+tags: [seccomp, kubelet, securitycontext]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The security team wrote a seccomp profile that blocks a few dangerous system calls. It is stored on
+  `{{host}}` at `/opt/course/seccomp/deny-dangerous.json`.
+
+  1. Make the profile available to the kubelet on node `{{worker}}` under the name
+     `profiles/deny-dangerous.json`.
+  2. Create a Pod named `hardened` in Namespace `sec-lark` with image `nginx:1.27-alpine` that runs with
+     this profile.
+hints:
+  - "The kubelet looks for `Localhost` profiles below `/var/lib/kubelet/seccomp/` **on the node where the Pod runs**. Copy the file there, e.g. with `scp` from `{{host}}` to `{{worker}}`."
+  - "Target path on the worker: `/var/lib/kubelet/seccomp/profiles/deny-dangerous.json` (create the directory, needs root)."
+  - "Pod: `spec.securityContext.seccompProfile` with `type: Localhost` and `localhostProfile: profiles/deny-dangerous.json`."
+checks:
+  - id: file
+    title: The profile is installed on the worker node
+    type: exec
+    on: worker
+    run: |-
+      jq -r '.defaultAction' /var/lib/kubelet/seccomp/profiles/deny-dangerous.json
+    expect: {equals: SCMP_ACT_ALLOW}
+    explain: >-
+      Localhost profiles are plain files on the node. The path in the Pod spec is relative to the kubelet's seccomp directory /var/lib/kubelet/seccomp.
+  - id: spec
+    title: The Pod references the Localhost profile
+    type: exec
+    run: |-
+      kubectl -n sec-lark get pod hardened -o json | jq -r '[.spec.securityContext.seccompProfile, (.spec.containers[0].securityContext.seccompProfile)] | map(select(. != null)) | .[0] | "\(.type) \(.localhostProfile)"'
+    expect: {equals: Localhost profiles/deny-dangerous.json}
+    explain: >-
+      seccompProfile can be set for the whole Pod or per container. Type Localhost needs localhostProfile; RuntimeDefault would use the runtime's built-in profile instead.
+  - id: active
+    title: The container runs with a seccomp filter
+    type: exec
+    run: |-
+      kubectl -n sec-lark exec hardened -- grep '^Seccomp:' /proc/1/status | awk '{print $2}'
+    expect: {equals: "2"}
+    explain: >-
+      /proc/<pid>/status shows the seccomp mode of a process: 0 = none, 2 = filter. If the profile file is missing on the node the container fails with CreateContainerError instead.

@@ -1,0 +1,56 @@
+title: Harden a Dockerfile
+domain: supply-chain-security
+difficulty: medium
+minutes: 7
+environment: base
+tags: [dockerfile, images, static-analysis]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The Dockerfile `/opt/course/docker/Dockerfile` on `{{host}}` builds the image of an internal API.
+  A review found three security problems. Fix them **in that file**; change nothing else:
+
+  1. The base image is not pinned. Use `python:3.13-slim`.
+  2. A credential is baked into the image. It must not be in the Dockerfile; the application will get
+     it at runtime from a Secret.
+  3. The application runs as root. The Dockerfile already creates a user `app` — the container must
+     run as that user.
+
+  You do not have to build the image.
+hints:
+  - "Problem 1 is the `FROM` line, problem 2 an `ENV` line, problem 3 the `USER` instruction."
+  - "Only the **last** `USER` instruction decides which user the container runs as. Package installation still needs root, so keep that part above."
+  - "Delete the `ENV API_TOKEN=...` line entirely — `ARG` would leave it in the image history as well."
+checks:
+  - id: base
+    title: The base image is pinned to python:3.13-slim
+    type: exec
+    run: |-
+      grep -E '^FROM ' /opt/course/docker/Dockerfile | xargs
+    expect: {equals: "FROM python:3.13-slim"}
+    explain: >-
+      `latest` (or no tag) means the image changes whenever the upstream does — builds are not reproducible and a compromised upstream tag lands in production unnoticed.
+  - id: secret
+    title: No credential is baked into the image
+    type: exec
+    run: |-
+      grep -c -E 'API_TOKEN|tok_live' /opt/course/docker/Dockerfile || true
+    expect: {equals: "0"}
+    explain: >-
+      ENV and ARG values and every copied file stay readable in the image layers and history forever, for anyone who can pull the image. Credentials are injected at runtime.
+  - id: user
+    title: The container runs as user app
+    type: exec
+    run: |-
+      grep -E '^USER ' /opt/course/docker/Dockerfile | tail -1 | xargs
+    expect: {equals: "USER app"}
+    explain: >-
+      A process running as root inside a container is root on the node if it escapes. The last USER instruction wins.
+  - id: intact
+    title: The rest of the build is intact
+    type: exec
+    run: |-
+      grep -c -E '^(RUN useradd|COPY |RUN pip install|CMD )' /opt/course/docker/Dockerfile
+    expect: {equals: "5"}
+    explain: >-
+      Hardening changes how the image is built and run, not what the application does.

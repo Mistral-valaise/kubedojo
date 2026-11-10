@@ -575,7 +575,7 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 		m.mu.Unlock()
 		return nil
 	}
-	wasReady := qs.Status == "ready" || qs.Last != nil
+	wasReady := qs.Status == "ready" || qs.Status == "error" || qs.Last != nil
 	qs.Status, qs.Error = "preparing", ""
 	if reset {
 		qs.Last = nil
@@ -590,8 +590,18 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 		defer cancel()
 		logf := m.logf(s)
 		start := time.Now()
+		recreated := false
+		var err error
+		if q.FreshEnvironment && wasReady {
+			recreated = true
+			err = m.dropEnv(ctx, s, t, q.Environment, logf)
+		}
+		m.mu.Lock()
 		_, had := s.Envs[q.Environment]
-		err := m.ensureEnv(ctx, s, t, q.Environment, logf)
+		m.mu.Unlock()
+		if err == nil {
+			err = m.ensureEnv(ctx, s, t, q.Environment, logf)
+		}
 		if !had && m.hooks.Provisioned != nil {
 			m.hooks.Provisioned(s.Track, s.Mode, time.Since(start), err)
 		}
@@ -600,7 +610,7 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 		}
 		if err == nil {
 			logf("Setting up question %q ...", q.Title)
-			err = m.setup(ctx, s, q, reset || wasReady)
+			err = m.setup(ctx, s, q, (reset || wasReady) && !recreated)
 		}
 		m.update(s, func() {
 			if err != nil {
@@ -615,6 +625,34 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 			logf("Question %q is ready.", q.Title)
 		}
 	}()
+	return nil
+}
+
+// dropEnv deletes the cluster of an environment so it can be created afresh.
+// Every question that lived on it goes back to pending.
+func (m *Manager) dropEnv(ctx context.Context, s *Session, t *catalog.Track, env string, logf func(string, ...any)) error {
+	m.mu.Lock()
+	alias := s.Envs[env]
+	m.mu.Unlock()
+	if alias == "" {
+		return nil
+	}
+	host, err := m.hosts.Acquire(ctx, s.ID, logf)
+	if err != nil {
+		return err
+	}
+	logf("Recreating cluster %s for a clean start ...", alias)
+	if err := m.drv.DeleteEnv(ctx, host, alias); err != nil {
+		return err
+	}
+	m.update(s, func() {
+		delete(s.Envs, env)
+		for _, x := range s.Questions {
+			if o := t.Question(x.ID); o != nil && o.Environment == env && x.Status == "ready" {
+				x.Status = "pending"
+			}
+		}
+	})
 	return nil
 }
 

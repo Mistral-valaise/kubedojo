@@ -1,0 +1,47 @@
+title: Pin an image by digest
+domain: supply-chain-security
+difficulty: medium
+minutes: 7
+environment: base
+tags: [images, digest, immutability]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `edge` in Namespace `sec-swift` references its image by the mutable tag
+  `nginx:1.27-alpine`. Policy requires that production workloads reference images by digest.
+
+  1. Write the digest (`sha256:...`) of the image the Deployment's Pods are **currently running** to
+     `/opt/course/digest/edge` on `{{host}}`.
+  2. Change the Deployment to reference exactly that image by digest instead of by tag. All replicas
+     must be running afterwards.
+hints:
+  - "The digest of a running container is in the Pod's status: `kubectl -n sec-swift get pod -o jsonpath='{.items[0].status.containerStatuses[0].imageID}'`."
+  - "An image reference by digest has the form `repository@sha256:<64 hex characters>`, for example `docker.io/library/nginx@sha256:...`."
+  - "`kubectl -n sec-swift set image deploy edge nginx=docker.io/library/nginx@sha256:...`"
+checks:
+  - id: by-digest
+    title: The Deployment references nginx by digest
+    type: resource
+    resource: deployment/edge
+    namespace: sec-swift
+    jsonpath: "{.spec.template.spec.containers[0].image}"
+    expect: {matches: "^(docker\\.io/)?(library/)?nginx(:[\\w.-]+)?@sha256:[a-f0-9]{64}$"}
+    explain: >-
+      A tag is a movable pointer: whoever controls the registry can put different content behind it. A digest is the hash of the image content — it cannot change.
+  - id: file
+    title: The file contains the same digest
+    type: exec
+    run: |-
+      d=$(kubectl -n sec-swift get deploy edge -o jsonpath='{.spec.template.spec.containers[0].image}' | grep -o 'sha256:[a-f0-9]*'); [ -n "$d" ] && [ "$(tr -d '[:space:]' < /opt/course/digest/edge)" = "$d" ] && echo ok
+    expect: {equals: ok}
+    explain: >-
+      The digest is the part after the @, including the sha256: prefix.
+  - id: running
+    title: All replicas run the pinned image
+    type: resource
+    resource: deployment/edge
+    namespace: sec-swift
+    jsonpath: "{.status.readyReplicas}/{.status.updatedReplicas}/{.status.replicas}"
+    expect: {equals: 2/2/2}
+    explain: >-
+      A wrong or mistyped digest cannot be pulled — the rollout would hang in ImagePullBackOff. Ready replicas prove the digest exists.

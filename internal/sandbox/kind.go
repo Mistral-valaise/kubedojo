@@ -179,18 +179,19 @@ sudo mkdir -p /opt/course && sudo chown candidate:candidate /opt/course
 }
 
 func (k *Kind) Exec(ctx context.Context, h dockerhost.Host, sessionID string, t Target, user, script string, env map[string]string) (ExecResult, error) {
-	args := []string{"exec", "-i"}
+	args := []string{"exec"}
 	if user != "" {
 		args = append(args, "-u", user)
 	}
 	for key, v := range env {
 		args = append(args, "-e", key+"="+v)
 	}
-	args = append(args, containerFor(sessionID, t), "bash", "-s")
+	// The script is passed as an argument, not on stdin: commands inside it
+	// that read stdin (ssh, kubectl exec -i) would otherwise swallow the rest.
+	args = append(args, containerFor(sessionID, t), "bash", "-c", script)
 	cmd := h.Command(ctx, "docker", args...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
-	cmd.Stdin = strings.NewReader(script)
 	err := cmd.Run()
 	res := ExecResult{Stdout: out.String(), Stderr: errb.String()}
 	var ee *exec.ExitError
@@ -254,10 +255,15 @@ func (k *Kind) Attach(ctx context.Context, h dockerhost.Host, sessionID string, 
 	}, nil
 }
 
+func (k *Kind) DeleteEnv(ctx context.Context, h dockerhost.Host, alias string) error {
+	_, err := run(h.Command(ctx, k.kind(), "delete", "cluster", "--name", alias), "")
+	return err
+}
+
 func (k *Kind) Destroy(ctx context.Context, h dockerhost.Host, sessionID string, aliases []string) error {
 	var errs []error
 	for _, a := range aliases {
-		if _, err := run(h.Command(ctx, k.kind(), "delete", "cluster", "--name", a), ""); err != nil {
+		if err := k.DeleteEnv(ctx, h, a); err != nil {
 			errs = append(errs, err)
 		}
 	}

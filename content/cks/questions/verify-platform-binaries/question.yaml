@@ -1,0 +1,35 @@
+title: Verify platform binaries
+domain: cluster-setup
+difficulty: easy
+minutes: 6
+environment: secure
+tags: [checksums, binaries, sha512]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Three `kubectl` binaries were collected from different jump hosts and stored in
+  `/opt/course/binaries/` on `{{host}}`. The file `kubectl.sha512` in the same directory contains the
+  official SHA-512 checksum of the release.
+
+  1. Find out which of the binaries do **not** match the official checksum and write their file names
+     (without directory), one per line, to `/opt/course/binaries/tampered`.
+  2. Delete the binaries that do not match.
+hints:
+  - "`sha512sum /opt/course/binaries/kubectl-*` prints the checksum of each file."
+  - "Compare with `cat /opt/course/binaries/kubectl.sha512`. Checksums are long — let a tool compare: `sha512sum kubectl-* | grep -v \"$(cat kubectl.sha512)\"`."
+checks:
+  - id: tampered
+    title: The mismatching binary is identified
+    type: file
+    path: /opt/course/binaries/tampered
+    expect: {sameLines: [kubectl-b]}
+    explain: >-
+      A cryptographic hash changes completely when a single byte of the file changes. Comparing the published checksum with the downloaded file proves the binary is the one the project released.
+  - id: deleted
+    title: Only the verified binaries remain
+    type: exec
+    run: |-
+      cd /opt/course/binaries && ls kubectl-? 2>/dev/null | xargs
+    expect: {equals: kubectl-a kubectl-c}
+    explain: >-
+      A binary that fails verification must not be used or left lying around where someone might run it.

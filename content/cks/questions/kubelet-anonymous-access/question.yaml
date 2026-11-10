@@ -1,0 +1,51 @@
+title: Close the kubelet's anonymous API
+domain: cluster-setup
+difficulty: medium
+minutes: 8
+environment: secure
+tags: [kubelet, cis, authentication]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A CIS benchmark run reports two failed checks for the kubelet on node `{{worker}}`:
+
+  - *Ensure that the --anonymous-auth argument is set to false*
+  - *Ensure that the --authorization-mode argument is not set to AlwaysAllow*
+
+  Right now anyone who can reach port `10250` of that node can list its Pods and run commands in them
+  without credentials.
+
+  Fix both findings in the kubelet's configuration file on `{{worker}}` so that anonymous access is
+  disabled and requests are authorized through the API server (`Webhook`). The node must be `Ready`
+  afterwards.
+hints:
+  - "Reproduce on the node: `curl -sk https://localhost:10250/pods | head -c 300`. The kubelet's configuration file is `/var/lib/kubelet/config.yaml`."
+  - "Fields: `authentication.anonymous.enabled` and `authorization.mode`."
+  - "Set them to `false` and `Webhook`, then `sudo systemctl restart kubelet`. The same curl must now answer `Unauthorized`."
+checks:
+  - id: unauthorized
+    title: Anonymous requests to the kubelet API are rejected
+    type: exec
+    on: worker
+    run: |-
+      curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:10250/pods
+    expect: {equals: "401"}
+    explain: >-
+      The kubelet serves an HTTPS API on port 10250 that can read logs and execute commands in every container on the node. With anonymous auth enabled and AlwaysAllow it needs no credentials at all.
+  - id: config
+    title: The kubelet configuration disables anonymous auth and uses Webhook authorization
+    type: exec
+    on: worker
+    run: |-
+      awk '/^authentication:/{s="authn"} /^authorization:/{s="authz"} s=="authn" && /^  anonymous:/{a=1; next} a && /enabled:/{print "anonymous=" $2; a=0} s=="authz" && /^  mode:/{print "mode=" $2}' /var/lib/kubelet/config.yaml | xargs
+    expect: {equals: "anonymous=false mode=Webhook"}
+    explain: >-
+      Webhook authorization makes the kubelet ask the API server (SubjectAccessReview) whether a caller may access a node sub-resource, so normal RBAC applies.
+  - id: ready
+    title: The kubelet runs and the node is Ready
+    type: exec
+    run: |-
+      kubectl get node ${KD_HOST}-worker -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+    expect: {equals: "True"}
+    explain: >-
+      A typo in config.yaml stops the kubelet from starting. After every change check `systemctl status kubelet` and the node status.

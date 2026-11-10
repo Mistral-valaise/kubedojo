@@ -1,0 +1,55 @@
+title: Default deny with a narrow exception
+domain: cluster-setup
+difficulty: hard
+minutes: 10
+environment: base
+tags: [networkpolicy, default-deny, egress]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Namespace `sec-vault` must be isolated.
+
+  1. Create a NetworkPolicy named `default-deny` that blocks **all** incoming and outgoing traffic for
+     every Pod in Namespace `sec-vault`.
+  2. Create a NetworkPolicy named `client-to-vault` that allows exactly this, on top of the default deny:
+     - Pods labeled `app=client` may connect to Pods labeled `app=vault` on TCP port `8200`
+     - Pods labeled `app=client` may resolve DNS names (port `53`, UDP and TCP)
+
+  Nothing else may be allowed. Pods labeled `app=client` must, for example, not reach the Kubernetes API.
+hints:
+  - "Default deny: an empty `podSelector: {}` with `policyTypes: [Ingress, Egress]` and no rules."
+  - "With deny in both directions a connection needs two permissions: **egress** on the client and **ingress** on the vault. One NetworkPolicy object can only select one group of Pods — but nothing stops you from putting several YAML documents... into separate policies. The task only requires `client-to-vault` to make the connection work, so think about which Pods it should select and whether a second policy for the other direction is needed."
+  - "A workable layout: `client-to-vault` selects `app=vault` and allows ingress from `app=client` on 8200. A third policy (any name) selects `app=client` and allows egress to `app=vault` on 8200 plus port 53 to anywhere."
+checks:
+  - id: deny
+    title: default-deny selects all Pods for Ingress and Egress
+    type: exec
+    run: |-
+      kubectl -n sec-vault get netpol default-deny -o json | jq -r '[(.spec.podSelector | length == 0), (.spec.policyTypes | sort | join(",")), ((.spec.ingress // []) | length), ((.spec.egress // []) | length)] | join(" ")'
+    expect: {equals: "true Egress,Ingress 0 0"}
+    explain: >-
+      An empty podSelector matches every Pod of the Namespace. Listing a policy type without any rule for it means "allow nothing" in that direction.
+  - id: client-vault
+    title: client can connect to vault on port 8200 by name
+    type: exec
+    run: |-
+      kubectl -n sec-vault exec deploy/client -- nc -z -w 4 vault 8200 && echo open || echo blocked
+    expect: {equals: open}
+    explain: >-
+      This needs three things at once: DNS egress for the client (to resolve "vault"), egress from client to vault, and ingress on vault from client. If one is missing the connection times out.
+  - id: other-blocked
+    title: Other Pods cannot connect to vault
+    type: exec
+    run: |-
+      kubectl -n sec-vault exec deploy/batch -- nc -z -w 3 "$(kubectl -n sec-vault get svc vault -o jsonpath='{.spec.clusterIP}')" 8200 && echo open || echo blocked
+    expect: {equals: blocked}
+    explain: >-
+      Only app=client was to be allowed. A rule with an empty podSelector under `from` would allow the whole Namespace.
+  - id: client-api-blocked
+    title: client cannot reach the Kubernetes API
+    type: exec
+    run: |-
+      kubectl -n sec-vault exec deploy/client -- nc -z -w 3 "$(kubectl get svc kubernetes -o jsonpath='{.spec.clusterIP}')" 443 && echo open || echo blocked
+    expect: {equals: blocked}
+    explain: >-
+      Egress for the client must be limited to the vault Pods and DNS. An egress rule without `to` (or with only ports) opens that port to every destination.

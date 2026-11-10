@@ -1,0 +1,44 @@
+title: Harden the API server configuration
+domain: cluster-hardening
+difficulty: medium
+minutes: 8
+environment: secure
+tags: [apiserver, admission, noderestriction, cis]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A CIS benchmark run reports two failed checks for the kube-apiserver of this cluster:
+
+  - *Ensure that the admission control plugin NodeRestriction is set*
+  - *Ensure that the --profiling argument is set to false*
+
+  Fix both findings. The API server must be running with the new settings afterwards.
+hints:
+  - "The API server is a static Pod: `/etc/kubernetes/manifests/kube-apiserver.yaml` on the control plane node. Make a backup **outside** that directory first."
+  - "Flags: `--enable-admission-plugins=...` (comma-separated list) and `--profiling=false`."
+  - "After saving, the kubelet restarts the API server; `kubectl` is unavailable for up to a minute. Watch `sudo crictl ps | grep apiserver`. If it does not come back, check `sudo crictl ps -a` and `sudo crictl logs <id>`."
+checks:
+  - id: noderestriction
+    title: The running API server has NodeRestriction enabled
+    type: exec
+    run: |-
+      pgrep -a kube-apiserver | tr ' ' '\n' | grep -- '^--enable-admission-plugins=' | cut -d= -f2 | tr ',' '\n' | grep -c '^NodeRestriction$'
+    expect: {equals: "1"}
+    explain: >-
+      NodeRestriction limits each kubelet to its own Node object and the Pods bound to it. Without it, a compromised node could modify other nodes or label itself to attract sensitive workloads.
+  - id: profiling
+    title: The running API server has profiling disabled
+    type: exec
+    run: |-
+      pgrep -a kube-apiserver | tr ' ' '\n' | grep -c -- '^--profiling=false$'
+    expect: {equals: "1"}
+    explain: >-
+      The profiling endpoint (/debug/pprof) exposes internals and can be abused for denial of service. It is enabled by default and must be switched off explicitly.
+  - id: healthy
+    title: The API server is healthy
+    type: exec
+    run: |-
+      kubectl get --raw /readyz
+    expect: {equals: ok}
+    explain: >-
+      An invalid flag keeps the static Pod crash-looping and takes the whole cluster API down. Checking the process and /readyz after the change is part of the job.
