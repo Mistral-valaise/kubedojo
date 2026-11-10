@@ -1,0 +1,39 @@
+id: cka
+title: Certified Kubernetes Administrator
+short: CKA
+description: >-
+  Install, configure and operate Kubernetes clusters. Performance-based exam:
+  you solve real tasks on real clusters from a terminal.
+kubernetesVersion: v1.36
+exam:
+  durationMinutes: 120
+  passPercent: 66
+  questions: 17
+domains:
+  - id: troubleshooting
+    title: Troubleshooting
+    weight: 30
+    summary: Find out why clusters, nodes, workloads and networking are broken, and fix them.
+  - id: cluster-architecture
+    title: Cluster Architecture, Installation & Configuration
+    weight: 25
+    summary: RBAC, kubeadm, etcd, certificates, Helm, Kustomize, CRDs and operators.
+  - id: services-networking
+    title: Services & Networking
+    weight: 20
+    summary: Services, DNS, NetworkPolicies, Ingress and the Gateway API.
+  - id: workloads-scheduling
+    title: Workloads & Scheduling
+    weight: 15
+    summary: Deployments, rollouts, autoscaling, ConfigMaps, Secrets and how the scheduler places Pods.
+  - id: storage
+    title: Storage
+    weight: 10
+    summary: Volumes, PersistentVolumes, claims, StorageClasses and dynamic provisioning.
+environments:
+  base:
+    workers: 2
+    description: General purpose cluster for workload, networking and storage tasks.
+  ops:
+    workers: 1
+    description: Cluster for control plane and node surgery (etcd, certificates, kubelet, static Pods).

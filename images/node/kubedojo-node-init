@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Runs once per node after the cluster is up.
+#   kubedojo-node-init <ssh-public-key> [hostname-alias]
+set -euo pipefail
+PUBKEY="${1:?public key required}"
+
+for home in /root /home/candidate; do
+  mkdir -p "$home/.ssh"
+  echo "$PUBKEY" > "$home/.ssh/authorized_keys"
+  chmod 700 "$home/.ssh"; chmod 600 "$home/.ssh/authorized_keys"
+done
+chown -R candidate:candidate /home/candidate/.ssh
+
+# Control plane nodes: give both users a working kubeconfig.
+if [ -f /etc/kubernetes/admin.conf ]; then
+  for home in /root /home/candidate; do
+    mkdir -p "$home/.kube"
+    cp /etc/kubernetes/admin.conf "$home/.kube/config"
+    chmod 600 "$home/.kube/config"
+  done
+  chown -R candidate:candidate /home/candidate/.kube
+fi
+
+mkdir -p /opt/course && chown candidate:candidate /opt/course
+systemctl restart ssh >/dev/null 2>&1 || systemctl start ssh

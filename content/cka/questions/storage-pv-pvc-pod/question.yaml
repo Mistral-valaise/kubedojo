@@ -1,0 +1,69 @@
+title: PersistentVolume, claim and Pod
+domain: storage
+difficulty: medium
+minutes: 8
+environment: base
+tags: [pv, pvc, volumes]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  1. Create a PersistentVolume named `archive-pv` with capacity `2Gi`, access mode `ReadWriteOnce`,
+     `hostPath` `/var/lib/archive` and **no** `storageClassName`.
+  2. In Namespace `team-heron` create a PersistentVolumeClaim named `archive-pvc` that requests `2Gi`,
+     access mode `ReadWriteOnce` and no `storageClassName`. It must bind to `archive-pv`.
+  3. In Namespace `team-heron` create a Deployment named `archive` with one replica of image
+     `httpd:2.4-alpine` that mounts the claim at `/usr/local/apache2/htdocs`.
+hints:
+  - "There is no imperative command for PVs and PVCs. Copy an example from the Kubernetes docs (search for *Configure a Pod to Use a PersistentVolume*)."
+  - "The cluster has a default StorageClass. A PVC without `storageClassName` gets that default and will **not** bind to your PV. Set `storageClassName: \"\"` explicitly on the claim."
+  - "Generate the Deployment with `kubectl -n team-heron create deployment archive --image=httpd:2.4-alpine $do > deploy.yaml`, then add `volumes` and `volumeMounts`."
+checks:
+  - id: pv-capacity
+    title: PersistentVolume archive-pv has 2Gi capacity
+    type: resource
+    resource: pv/archive-pv
+    jsonpath: "{.spec.capacity.storage}"
+    expect: {equals: 2Gi}
+    explain: PersistentVolumes are cluster scoped. The capacity is what claims are matched against.
+  - id: pv-hostpath
+    title: archive-pv uses hostPath /var/lib/archive
+    type: resource
+    resource: pv/archive-pv
+    jsonpath: "{.spec.hostPath.path}"
+    expect: {equals: /var/lib/archive}
+    explain: The volume source defines where data physically lives.
+  - id: pvc-bound
+    title: Claim archive-pvc is Bound to archive-pv
+    type: resource
+    resource: pvc/archive-pvc
+    namespace: team-heron
+    jsonpath: "{.status.phase} {.spec.volumeName}"
+    expect: {equals: Bound archive-pv}
+    explain: >-
+      A claim binds to a PV only if capacity, access modes and storageClassName match. With a default
+      StorageClass in the cluster, omitting storageClassName on the claim triggers dynamic provisioning
+      of a new volume instead of binding to yours — use storageClassName "" to opt out.
+  - id: deploy-ready
+    title: Deployment archive has one ready replica
+    type: resource
+    resource: deployment/archive
+    namespace: team-heron
+    jsonpath: "{.status.readyReplicas}"
+    expect: {equals: "1"}
+    explain: The Pod only starts when its claim is bound and the volume can be mounted.
+  - id: mount
+    title: The claim is mounted at /usr/local/apache2/htdocs
+    type: exec
+    run: >-
+      kubectl -n team-heron get deploy archive
+      -o jsonpath='{range .spec.template.spec.containers[*].volumeMounts[*]}{.mountPath}{"\n"}{end}'
+    expect: {contains: [/usr/local/apache2/htdocs]}
+    explain: volumes declares the claim on Pod level, volumeMounts places it into the container's filesystem.
+  - id: uses-claim
+    title: The Deployment uses claim archive-pvc
+    type: resource
+    resource: deployment/archive
+    namespace: team-heron
+    jsonpath: "{.spec.template.spec.volumes[*].persistentVolumeClaim.claimName}"
+    expect: {equals: archive-pvc}
+    explain: The Pod must reference the claim — not the PV directly and not an emptyDir.

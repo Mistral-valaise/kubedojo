@@ -1,0 +1,56 @@
+title: RBAC for a pipeline ServiceAccount
+domain: cluster-architecture
+difficulty: easy
+minutes: 6
+environment: base
+tags: [rbac, serviceaccount]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A deployment pipeline needs restricted access to Namespace `team-orca`.
+
+  1. Create a ServiceAccount named `pipeline` in Namespace `team-orca`.
+  2. Create a Role named `pipeline` in the same Namespace that allows to **create** and **list**
+     `deployments` and `configmaps` — nothing else.
+  3. Bind the Role to the ServiceAccount with a RoleBinding named `pipeline`.
+hints:
+  - "`kubectl create` can generate ServiceAccounts, Roles and RoleBindings imperatively — no YAML needed. Check `kubectl create role -h`."
+  - "Deployments live in the API group `apps`, ConfigMaps in the core group. `kubectl create role` accepts `--resource=deployments.apps,configmaps`."
+  - "Verify with `kubectl -n team-orca auth can-i create deployments --as system:serviceaccount:team-orca:pipeline`."
+checks:
+  - id: sa
+    title: ServiceAccount pipeline exists in team-orca
+    type: resource
+    resource: serviceaccount/pipeline
+    namespace: team-orca
+    explain: Identities for workloads are ServiceAccounts. They are namespaced, so it must be created in team-orca.
+  - id: can-create-deploy
+    title: The ServiceAccount can create Deployments
+    type: exec
+    run: kubectl -n team-orca auth can-i create deployments.apps --as system:serviceaccount:team-orca:pipeline
+    expect: {equals: "yes"}
+    explain: Deployments belong to the API group "apps". A Role that names the resource without the right apiGroup grants nothing.
+  - id: can-list-cm
+    title: The ServiceAccount can list ConfigMaps
+    type: exec
+    run: kubectl -n team-orca auth can-i list configmaps --as system:serviceaccount:team-orca:pipeline
+    expect: {equals: "yes"}
+    explain: ConfigMaps are in the core API group (apiGroups [""]).
+  - id: cannot-delete
+    title: The ServiceAccount cannot delete Deployments
+    type: exec
+    run: kubectl -n team-orca auth can-i delete deployments.apps --as system:serviceaccount:team-orca:pipeline
+    expect: {equals: "no", exitCode: 1}
+    explain: Least privilege — only the verbs create and list were requested. Wildcards or extra verbs fail this check.
+  - id: cannot-secrets
+    title: The ServiceAccount cannot list Secrets
+    type: exec
+    run: kubectl -n team-orca auth can-i list secrets --as system:serviceaccount:team-orca:pipeline
+    expect: {equals: "no", exitCode: 1}
+    explain: Only deployments and configmaps were requested. Binding a broad ClusterRole such as edit would expose Secrets.
+  - id: namespaced
+    title: Access is limited to team-orca
+    type: exec
+    run: kubectl -n default auth can-i list configmaps --as system:serviceaccount:team-orca:pipeline
+    expect: {equals: "no", exitCode: 1}
+    explain: A RoleBinding grants access in its own Namespace only. A ClusterRoleBinding would grant it cluster-wide.

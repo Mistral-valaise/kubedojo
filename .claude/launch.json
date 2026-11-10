@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "kubedojo",
+      "runtimeExecutable": "./bin/kubedojo",
+      "runtimeArgs": ["up", "--no-open", "--data", ".kubedojo"],
+      "port": 4400
+    }
+  ]
+}
