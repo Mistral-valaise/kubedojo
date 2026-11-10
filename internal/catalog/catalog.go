@@ -62,16 +62,16 @@ type Question struct {
 	Disruptive bool `yaml:"disruptive" json:"disruptive"`
 	// FreshEnvironment marks questions whose effects cannot be undone by a
 	// script (e.g. encrypting etcd). Resetting them recreates the cluster.
-	FreshEnvironment bool `yaml:"freshEnvironment" json:"freshEnvironment"`
-	Task        string   `yaml:"task" json:"-"`
-	Hints       []string `yaml:"hints" json:"-"`
-	Checks      []*Check `yaml:"checks" json:"-"`
-	Setup       string   `yaml:"-" json:"-"`
-	Cleanup     string   `yaml:"-" json:"-"`
-	SolutionSh  string   `yaml:"-" json:"-"`
-	SolutionMd  string   `yaml:"-" json:"-"`
-	Track       string   `yaml:"-" json:"track"`
-	Points      int      `yaml:"-" json:"points"`
+	FreshEnvironment bool     `yaml:"freshEnvironment" json:"freshEnvironment"`
+	Task             string   `yaml:"task" json:"-"`
+	Hints            []string `yaml:"hints" json:"-"`
+	Checks           []*Check `yaml:"checks" json:"-"`
+	Setup            string   `yaml:"-" json:"-"`
+	Cleanup          string   `yaml:"-" json:"-"`
+	SolutionSh       string   `yaml:"-" json:"-"`
+	SolutionMd       string   `yaml:"-" json:"-"`
+	Track            string   `yaml:"-" json:"track"`
+	Points           int      `yaml:"-" json:"points"`
 }
 
 // Check is one graded assertion. Every type boils down to "run something on a

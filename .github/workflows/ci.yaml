@@ -1,0 +1,49 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod}
+      - uses: actions/setup-node@v4
+        with: {node-version: 24, cache: npm, cache-dependency-path: web/package-lock.json}
+      - run: make build
+      - run: test -z "$(gofmt -l cmd internal content images deploy)"
+      - run: go vet ./...
+      - run: make test
+      - run: ./bin/kubedojo content lint
+      - uses: azure/setup-helm@v4
+      - run: helm lint deploy/helm/kubedojo
+      - name: Cross-compile
+        run: |
+          for target in darwin/arm64 darwin/amd64 linux/arm64 windows/amd64; do
+            GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null ./cmd/kubedojo
+          done
+
+  # Proves every question against real clusters. Slow, so it runs on main and on
+  # pull requests that touch content or the sandbox.
+  content:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'content')
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [cka, cks]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod}
+      - uses: helm/kind-action@v1
+        with: {install_only: true}
+      - run: make images go
+      - run: ./bin/kubedojo content test --track ${{ matrix.track }}
