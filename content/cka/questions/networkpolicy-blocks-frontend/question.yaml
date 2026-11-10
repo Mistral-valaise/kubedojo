@@ -1,0 +1,43 @@
+title: Frontend cannot reach the backend
+domain: troubleshooting
+difficulty: medium
+minutes: 8
+environment: base
+tags: [networkpolicy, connectivity]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  In Namespace `team-crane` the Pods of Deployment `frontend` get timeouts when calling
+  `http://backend`. The backend itself is healthy.
+
+  NetworkPolicy `backend-allow` was written to allow exactly this traffic. Fix the **policy** so that:
+
+  - Pods labeled `app=frontend` can reach the backend Pods on TCP port `80`
+  - all other Pods (for example Deployment `intruder`) still cannot
+
+  Do not delete the policy and do not change the Deployments.
+hints:
+  - "Reproduce it: `kubectl -n team-crane exec deploy/frontend -- wget -qO- -T 3 backend`. Then read the policy: `kubectl -n team-crane describe netpol backend-allow`."
+  - "A NetworkPolicy matches Pods by label. Compare the `from` podSelector with `kubectl -n team-crane get pod --show-labels`."
+  - "Two mistakes: the selector says `app: front-end` but the label is `app=frontend`, and the allowed port is 8080 while the backend listens on 80."
+checks:
+  - id: frontend-ok
+    title: frontend reaches the backend
+    type: exec
+    run: kubectl -n team-crane exec deploy/frontend -- wget -qO- -T 4 http://backend 2>/dev/null | grep -q 'Welcome to nginx' && echo reachable
+    expect: {equals: reachable}
+    explain: The policy's podSelector under `from` must match the labels of the calling Pods, and `ports` must list the port the destination Pods listen on.
+  - id: intruder-blocked
+    title: Other Pods are still blocked
+    type: exec
+    run: kubectl -n team-crane exec deploy/intruder -- wget -qO- -T 4 http://backend >/dev/null 2>&1 && echo reachable || echo blocked
+    expect: {equals: blocked}
+    explain: Deleting the policy, or allowing an empty podSelector, would open the backend to every Pod. The fix must stay as narrow as intended.
+  - id: policy-kept
+    title: NetworkPolicy backend-allow still protects app=backend
+    type: resource
+    resource: networkpolicy/backend-allow
+    namespace: team-crane
+    jsonpath: "{.spec.podSelector.matchLabels.app}"
+    expect: {equals: backend}
+    explain: spec.podSelector selects the Pods the policy protects — that part was correct.

@@ -1,0 +1,44 @@
+title: Claim does not bind
+domain: storage
+difficulty: medium
+minutes: 8
+environment: base
+tags: [pvc, pv, binding]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `ledger` in Namespace `team-osprey` cannot start because its PersistentVolumeClaim
+  `ledger-data` is `Pending`. An administrator prepared PersistentVolume `osprey-pv` for this claim.
+
+  Make the claim bind to `osprey-pv` and get the Deployment running.
+
+  - The PersistentVolume must not be changed.
+  - The claim must keep its name. You may delete and recreate it.
+hints:
+  - "`kubectl -n team-osprey describe pvc ledger-data` and `kubectl get pv osprey-pv -o yaml` — compare capacity, accessModes and storageClassName."
+  - "Most fields of a claim are immutable. You have to delete it and create a corrected one."
+  - "A claim that is referenced by a Pod is protected: deletion hangs in `Terminating` until the Pod is gone. Scale the Deployment to 0 first."
+checks:
+  - id: bound
+    title: Claim ledger-data is Bound to osprey-pv
+    type: resource
+    resource: pvc/ledger-data
+    namespace: team-osprey
+    jsonpath: "{.status.phase} {.spec.volumeName}"
+    expect: {equals: Bound osprey-pv}
+    explain: The claim asked for 10Gi and ReadWriteMany; the volume offers 5Gi and ReadWriteOnce. A claim only binds to a volume that is at least as large and offers the requested access mode.
+  - id: pv-unchanged
+    title: The PersistentVolume is unchanged
+    type: resource
+    resource: pv/osprey-pv
+    jsonpath: "{.spec.capacity.storage} {.spec.accessModes[0]} {.metadata.annotations.kubedojo\\.dev/original}"
+    expect: {equals: 5Gi ReadWriteOnce true}
+    explain: Claims adapt to the storage that exists, not the other way round.
+  - id: ready
+    title: Deployment ledger is running
+    type: resource
+    resource: deployment/ledger
+    namespace: team-osprey
+    jsonpath: "{.status.readyReplicas}"
+    expect: {equals: "1"}
+    explain: Once the claim is bound, the scheduler can place the Pod and the kubelet mounts the volume.

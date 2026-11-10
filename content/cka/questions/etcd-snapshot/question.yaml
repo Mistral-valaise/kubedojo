@@ -1,0 +1,32 @@
+title: Back up etcd
+domain: cluster-architecture
+difficulty: medium
+minutes: 7
+environment: ops
+tags: [etcd, backup]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Before a maintenance window you have to back up the cluster state.
+
+  1. Create a snapshot of etcd and store it at `/opt/course/etcd/snapshot.db` on `{{host}}`.
+  2. Write the path of the directory in which etcd stores its data to `/opt/course/etcd/data-dir`.
+
+  `etcdctl` and `etcdutl` are installed on the node.
+hints:
+  - "etcd runs as a static Pod. Everything you need — endpoint, certificate paths, data directory — is in `/etc/kubernetes/manifests/etcd.yaml`."
+  - "`etcdctl snapshot save <file>` needs `--endpoints`, `--cacert`, `--cert` and `--key`. The certificates are below `/etc/kubernetes/pki/etcd/` and readable by root only."
+  - "`sudo ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key snapshot save /opt/course/etcd/snapshot.db`"
+checks:
+  - id: snapshot
+    title: The snapshot is a valid etcd database
+    type: exec
+    run: etcdutl snapshot status /opt/course/etcd/snapshot.db -w json | jq -r 'if .totalKey > 50 then "valid" else "empty" end'
+    expect: {equals: valid}
+    explain: "`etcdutl snapshot status` verifies the file's integrity. A truncated file, or the copied data directory, is not a restorable snapshot."
+  - id: data-dir
+    title: The data directory is correct
+    type: file
+    path: /opt/course/etcd/data-dir
+    expect: {equals: /var/lib/etcd}
+    explain: The flag --data-dir in the etcd manifest names it. A restore writes a new data directory, and the manifest's hostPath volume must then point there.

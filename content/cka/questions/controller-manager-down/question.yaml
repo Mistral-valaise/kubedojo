@@ -1,0 +1,40 @@
+title: Deployments create no Pods
+domain: troubleshooting
+difficulty: medium
+minutes: 8
+environment: ops
+disruptive: true
+tags: [controller-manager, static-pod, control-plane]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `ghost` in Namespace `team-stork` was created some time ago, but it has no ReplicaSet and no
+  Pods. `kubectl get deploy -n team-stork` shows `0/2`.
+
+  Find out which cluster component is responsible, repair it, and make sure the Deployment gets its
+  ReplicaSet without recreating the Deployment.
+hints:
+  - "Deployments, ReplicaSets, Jobs, Namespaces and many more are reconciled by controllers that all live in one binary: the kube-controller-manager."
+  - "`kubectl -n kube-system get pod` shows its state. Read why it fails with `kubectl -n kube-system logs kube-controller-manager-{{host}}-control-plane` or `crictl logs`."
+  - "The manifest `/etc/kubernetes/manifests/kube-controller-manager.yaml` contains a misspelled file name in one of its `--*kubeconfig` flags. Compare with `ls /etc/kubernetes/`."
+checks:
+  - id: kcm-ready
+    title: kube-controller-manager is running and ready
+    type: exec
+    run: kubectl -n kube-system get pod -l component=kube-controller-manager -o jsonpath='{.items[0].status.containerStatuses[0].ready}'
+    expect: {equals: "true"}
+    explain: The controller manager runs the control loops that turn desired state into objects, e.g. Deployment → ReplicaSet → Pods. Without it, the API accepts objects but nothing acts on them.
+  - id: replicaset
+    title: Deployment ghost has a ReplicaSet
+    type: exec
+    run: kubectl -n team-stork get rs -l app=ghost -o name | wc -l | xargs
+    expect: {equals: "1"}
+    explain: As soon as the deployment controller runs again it reconciles all existing Deployments. Nothing needs to be recreated.
+  - id: original
+    title: The Deployment was not recreated
+    type: resource
+    resource: deployment/ghost
+    namespace: team-stork
+    jsonpath: "{.metadata.annotations.kubedojo\\.dev/original}"
+    expect: {equals: "true"}
+    explain: The Deployment itself was fine. Recreating objects hides a broken control plane instead of fixing it.

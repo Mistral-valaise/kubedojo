@@ -1,0 +1,51 @@
+title: Create a Kustomize overlay
+domain: cluster-architecture
+difficulty: medium
+minutes: 8
+environment: base
+tags: [kustomize]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The application `notifier` is defined as a Kustomize base in `/opt/course/kustomize/base`.
+
+  Create an overlay in `/opt/course/kustomize/overlays/prod` that uses this base and changes it as follows,
+  then apply the overlay to the cluster:
+
+  - all resources are deployed into Namespace `team-swift` (it exists already)
+  - all resource names get the prefix `prod-`
+  - the Deployment runs `3` replicas
+  - all resources carry the label `env: prod`
+
+  Do not modify the files in `base`.
+hints:
+  - "An overlay is a directory with its own `kustomization.yaml` that lists the base under `resources:` (relative path `../../base`)."
+  - "Kustomize has built-in fields for all four requirements: `namespace`, `namePrefix`, `replicas` and `labels`."
+  - "Render with `kubectl kustomize /opt/course/kustomize/overlays/prod`, apply with `kubectl apply -k /opt/course/kustomize/overlays/prod`."
+checks:
+  - id: renders
+    title: The overlay renders and references the base
+    type: exec
+    run: kubectl kustomize /opt/course/kustomize/overlays/prod >/dev/null && grep -Eq 'base' /opt/course/kustomize/overlays/prod/kustomization.yaml && echo ok
+    expect: {equals: ok}
+    explain: An overlay never copies manifests; it lists the base as a resource and describes only the differences.
+  - id: deployed
+    title: Deployment prod-notifier runs 3 replicas in team-swift
+    type: resource
+    resource: deployment/prod-notifier
+    namespace: team-swift
+    jsonpath: "{.spec.replicas}"
+    expect: {equals: "3"}
+    explain: namePrefix and namespace rewrite every resource, replicas patches a named Deployment. `kubectl apply -k` renders and applies in one step.
+  - id: label
+    title: Deployment and Service carry the label env=prod
+    type: exec
+    run: kubectl -n team-swift get deploy/prod-notifier svc/prod-notifier -o jsonpath='{range .items[*]}{.metadata.labels.env}{" "}{end}' | xargs
+    expect: {equals: prod prod}
+    explain: The labels field adds labels to all resources of the overlay in one place.
+  - id: base-untouched
+    title: The base is unchanged
+    type: exec
+    run: "grep -c 'replicas: 1' /opt/course/kustomize/base/deployment.yaml"
+    expect: {equals: "1"}
+    explain: The point of overlays is that the base stays environment-neutral and can be reused by dev, staging and prod.

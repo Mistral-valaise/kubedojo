@@ -1,0 +1,51 @@
+title: Pod stays Pending
+domain: troubleshooting
+difficulty: medium
+minutes: 7
+environment: base
+tags: [scheduling, resources, nodeselector]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `indexer` in Namespace `team-finch` has been `Pending` since its rollout.
+
+  The team tells you:
+
+  - The Pod is supposed to run on the node with SSD storage. That node is `{{worker2}}`, but apparently
+    nobody ever labeled it `disk=ssd`.
+  - The CPU request was meant to be `100m`.
+
+  Make the Deployment run. Do not remove the `nodeSelector` from the Deployment.
+hints:
+  - "`kubectl -n team-finch describe pod -l app=indexer` — the `FailedScheduling` event lists every reason, per node."
+  - "Label the node: `kubectl label node {{worker2}} disk=ssd`. Then describe the Pod again; the message will have changed."
+  - "The remaining reason is `Insufficient cpu`: the request is 64 whole CPUs. `kubectl -n team-finch set resources deploy indexer --requests=cpu=100m` fixes it."
+checks:
+  - id: label
+    title: Node worker2 is labeled disk=ssd
+    type: exec
+    run: kubectl get node ${KD_HOST}-worker2 -o jsonpath='{.metadata.labels.disk}'
+    expect: {equals: ssd}
+    explain: A nodeSelector only matches nodes that carry the label. "0/3 nodes are available — node(s) didn't match Pod's node affinity/selector" is the scheduler telling you no node has it.
+  - id: request
+    title: The CPU request is 100m
+    type: resource
+    resource: deployment/indexer
+    namespace: team-finch
+    jsonpath: "{.spec.template.spec.containers[0].resources.requests.cpu}"
+    expect: {equals: 100m}
+    explain: The scheduler places Pods by requests. A request larger than any node's allocatable CPU can never be satisfied ("Insufficient cpu").
+  - id: selector-kept
+    title: The nodeSelector disk=ssd is still in place
+    type: resource
+    resource: deployment/indexer
+    namespace: team-finch
+    jsonpath: "{.spec.template.spec.nodeSelector.disk}"
+    expect: {equals: ssd}
+    explain: Removing constraints makes the Pod schedulable, but on the wrong hardware.
+  - id: running-on
+    title: The Pod runs on worker2
+    type: exec
+    run: kubectl -n team-finch get pod -l app=indexer --field-selector=status.phase=Running -o jsonpath='{.items[0].spec.nodeName}'
+    expect: {matches: "-worker2$"}
+    explain: With label and request fixed there is exactly one node that fits.

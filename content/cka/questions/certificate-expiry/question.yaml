@@ -1,0 +1,36 @@
+title: When does the API server certificate expire?
+domain: cluster-architecture
+difficulty: easy
+minutes: 5
+environment: ops
+tags: [certificates, kubeadm, openssl]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The security team audits certificate lifetimes.
+
+  1. Write the expiration date of the kube-apiserver **serving** certificate to
+     `/opt/course/certs/expiration`. Any format that `date -d` understands is fine,
+     for example `Nov 10 21:31:09 2027 GMT`.
+  2. Write the `kubeadm` command that would renew this certificate to `/opt/course/certs/renew.sh`.
+     Do not run it.
+hints:
+  - "kubeadm keeps all certificates in `/etc/kubernetes/pki`. The serving certificate of the API server is `apiserver.crt`."
+  - "`openssl x509 -in <file> -noout -enddate` prints the expiration. `kubeadm certs check-expiration` lists all certificates at once."
+  - "`kubeadm certs renew -h` lists the certificate names you can renew."
+checks:
+  - id: expiration
+    title: The expiration date is correct
+    type: exec
+    run: >-
+      want=$(date -d "$(openssl x509 -in /etc/kubernetes/pki/apiserver.crt -noout -enddate | cut -d= -f2)" +%s);
+      got=$(date -d "$(cat /opt/course/certs/expiration)" +%s);
+      d=$((want-got)); [ ${d#-} -lt 86400 ] && echo ok
+    expect: {equals: ok}
+    explain: "`openssl x509 -noout -enddate` reads the notAfter field of a certificate. kubeadm-issued certificates are valid for one year, the CA for ten."
+  - id: renew
+    title: The renew command is correct
+    type: file
+    path: /opt/course/certs/renew.sh
+    expect: {matches: "kubeadm\\s+certs\\s+renew\\s+apiserver\\s*$"}
+    explain: "`kubeadm certs renew apiserver` renews exactly the serving certificate. `apiserver-kubelet-client` and `apiserver-etcd-client` are different (client) certificates."

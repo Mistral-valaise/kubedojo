@@ -1,0 +1,57 @@
+title: Custom resources and operator permissions
+domain: cluster-architecture
+difficulty: medium
+minutes: 8
+environment: base
+tags: [crd, rbac, operator]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A backup operator will soon run in Namespace `team-egret` with ServiceAccount `backup-operator`
+  (already created). It manages custom resources of kind `Backup`, defined by a CRD that is installed
+  in the cluster.
+
+  1. Create a ClusterRole named `backup-operator` that allows `get`, `list`, `watch` and `update` on the
+     `Backup` custom resources — and nothing else.
+  2. Grant these permissions to the ServiceAccount **only inside Namespace `team-egret`**, using a
+     binding named `backup-operator`.
+  3. Create a `Backup` named `nightly` in Namespace `team-egret` with schedule `0 2 * * *` and a
+     retention of `14` days.
+hints:
+  - "`kubectl get crd | grep -i backup` and `kubectl api-resources | grep -i backup` show the resource name and API group. `kubectl explain backup.spec` shows the fields."
+  - "A ClusterRole can be bound in a single Namespace with a **RoleBinding**: `kubectl -n team-egret create rolebinding ... --clusterrole=...`."
+  - "`kubectl create clusterrole backup-operator --verb=get,list,watch,update --resource=backups.ops.kubedojo.dev`"
+checks:
+  - id: can-update
+    title: The ServiceAccount can update Backups in team-egret
+    type: exec
+    run: kubectl -n team-egret auth can-i update backups.ops.kubedojo.dev --as system:serviceaccount:team-egret:backup-operator
+    expect: {equals: "yes"}
+    explain: Custom resources are addressed in RBAC like built-in ones — plural resource name plus API group of the CRD.
+  - id: cannot-delete
+    title: The ServiceAccount cannot delete Backups
+    type: exec
+    run: kubectl -n team-egret auth can-i delete backups.ops.kubedojo.dev --as system:serviceaccount:team-egret:backup-operator
+    expect: {equals: "no", exitCode: 1}
+    explain: Only four verbs were requested. Wildcards would let a compromised operator destroy all backups.
+  - id: scoped
+    title: The permissions do not apply in other Namespaces
+    type: exec
+    run: kubectl -n default auth can-i list backups.ops.kubedojo.dev --as system:serviceaccount:team-egret:backup-operator
+    expect: {equals: "no", exitCode: 1}
+    explain: ClusterRole + RoleBinding grants the role's rules in the binding's Namespace only. A ClusterRoleBinding would grant them everywhere.
+  - id: clusterrole
+    title: The rules live in ClusterRole backup-operator
+    type: resource
+    resource: clusterrole/backup-operator
+    jsonpath: "{.rules[0].resources[0]}"
+    expect: {equals: backups}
+    explain: ClusterRoles are reusable definitions; the same role can be bound in other team Namespaces later.
+  - id: backup
+    title: Backup nightly exists with the requested spec
+    type: resource
+    resource: backups.ops.kubedojo.dev/nightly
+    namespace: team-egret
+    jsonpath: "{.spec.schedule}|{.spec.retentionDays}"
+    expect: {equals: "0 2 * * *|14"}
+    explain: A CRD extends the API. Its schema defines the fields — `kubectl explain` works for custom resources too.

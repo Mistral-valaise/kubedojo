@@ -1,0 +1,53 @@
+title: Deployment never becomes ready
+domain: troubleshooting
+difficulty: medium
+minutes: 8
+environment: base
+tags: [secret, probes, deployment]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `api` in Namespace `team-raven` should run 2 replicas, but no Pod ever becomes ready.
+
+  Fix the Deployment so that both replicas are ready and stay ready. Requirements:
+
+  - Keep the image.
+  - The container must still read `API_TOKEN` from Secret `api-credentials`.
+  - The container must still have a liveness probe.
+hints:
+  - "There are two independent problems. Solve the first, then look again: `kubectl -n team-raven get pod` and `describe pod`."
+  - "`CreateContainerConfigError` means the kubelet cannot build the container's configuration. The event names the missing key. Compare with `kubectl -n team-raven describe secret api-credentials`."
+  - "After that the Pods restart every few seconds: `Liveness probe failed ... connection refused`. nginx listens on port 80, the probe checks 8080."
+checks:
+  - id: ready
+    title: Deployment api has 2 ready replicas
+    type: resource
+    resource: deployment/api
+    namespace: team-raven
+    jsonpath: "{.status.readyReplicas}"
+    expect: {equals: "2"}
+    explain: Both problems must be fixed for the Pods to start and to stay up.
+  - id: secret-ref
+    title: API_TOKEN comes from key token of Secret api-credentials
+    type: resource
+    resource: deployment/api
+    namespace: team-raven
+    jsonpath: "{.spec.template.spec.containers[0].env[?(@.name==\"API_TOKEN\")].valueFrom.secretKeyRef.name}/{.spec.template.spec.containers[0].env[?(@.name==\"API_TOKEN\")].valueFrom.secretKeyRef.key}"
+    expect: {equals: api-credentials/token}
+    explain: The Deployment referenced key "api-token", but the Secret only has "token". A secretKeyRef to a missing key keeps the container in CreateContainerConfigError. Hard-coding the value instead would leak the secret into the Pod spec.
+  - id: liveness
+    title: The liveness probe checks port 80
+    type: resource
+    resource: deployment/api
+    namespace: team-raven
+    jsonpath: "{.spec.template.spec.containers[0].livenessProbe.httpGet.port}"
+    expect: {equals: "80"}
+    explain: A liveness probe against a port nothing listens on fails forever, so the kubelet keeps killing a healthy container. Removing the probe would hide real outages.
+  - id: image
+    title: The image is unchanged
+    type: resource
+    resource: deployment/api
+    namespace: team-raven
+    jsonpath: "{.spec.template.spec.containers[0].image}"
+    expect: {equals: "nginx:1.27-alpine"}
+    explain: The image was fine. Change only what is broken.

@@ -1,0 +1,46 @@
+title: Collect cluster configuration facts
+domain: cluster-architecture
+difficulty: medium
+minutes: 7
+environment: ops
+tags: [kubeadm, control-plane, cni]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Document how this cluster is configured. Write each answer to a file in `/opt/course/facts/` on `{{host}}`:
+
+  | File | Content |
+  |---|---|
+  | `service-cidr` | the IP range Service ClusterIPs are allocated from |
+  | `pod-cidr` | the IP range Pod IPs are allocated from |
+  | `authorization-modes` | the API server's authorization modes, exactly as configured |
+  | `cni-config` | the file name (without directory) of the CNI configuration on the control plane node |
+hints:
+  - "The control plane components are static Pods; their configuration is the command-line flags in `/etc/kubernetes/manifests/*.yaml`."
+  - "Service range: `--service-cluster-ip-range` (kube-apiserver). Pod range: `--cluster-cidr` (kube-controller-manager). Authorization: `--authorization-mode` (kube-apiserver)."
+  - "CNI configuration lives in `/etc/cni/net.d/` on every node."
+checks:
+  - id: service-cidr
+    title: The Service CIDR is correct
+    type: exec
+    run: '[ "$(cat /opt/course/facts/service-cidr)" = "$(grep -o -- "--service-cluster-ip-range=[^ ]*" /etc/kubernetes/manifests/kube-apiserver.yaml | cut -d= -f2)" ] && echo ok'
+    expect: {equals: ok}
+    explain: The API server allocates ClusterIPs, so the range is its flag --service-cluster-ip-range.
+  - id: pod-cidr
+    title: The Pod CIDR is correct
+    type: exec
+    run: '[ "$(cat /opt/course/facts/pod-cidr)" = "$(grep -o -- "--cluster-cidr=[^ ]*" /etc/kubernetes/manifests/kube-controller-manager.yaml | cut -d= -f2)" ] && echo ok'
+    expect: {equals: ok}
+    explain: The controller manager hands each node a slice of --cluster-cidr (see `kubectl get node -o jsonpath='{.spec.podCIDR}'`); the CNI plugin assigns Pod IPs from that slice.
+  - id: authz
+    title: The authorization modes are correct
+    type: exec
+    run: '[ "$(cat /opt/course/facts/authorization-modes)" = "$(grep -o -- "--authorization-mode=[^ ]*" /etc/kubernetes/manifests/kube-apiserver.yaml | cut -d= -f2)" ] && echo ok'
+    expect: {equals: ok}
+    explain: "Node,RBAC is the kubeadm default: the Node authorizer limits kubelets to their own objects, RBAC handles everyone else."
+  - id: cni
+    title: The CNI configuration file is correct
+    type: exec
+    run: '[ "$(cat /opt/course/facts/cni-config)" = "$(ls /etc/cni/net.d/ | head -1)" ] && echo ok'
+    expect: {equals: ok}
+    explain: The container runtime reads the first file in /etc/cni/net.d to decide which CNI plugin wires up Pod networking.

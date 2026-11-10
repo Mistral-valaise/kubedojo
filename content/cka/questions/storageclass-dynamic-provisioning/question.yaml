@@ -1,0 +1,57 @@
+title: StorageClass and dynamic provisioning
+domain: storage
+difficulty: medium
+minutes: 8
+environment: base
+tags: [storageclass, pvc, dynamic-provisioning]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Volumes for audit reports must survive the deletion of their claim.
+
+  1. Create a StorageClass named `archive-retain` that uses the same provisioner as the cluster's existing
+     default StorageClass, with reclaim policy `Retain` and volume binding mode `WaitForFirstConsumer`.
+     It must **not** be a default class.
+  2. In Namespace `team-pelican` create a PersistentVolumeClaim `reports-data` requesting `1Gi`
+     (`ReadWriteOnce`) from that class.
+  3. In Namespace `team-pelican` create a Pod `reports` with image `nginx:1.27-alpine` that mounts the
+     claim at `/data`.
+hints:
+  - "`kubectl get sc` shows the existing class and its provisioner. `kubectl get sc standard -o yaml` is a good template — remove the default-class annotation."
+  - "With `WaitForFirstConsumer` the claim stays `Pending` until a Pod uses it. That is expected."
+  - "`reclaimPolicy` and `volumeBindingMode` are top-level fields of a StorageClass, next to `provisioner`."
+checks:
+  - id: sc
+    title: StorageClass archive-retain is configured as requested
+    type: resource
+    resource: storageclass/archive-retain
+    jsonpath: "{.provisioner} {.reclaimPolicy} {.volumeBindingMode}"
+    expect: {equals: "rancher.io/local-path Retain WaitForFirstConsumer"}
+    explain: The provisioner creates the volumes, reclaimPolicy decides what happens to a volume when its claim is deleted, volumeBindingMode decides when provisioning happens.
+  - id: not-default
+    title: archive-retain is not a default class
+    type: resource
+    resource: storageclass/archive-retain
+    jsonpath: "{.metadata.annotations.storageclass\\.kubernetes\\.io/is-default-class}"
+    expect: {notEquals: "true"}
+    explain: Copying the existing class also copies its is-default-class annotation. Two default classes make claims without a class ambiguous.
+  - id: bound
+    title: Claim reports-data is Bound through archive-retain
+    type: resource
+    resource: pvc/reports-data
+    namespace: team-pelican
+    jsonpath: "{.status.phase} {.spec.storageClassName}"
+    expect: {equals: Bound archive-retain}
+    explain: With WaitForFirstConsumer the volume is provisioned on the node the Pod is scheduled to — the claim binds only once the Pod exists.
+  - id: pv-retain
+    title: The provisioned volume has reclaim policy Retain
+    type: exec
+    run: kubectl get pv "$(kubectl -n team-pelican get pvc reports-data -o jsonpath='{.spec.volumeName}')" -o jsonpath='{.spec.persistentVolumeReclaimPolicy}'
+    expect: {equals: Retain}
+    explain: Dynamically provisioned volumes inherit the reclaim policy of their class at creation time.
+  - id: pod
+    title: Pod reports runs and mounts the claim at /data
+    type: exec
+    run: kubectl -n team-pelican get pod reports -o jsonpath='{.status.phase} {.spec.containers[0].volumeMounts[?(@.mountPath=="/data")].name}={.spec.volumes[?(@.persistentVolumeClaim.claimName=="reports-data")].name}' | awk '{split($2,a,"="); if ($1=="Running" && a[1]!="" && a[1]==a[2]) print "ok"}'
+    expect: {equals: ok}
+    explain: The Pod references the claim under volumes and mounts that volume by name under volumeMounts.

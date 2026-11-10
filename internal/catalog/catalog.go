@@ -56,6 +56,10 @@ type Question struct {
 	Environment string   `yaml:"environment" json:"environment"`
 	Driver      string   `yaml:"driver" json:"driver"`
 	Tags        []string `yaml:"tags" json:"tags"`
+	// Disruptive questions break cluster-wide components (kubelet, scheduler,
+	// DNS). They need a cleanup.sh that restores a healthy cluster, which
+	// practice mode runs before another question is prepared.
+	Disruptive bool `yaml:"disruptive" json:"disruptive"`
 	Task        string   `yaml:"task" json:"-"`
 	Hints       []string `yaml:"hints" json:"-"`
 	Checks      []*Check `yaml:"checks" json:"-"`
@@ -271,6 +275,9 @@ func loadQuestion(fsys fs.FS, dir, name string, t *Track) (*Question, []error) {
 	}
 	if q.SolutionMd == "" {
 		fail("solution.md is required")
+	}
+	if q.Disruptive && q.Cleanup == "" {
+		fail("disruptive questions need a cleanup.sh that restores a healthy cluster")
 	}
 	if len(q.Checks) == 0 {
 		fail("at least one check is required")

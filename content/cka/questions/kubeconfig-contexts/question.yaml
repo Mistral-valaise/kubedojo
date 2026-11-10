@@ -1,0 +1,38 @@
+title: Read a kubeconfig file
+domain: cluster-architecture
+difficulty: easy
+minutes: 6
+environment: ops
+tags: [kubeconfig, kubectl-config]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A colleague handed over the kubeconfig file `/opt/course/kubeconfig/fleet.yaml`. Extract the following
+  from it and write the results to files on `{{host}}`:
+
+  1. All context names, one per line, to `/opt/course/kubeconfig/contexts`
+  2. The name of the current context to `/opt/course/kubeconfig/current`
+  3. The client certificate of user `lena`, **base64-decoded** (PEM), to `/opt/course/kubeconfig/lena.crt`
+hints:
+  - "`kubectl config` works on any file with `--kubeconfig <file>`. Try `get-contexts -o name` and `current-context`."
+  - "`kubectl config view` hides certificate data unless you add `--raw`."
+  - "`kubectl --kubeconfig /opt/course/kubeconfig/fleet.yaml config view --raw -o jsonpath='{.users[?(@.name==\"lena\")].user.client-certificate-data}' | base64 -d`"
+checks:
+  - id: contexts
+    title: All context names are listed
+    type: file
+    path: /opt/course/kubeconfig/contexts
+    expect: {sameLines: [fleet-admin, fleet-dev, fleet-readonly]}
+    explain: "`kubectl config get-contexts -o name` prints exactly the names, one per line — ideal for redirecting into a file."
+  - id: current
+    title: The current context is correct
+    type: file
+    path: /opt/course/kubeconfig/current
+    expect: {equals: fleet-dev}
+    explain: "`kubectl config current-context` reads the top-level field current-context."
+  - id: cert
+    title: lena.crt is lena's decoded certificate
+    type: exec
+    run: openssl x509 -in /opt/course/kubeconfig/lena.crt -noout -subject | tr -d ' '
+    expect: {contains: ["CN=lena"]}
+    explain: Certificates are embedded base64-encoded in *-data fields. Decoded, the file starts with -----BEGIN CERTIFICATE----- and openssl can read its subject. Users are matched by name, not by position in the list.

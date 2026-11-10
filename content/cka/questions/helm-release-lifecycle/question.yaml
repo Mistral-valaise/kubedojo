@@ -1,0 +1,49 @@
+title: Manage Helm releases
+domain: cluster-architecture
+difficulty: medium
+minutes: 7
+environment: base
+tags: [helm]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Namespace `team-otter` contains Helm releases of the local chart `/opt/course/helm/webcache`.
+
+  1. Uninstall the release `old-cache`.
+  2. Install a new release named `cache` from the same chart into Namespace `team-otter` with
+     **2 replicas** and a Service of type **NodePort**.
+
+  Find the names of the chart values yourself. Do not modify the chart.
+hints:
+  - "`helm -n team-otter ls` lists releases. `helm show values /opt/course/helm/webcache` prints the values you can override."
+  - "Values are set with `--set key=value`; nested keys use dots, e.g. `--set service.type=NodePort`."
+  - "`helm -n team-otter uninstall old-cache` then `helm -n team-otter install cache /opt/course/helm/webcache --set replicaCount=2 --set service.type=NodePort`"
+checks:
+  - id: releases
+    title: Only release cache exists in team-otter
+    type: exec
+    run: helm -n team-otter ls -q
+    expect: {equals: cache}
+    explain: "`helm uninstall` removes a release together with every object it created. Helm stores releases per Namespace, so -n matters for every helm command."
+  - id: replicas
+    title: The release runs 2 ready replicas
+    type: resource
+    resource: deployment/cache-webcache
+    namespace: team-otter
+    jsonpath: "{.status.readyReplicas}"
+    expect: {equals: "2"}
+    explain: The chart exposes the replica count as value replicaCount. Scaling with kubectl instead would be reverted by the next helm upgrade.
+  - id: nodeport
+    title: The Service is of type NodePort
+    type: resource
+    resource: service/cache-webcache
+    namespace: team-otter
+    jsonpath: "{.spec.type}"
+    expect: {equals: NodePort}
+    explain: Nested values are addressed with dots (service.type). `helm show values` and `helm get values <release>` show what exists and what is set.
+  - id: chart-untouched
+    title: The chart defaults are unchanged
+    type: exec
+    run: "grep -c '^replicaCount: 1$' /opt/course/helm/webcache/values.yaml"
+    expect: {equals: "1"}
+    explain: Overrides belong to the release (--set or -f), not into the chart's values.yaml, which is shared by all releases.

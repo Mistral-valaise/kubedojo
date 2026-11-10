@@ -436,8 +436,13 @@ func (m *Manager) provisionExam(s *Session, t *catalog.Track) {
 				return err
 			}
 		}
-		for i, qs := range s.Questions {
-			logf("Preparing question %d of %d ...", i+1, len(s.Questions))
+		// Disruptive setups run last so they cannot disturb other setups.
+		order := append([]*QState(nil), s.Questions...)
+		sort.SliceStable(order, func(i, j int) bool {
+			return !t.Question(order[i].ID).Disruptive && t.Question(order[j].ID).Disruptive
+		})
+		for i, qs := range order {
+			logf("Preparing question %d of %d ...", i+1, len(order))
 			if err := m.setup(ctx, s, t.Question(qs.ID), false); err != nil {
 				return fmt.Errorf("question %s: %w", qs.ID, err)
 			}
@@ -591,6 +596,9 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 			m.hooks.Provisioned(s.Track, s.Mode, time.Since(start), err)
 		}
 		if err == nil {
+			err = m.healOthers(ctx, s, t, q, logf)
+		}
+		if err == nil {
 			logf("Setting up question %q ...", q.Title)
 			err = m.setup(ctx, s, q, reset || wasReady)
 		}
@@ -607,6 +615,35 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 			logf("Question %q is ready.", q.Title)
 		}
 	}()
+	return nil
+}
+
+// healOthers restores the cluster from disruptive questions that were left
+// open, so that the question being prepared starts on a healthy cluster.
+func (m *Manager) healOthers(ctx context.Context, s *Session, t *catalog.Track, q *catalog.Question, logf func(string, ...any)) error {
+	m.mu.Lock()
+	var open []*QState
+	for _, x := range s.Questions {
+		o := t.Question(x.ID)
+		if x.ID != q.ID && x.Status == "ready" && o != nil && o.Disruptive && o.Environment == q.Environment {
+			open = append(open, x)
+		}
+	}
+	m.mu.Unlock()
+	for _, x := range open {
+		o := t.Question(x.ID)
+		logf("Restoring the cluster from %q ...", o.Title)
+		cctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
+		res, err := m.exec(cctx, s, o, "control-plane", o.Cleanup)
+		cancel()
+		if err != nil {
+			return err
+		}
+		if res.ExitCode != 0 {
+			return fmt.Errorf("cleanup of %s failed: %s", o.ID, strings.TrimSpace(res.Stderr))
+		}
+		m.update(s, func() { x.Status = "pending" })
+	}
 	return nil
 }
 

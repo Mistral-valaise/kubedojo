@@ -1,0 +1,40 @@
+title: Prepare a node join
+domain: cluster-architecture
+difficulty: easy
+minutes: 5
+environment: ops
+tags: [kubeadm, bootstrap-token]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A new worker node will be added to the cluster tomorrow by a colleague.
+
+  Create a bootstrap token that is valid for **2 hours** and write the complete `kubeadm join` command
+  for a worker node to `/opt/course/join/join.sh` on `{{host}}`.
+
+  Do not run the join command.
+hints:
+  - "`kubeadm token create -h` — there is a flag that prints the whole join command, and one for the lifetime."
+  - "`sudo kubeadm token create --ttl 2h --print-join-command`"
+checks:
+  - id: command
+    title: join.sh contains a complete join command
+    type: file
+    path: /opt/course/join/join.sh
+    expect: {matches: "kubeadm join \\S+:6443 --token [a-z0-9]{6}\\.[a-z0-9]{16} --discovery-token-ca-cert-hash sha256:[a-f0-9]{64}"}
+    explain: A worker needs the API endpoint, a bootstrap token to authenticate, and the hash of the cluster CA to verify it talks to the right cluster. --print-join-command assembles all three.
+  - id: token-exists
+    title: The token in the file exists in the cluster
+    type: exec
+    run: id=$(grep -o -- '--token [a-z0-9]*' /opt/course/join/join.sh | cut -d' ' -f2); kubectl -n kube-system get secret bootstrap-token-$id -o name
+    expect: {matches: "^secret/bootstrap-token-"}
+    explain: Bootstrap tokens are Secrets of type bootstrap.kubernetes.io/token in kube-system. A token copied from documentation or an expired one would not let the node join.
+  - id: ttl
+    title: The token expires within 2 hours
+    type: exec
+    run: >-
+      id=$(grep -o -- '--token [a-z0-9]*' /opt/course/join/join.sh | cut -d' ' -f2);
+      exp=$(kubectl -n kube-system get secret bootstrap-token-$id -o jsonpath='{.data.expiration}' | base64 -d);
+      left=$(( $(date -d "$exp" +%s) - $(date +%s) )); [ $left -gt 0 ] && [ $left -le 7200 ] && echo ok
+    expect: {equals: ok}
+    explain: The default lifetime is 24h. Short-lived tokens limit the window in which a leaked join command can be abused; --ttl sets it.

@@ -1,0 +1,47 @@
+title: Pods are never scheduled
+domain: troubleshooting
+difficulty: medium
+minutes: 8
+environment: ops
+disruptive: true
+tags: [scheduler, static-pod, control-plane]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Pod `reports` in Namespace `team-ibis` has been `Pending` since it was created, and so is every other
+  new Pod in this cluster.
+
+  Find the cause and fix it. Pod `reports` must be `Running` without being changed or recreated.
+hints:
+  - "`kubectl -n team-ibis describe pod reports` shows no events at all. A Pod without a `Scheduled` or `FailedScheduling` event was never looked at by the scheduler."
+  - "The scheduler is a static Pod: `kubectl -n kube-system get pod`, and if that tells you nothing, `crictl ps -a | grep scheduler` and `crictl logs <id>` on the control plane node."
+  - "The manifest `/etc/kubernetes/manifests/kube-scheduler.yaml` references a kubeconfig file that does not exist. Compare with `ls /etc/kubernetes/*.conf`."
+checks:
+  - id: scheduler-ready
+    title: kube-scheduler is running and ready
+    type: exec
+    run: kubectl -n kube-system get pod -l component=kube-scheduler -o jsonpath='{.items[0].status.containerStatuses[0].ready}'
+    expect: {equals: "true"}
+    explain: The scheduler assigns Pods to nodes. It runs as a static Pod defined in /etc/kubernetes/manifests on the control plane; the kubelet restarts it when the manifest changes.
+  - id: manifest
+    title: The scheduler manifest references an existing kubeconfig
+    type: exec
+    run: f=$(grep -o -- '--kubeconfig=[^ ]*' /etc/kubernetes/manifests/kube-scheduler.yaml | cut -d= -f2); test -f "$f" && echo ok
+    expect: {equals: ok}
+    explain: The scheduler exited immediately because the file passed to --kubeconfig did not exist. Its container log says so in the first line.
+  - id: pod-running
+    title: Pod reports is Running
+    type: resource
+    resource: pod/reports
+    namespace: team-ibis
+    jsonpath: "{.status.phase}"
+    expect: {equals: Running}
+    explain: Once the scheduler is back, it picks up all Pending Pods by itself — nothing has to be recreated.
+  - id: pod-original
+    title: Pod reports was not recreated
+    type: resource
+    resource: pod/reports
+    namespace: team-ibis
+    jsonpath: "{.metadata.annotations.kubedojo\\.dev/original}"
+    expect: {equals: "true"}
+    explain: Deleting and recreating the Pod with nodeName would bypass the scheduler but leave the cluster broken for everyone else.

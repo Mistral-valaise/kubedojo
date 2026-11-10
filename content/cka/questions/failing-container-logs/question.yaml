@@ -1,0 +1,39 @@
+title: Find the failing container
+domain: troubleshooting
+difficulty: easy
+minutes: 6
+environment: base
+tags: [logs, multi-container, exit-code]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Pod `batch-worker` in Namespace `team-magpie` runs three containers and keeps restarting.
+
+  Investigate and write your findings to these files on `{{host}}`:
+
+  - `/opt/course/magpie/container` — the name of the container that fails
+  - `/opt/course/magpie/exit-code` — the exit code it terminated with
+  - `/opt/course/magpie/reason` — the last log line the failing container printed before it exited
+hints:
+  - "`kubectl -n team-magpie get pod batch-worker` shows READY 2/3. `describe pod` lists the State and Last State of every container."
+  - "The exit code is in `Last State: Terminated` (or in jsonpath `.status.containerStatuses[*].lastState.terminated.exitCode`)."
+  - "Logs of a specific container: `kubectl -n team-magpie logs batch-worker -c <name>`. Add `--previous` to read the run that crashed."
+checks:
+  - id: container
+    title: The failing container is named correctly
+    type: file
+    path: /opt/course/magpie/container
+    expect: {equals: transform}
+    explain: In a multi-container Pod, describe pod shows the state per container. Only "transform" is not ready and has a restart count.
+  - id: exit-code
+    title: The exit code is correct
+    type: file
+    path: /opt/course/magpie/exit-code
+    expect: {equals: "42"}
+    explain: The kubelet records how the previous run ended in status.containerStatuses[].lastState.terminated — exit code, reason and timestamps.
+  - id: reason
+    title: The last log line is correct
+    type: file
+    path: /opt/course/magpie/reason
+    expect: {contains: ["FATAL: unsupported schema version 7"]}
+    explain: The application explains itself in its own log. With several containers you must name one with -c, and --previous shows the run that crashed instead of the current one.

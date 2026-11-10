@@ -1,0 +1,41 @@
+title: Service names no longer resolve
+domain: troubleshooting
+difficulty: hard
+minutes: 9
+environment: ops
+disruptive: true
+tags: [dns, coredns, configmap]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Applications report `bad address` errors: cluster-internal names such as
+  `kubernetes.default.svc.cluster.local` no longer resolve, although the CoreDNS Pods are running.
+
+  Find the cause and fix it. Names in the cluster domain `cluster.local` must resolve again.
+
+  Note: CoreDNS reloads a changed configuration by itself within about a minute.
+hints:
+  - "CoreDNS is configured by ConfigMap `coredns` in Namespace `kube-system`. Its key `Corefile` is the whole configuration: `kubectl -n kube-system get cm coredns -o yaml`."
+  - "Check the CoreDNS logs (`kubectl -n kube-system logs -l k8s-app=kube-dns`) and the line of the Corefile that starts with `kubernetes` — it defines the zones CoreDNS answers from the Kubernetes API."
+  - "The cluster domain in the `kubernetes` plugin line is misspelled (`cluster.lokal`). Edit the ConfigMap and wait for the reload, or restart the Deployment with `kubectl -n kube-system rollout restart deploy coredns`."
+checks:
+  - id: corefile
+    title: The Corefile serves the zone cluster.local
+    type: exec
+    run: kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' | grep -E '^\s*kubernetes\s' | head -1 | xargs
+    expect: {matches: "^kubernetes cluster\\.local "}
+    explain: The `kubernetes` plugin answers queries only for the zones listed on its line. With a wrong zone, queries for *.cluster.local fall through to the upstream resolver, which does not know them.
+  - id: resolves
+    title: kubernetes.default.svc.cluster.local resolves
+    type: exec
+    run: dig +short +time=2 +tries=1 @$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}') kubernetes.default.svc.cluster.local
+    expect: {matches: "^\\d+\\.\\d+\\.\\d+\\.\\d+$"}
+    explain: This is the same query every Pod makes through /etc/resolv.conf. CoreDNS picks up ConfigMap changes through its `reload` plugin, which can take up to a minute.
+  - id: coredns-up
+    title: CoreDNS is available
+    type: resource
+    resource: deployment/coredns
+    namespace: kube-system
+    jsonpath: "{.status.availableReplicas}"
+    expect: {gte: 1}
+    explain: A syntax error in the Corefile would make new CoreDNS Pods crash — after editing, make sure they are still healthy.

@@ -49,8 +49,8 @@ systemctl status kubelet
 journalctl -u kubelet --no-pager | tail -30
 ```
 
-Typical causes: service stopped/disabled, wrong path or flag in
-`/usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf` or `/var/lib/kubelet/kubeadm-flags.env`,
+`systemctl cat kubelet` prints the unit **and** its drop-in files with their paths. Typical causes: service
+stopped/disabled, wrong path or flag in the drop-in `10-kubeadm.conf` or in `/var/lib/kubelet/kubeadm-flags.env`,
 broken `/var/lib/kubelet/config.yaml`, container runtime down (`systemctl status containerd`).
 After changing a unit file: `systemctl daemon-reload && systemctl restart kubelet`.
 
