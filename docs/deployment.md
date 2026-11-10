@@ -73,7 +73,7 @@ interface exists; a KubeVirt driver is the planned route) or a sandboxed node ru
 | sandbox host | `make sandbox-host` — Docker-in-Docker with the node and terminal images preloaded |
 
 Push both to your registry and set `image.repository`, `sandbox.image.repository` and the tags.
-The sandbox host image is large (about 2.5 GB) because it carries the cluster images; preloading them
+The sandbox host image is large (about 1.7 GB) because it carries the cluster images; preloading them
 avoids pulling them for every session. Pre-pull it on the sandbox nodes for fast starts.
 
 ## Sizing
@@ -82,7 +82,7 @@ avoids pulling them for every session. Pre-pull it on the sandbox nodes for fast
 |---|---|---|
 | Practice session | 2–3 GB | one or two clusters, created on demand |
 | Exam session | 3–5 GB | two clusters and all task setups |
-| Session start | 1–3 min | image load into the sandbox, then about 30 s per cluster |
+| Session start | about 1 min | about 30 s to start the sandbox host and load its images, then about 35 s per cluster |
 
 `sandbox.resources.memoryRequest` (default 3Gi) drives scheduling; `maxSessions` caps concurrency;
 `idleTTL` (default 3h) removes sandboxes nobody uses. Sandbox Pods use `emptyDir` for Docker's data:
