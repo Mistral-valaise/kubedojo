@@ -83,5 +83,7 @@ export const api = {
   check: (sid: string, q: string) => call<Result>("POST", `/sessions/${sid}/questions/${q}/check`),
   hint: (sid: string, q: string, n: number) => call<{ n: number; markdown: string }>("GET", `/sessions/${sid}/questions/${q}/hints/${n}`),
   solution: (sid: string, q: string) => call<{ markdown: string }>("GET", `/sessions/${sid}/questions/${q}/solution`),
+  rate: (track: string, q: string, stars: number, comment: string) =>
+    call<unknown>("POST", `/tracks/${track}/questions/${q}/rating`, { stars, comment }),
   tutor: (sid: string, q: string, ask: string) => call<{ markdown: string }>("POST", `/sessions/${sid}/questions/${q}/tutor`, { ask }),
 };

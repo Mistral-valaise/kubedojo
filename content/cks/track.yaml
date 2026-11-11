@@ -4,7 +4,7 @@ short: CKS
 description: >-
   Secure container-based applications and Kubernetes platforms during build,
   deployment and runtime. Performance-based exam on real clusters; requires CKA-level skills.
-kubernetesVersion: v1.36
+kubernetesVersion: v1.37
 exam:
   durationMinutes: 120
   passPercent: 67

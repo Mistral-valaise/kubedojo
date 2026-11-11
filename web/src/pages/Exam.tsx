@@ -10,6 +10,7 @@ import { t } from "../i18n";
 import { Help } from "../components/Help";
 import { Markdown } from "../components/Markdown";
 import { Provisioning } from "../components/Provisioning";
+import { Rating } from "../components/Rating";
 import { Results } from "../components/Results";
 import { Split } from "../components/Split";
 import { Terminal } from "../components/Terminal";
@@ -343,6 +344,7 @@ function ReportQuestion({ n, session, track, qid, tutor }: { n: number; session:
           )}
           {res && <Results result={res} />}
           {full && <Help sid={session.id} q={full} result={res} tutor={tutor} confirmSolution={false} />}
+          <Rating track={track.id} question={qid} />
         </div>
       )}
     </Card>

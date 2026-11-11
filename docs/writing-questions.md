@@ -109,3 +109,15 @@ expects a perfect score, which catches questions that disturb each other.
 `content/<track>/lessons/<domain>.md` — one per domain. Keep the format: what the domain weighs, "the 20%
 that solves 80%", and habits that save points. Commands over prose; a learner should finish it in five
 minutes.
+
+## Export to Killercoda
+
+```bash
+kubedojo content export --format killercoda --out killercoda
+```
+
+writes one [Killercoda](https://killercoda.com/creators) scenario per question: `setup.sh` becomes the
+intro's background script, the checks become `verify.sh`, hints become collapsible sections and
+`solution.md` the finish page. Questions that need two workers, a fresh cluster or kubedojo-specific
+node details are skipped and listed. The export is generated, not run on Killercoda — try each scenario
+there before publishing.

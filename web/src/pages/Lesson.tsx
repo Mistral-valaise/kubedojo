@@ -22,7 +22,7 @@ export function LessonPage() {
 
   return (
     <Page crumbs={[{ label: tr.short, to: `/t/${tr.id}` }, { label: lesson.data.domain.title }]}>
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
         <article className="min-w-0">
           <Markdown>{lesson.data.markdown}</Markdown>
           <div className="mt-10 flex justify-between gap-3 border-t pt-5">
@@ -37,7 +37,7 @@ export function LessonPage() {
               <div className="text-xs text-muted">{t("{n} questions on a live cluster", { n: qs.length })}</div>
             </div>
             <ul className="divide-y">
-              {qs.map((q) => <QuestionRow key={q.id} track={tr.id} q={q} best={progress.data?.questions[q.id]?.best} />)}
+              {qs.map((q) => <QuestionRow key={q.id} track={tr.id} q={q} best={progress.data?.questions[q.id]?.best} compact />)}
             </ul>
           </Card>
         </aside>

@@ -7,6 +7,7 @@ import { t } from "../i18n";
 import { Help } from "../components/Help";
 import { Markdown } from "../components/Markdown";
 import { Provisioning } from "../components/Provisioning";
+import { Rating } from "../components/Rating";
 import { Results } from "../components/Results";
 import { Split } from "../components/Split";
 import { Terminal } from "../components/Terminal";
@@ -125,6 +126,7 @@ export function PracticePage() {
             {session && meta && (
               <Help sid={session.id} q={meta} result={result} tutor={!!config?.tutor} initialHints={view.state.hintsUsed} />
             )}
+            {result && <Rating track={trackId} question={qid} />}
             {result?.passed && next && (
               <Button variant="ok" className="w-full" onClick={() => nav(`/t/${trackId}/q/${next.id}`)}>
                 {t("Next question")}<ChevronRight className="size-4" />

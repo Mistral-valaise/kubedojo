@@ -1,6 +1,6 @@
 # kubedojo node image: a real kubeadm node (kindest/node) made exam-like:
 # sshd, a `candidate` user with passwordless sudo, etcdctl and common tools.
-ARG K8S_VERSION=v1.36.1
+ARG K8S_VERSION=v1.37.0
 FROM kindest/node:${K8S_VERSION}
 
 ARG TARGETARCH

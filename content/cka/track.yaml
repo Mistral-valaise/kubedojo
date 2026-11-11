@@ -4,7 +4,7 @@ short: CKA
 description: >-
   Install, configure and operate Kubernetes clusters. Performance-based exam:
   you solve real tasks on real clusters from a terminal.
-kubernetesVersion: v1.36
+kubernetesVersion: v1.37
 exam:
   durationMinutes: 120
   passPercent: 66

@@ -1,0 +1,73 @@
+{{- if .Values.registryCache.enabled }}
+{{- $name := printf "%s-registry-cache" (include "kubedojo.name" .) }}
+# Pull-through cache for Docker Hub. Every sandbox pulls the same few images;
+# with the cache they are downloaded once, and Docker Hub rate limits are not hit.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: {{- include "kubedojo.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: kubedojo, app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: registry-cache}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: kubedojo, app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: registry-cache}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: registry
+          image: {{ .Values.registryCache.image }}
+          env:
+            - {name: REGISTRY_PROXY_REMOTEURL, value: "https://registry-1.docker.io"}
+            - {name: REGISTRY_HTTP_ADDR, value: "0.0.0.0:5000"}
+          ports:
+            - {name: registry, containerPort: 5000}
+          readinessProbe:
+            httpGet: {path: /v2/, port: registry}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources: {{- toYaml .Values.registryCache.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/registry}
+      volumes:
+        - name: data
+          {{- if .Values.registryCache.persistence.enabled }}
+          persistentVolumeClaim: {claimName: {{ $name }}}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels: {{- include "kubedojo.labels" . | nindent 4 }}
+spec:
+  selector: {app.kubernetes.io/name: kubedojo, app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: registry-cache}
+  ports:
+    - {name: registry, port: 5000, targetPort: registry}
+{{- if .Values.registryCache.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels: {{- include "kubedojo.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.registryCache.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.registryCache.persistence.size }}
+{{- end }}
+{{- end }}

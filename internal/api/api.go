@@ -39,6 +39,8 @@ type Server struct {
 	UserHeader string
 	// AllowedOrigins are extra WebSocket origin patterns (dev server).
 	AllowedOrigins []string
+	// OnRating is called when a learner rates a question.
+	OnRating func(track, question string, stars int)
 	// OnTerminal is called when a terminal connects (delta +1) or leaves (-1).
 	OnTerminal func(delta int)
 }
@@ -51,6 +53,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tracks/{track}", s.track)
 	mux.HandleFunc("GET /api/tracks/{track}/lessons/{domain}", s.lesson)
 	mux.HandleFunc("GET /api/tracks/{track}/progress", s.progress)
+	mux.HandleFunc("POST /api/tracks/{track}/questions/{q}/rating", s.rate)
 	mux.HandleFunc("GET /api/sessions", s.listSessions)
 	mux.HandleFunc("POST /api/sessions", s.createSession)
 	mux.HandleFunc("GET /api/sessions/{id}", s.getSession)
@@ -568,6 +571,35 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	c.Close(websocket.StatusNormalClosure, "")
+}
+
+func (s *Server) rate(w http.ResponseWriter, r *http.Request) {
+	t := s.Catalog.Tracks[r.PathValue("track")]
+	if t == nil || t.Question(r.PathValue("q")) == nil {
+		writeErr(w, 404, "unknown question")
+		return
+	}
+	var req struct {
+		Stars   int    `json:"stars"`
+		Comment string `json:"comment"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil || req.Stars < 1 || req.Stars > 5 {
+		writeErr(w, 400, "stars must be between 1 and 5")
+		return
+	}
+	comment := strings.TrimSpace(req.Comment)
+	if len(comment) > 2000 {
+		comment = comment[:2000]
+	}
+	q := t.Question(r.PathValue("q"))
+	if err := s.Store.AddRating(store.Rating{Track: t.ID, QuestionID: q.ID, Owner: s.owner(r), Stars: req.Stars, Comment: comment, At: time.Now()}); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if s.OnRating != nil {
+		s.OnRating(t.ID, q.ID, req.Stars)
+	}
+	writeJSON(w, 201, map[string]string{"status": "ok"})
 }
 
 // ---- progress -------------------------------------------------------------

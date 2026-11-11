@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { RotateCw } from "lucide-react";
 import { t } from "../i18n";
+import { registerTerminal } from "../terminalBus";
 
 const theme = {
   background: "#0a0e17", foreground: "#d7deea", cursor: "#5b9dff", cursorAccent: "#0a0e17",
@@ -48,6 +49,9 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     };
     ws.onmessage = (ev) => term.write(typeof ev.data === "string" ? ev.data : new Uint8Array(ev.data as ArrayBuffer));
     ws.onclose = () => { if (alive) setState("closed"); };
+    const unregister = registerTerminal((text) => {
+      if (ws.readyState === WebSocket.OPEN) { ws.send(enc.encode(text)); term.focus(); }
+    });
     const onData = term.onData((d) => ws.readyState === WebSocket.OPEN && ws.send(enc.encode(d)));
     const onResize = term.onResize(({ cols, rows }) =>
       ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: "resize", cols, rows })));
@@ -63,6 +67,7 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       alive = false;
       cancelAnimationFrame(raf);
       ro.disconnect();
+      unregister();
       onData.dispose();
       onResize.dispose();
       ws.close();

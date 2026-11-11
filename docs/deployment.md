@@ -76,6 +76,16 @@ Push both to your registry and set `image.repository`, `sandbox.image.repository
 The sandbox host image is large (about 1.7 GB) because it carries the cluster images; preloading them
 avoids pulling them for every session. Pre-pull it on the sandbox nodes for fast starts.
 
+## Image cache
+
+The chart runs a pull-through cache for Docker Hub (`registryCache.enabled`, on by default) and points
+every sandbox cluster at it. The images questions use (`nginx`, `busybox`, ...) are then downloaded
+once instead of once per session, and anonymous Docker Hub rate limits are no longer a risk. To use a
+mirror you already run, set `registryCache.enabled=false` and `sandbox.registryMirror=http://...`.
+
+Locally, `kubedojo up` starts the same cache as a container (`kubedojo-registry-cache`); disable it
+with `--registry-cache=false`.
+
 ## Sizing
 
 | | Memory | Notes |

@@ -131,6 +131,8 @@ func cmdDown(ctx context.Context, args []string) error {
 		_, _ = out(ctx, "docker", "rm", "-f", id)
 	}
 	fmt.Printf("removed %d terminal container(s)\n", len(strings.Fields(ids)))
+	// The cache container goes too; its volume (the downloaded images) stays.
+	_, _ = out(ctx, "docker", "rm", "-f", "kubedojo-registry-cache")
 	names, _ := out(ctx, "docker", "ps", "-a", "--filter", "ancestor="+drv.NodeImage, "--format", `{{.Label "io.x-k8s.kind.cluster"}}`)
 	seen := map[string]bool{}
 	for _, n := range strings.Fields(names) {

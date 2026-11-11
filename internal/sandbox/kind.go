@@ -19,6 +19,40 @@ type Kind struct {
 	NodeImage     string
 	TerminalImage string
 	KindBin       string // defaults to "kind"
+
+	// RegistryCache starts a pull-through cache for Docker Hub next to the
+	// clusters and points every node at it, so images are downloaded once
+	// instead of once per cluster and rate limits are not hit.
+	RegistryCache bool
+	// RegistryMirror is the URL of an existing Docker Hub mirror to use
+	// instead (hosted mode), e.g. http://registry-cache.kubedojo.svc:5000.
+	RegistryMirror string
+}
+
+const cacheContainer = "kubedojo-registry-cache"
+
+// mirror returns the Docker Hub mirror nodes should use, starting the local
+// cache when needed. An empty result means "pull directly".
+func (k *Kind) mirror(ctx context.Context, h dockerhost.Host, logf func(string, ...any)) string {
+	if k.RegistryMirror != "" {
+		return k.RegistryMirror
+	}
+	if !k.RegistryCache {
+		return ""
+	}
+	state, _ := run(h.Command(ctx, "docker", "inspect", "-f", "{{.State.Running}}", cacheContainer), "")
+	if strings.TrimSpace(state) != "true" {
+		_, _ = run(h.Command(ctx, "docker", "rm", "-f", cacheContainer), "")
+		if _, err := run(h.Command(ctx, "docker", "run", "-d", "--name", cacheContainer, "--network", "kind",
+			"--restart", "unless-stopped", "--label", "kubedojo.component=registry-cache",
+			"-v", "kubedojo-registry-cache:/var/lib/registry",
+			"-e", "REGISTRY_PROXY_REMOTEURL=https://registry-1.docker.io", "registry:2"), ""); err != nil {
+			// The cache is an optimisation; clusters work without it.
+			logf("Image cache could not be started, pulling directly: %v", err)
+			return ""
+		}
+	}
+	return "http://" + cacheContainer + ":5000"
 }
 
 func (k *Kind) Name() string { return "kind" }
@@ -129,6 +163,17 @@ func (k *Kind) CreateEnv(ctx context.Context, h dockerhost.Host, sessionID, alia
 			`kubedojo-node-init "$KD_PUBKEY" && cat > /root/.ssh/id_ed25519 && chmod 600 /root/.ssh/id_ed25519 && printf 'Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\n' > /root/.ssh/config`),
 			keys.Private); err != nil {
 			return fmt.Errorf("init node %s: %w", n, err)
+		}
+	}
+	if m := k.mirror(ctx, h, logf); m != "" {
+		// containerd reads hosts.toml on every pull, so no restart is needed.
+		// If the mirror is down it falls back to Docker Hub itself.
+		hosts := fmt.Sprintf("server = \"https://registry-1.docker.io\"\n\n[host.%q]\n  capabilities = [\"pull\", \"resolve\"]\n", m)
+		for _, n := range nodes {
+			if _, err := run(h.Command(ctx, "docker", "exec", "-i", n, "bash", "-c",
+				"mkdir -p /etc/containerd/certs.d/docker.io && cat > /etc/containerd/certs.d/docker.io/hosts.toml"), hosts); err != nil {
+				return fmt.Errorf("configure image cache on %s: %w", n, err)
+			}
 		}
 	}
 	logf("Waiting for all nodes of %s to become Ready ...", alias)

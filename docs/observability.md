@@ -39,6 +39,7 @@ Names as they appear in Prometheus/Mimir:
 | `kubedojo_sandbox_provision_duration_seconds` | histogram | `track`, `mode`, `result` | time until a cluster (practice) or a whole exam environment is ready |
 | `kubedojo_check_runs_total` | counter | `track`, `question`, `mode`, `result` | graded questions |
 | `kubedojo_question_score_ratio` | histogram | `track`, `mode` | share of points per graded question |
+| `kubedojo_question_rating` | histogram | `track`, `question` | learner ratings, 1–5 stars (`_sum / _count` is the average) |
 | `kubedojo_exams_finished_total` | counter | `track`, `result` | finished exam simulations |
 | `kubedojo_exam_score_percent` | histogram | `track` | exam results |
 | `http_server_request_duration_seconds` | histogram | `http_route`, `http_request_method`, `http_response_status_code` | API latency (OTel HTTP semantic conventions) |
@@ -61,7 +62,7 @@ ConfigMaps labelled `grafana_dashboard: "1"` for the Grafana sidecar:
 |---|---|
 | **Platform health** | Is it up, fast and error free? Request rate, errors, latency, slow routes, warning and error logs |
 | **Sessions & sandboxes** | Do we have capacity? Active sessions, start times and failures, memory and CPU per sandbox Pod |
-| **Learning analytics** | What do people practise and where do they struggle? Pass rates, hardest questions, exam results |
+| **Learning analytics** | What do people practise and where do they struggle? Pass rates, hardest and lowest rated questions, exam results |
 
 The sandbox Pod panels need cAdvisor and kube-state-metrics in the same data source.
 
@@ -77,3 +78,12 @@ The sandbox Pod panels need cAdvisor and kube-state-metrics in the same data sou
 | `KubedojoSandboxProvisioningSlow` | p95 start time above 5 minutes |
 | `KubedojoSessionLimitReached` | all session slots in use for 15 minutes |
 | `KubedojoHighErrorRate` | more than 5% of API requests return 5xx |
+
+## Learner feedback
+
+After grading, learners can rate a question with one to five stars and a comment. Averages appear on the
+Learning analytics dashboard; the comments stay in the database and are printed, worst questions first, by:
+
+```bash
+kubedojo ratings            # add --track cka to filter
+```

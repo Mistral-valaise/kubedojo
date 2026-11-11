@@ -15,6 +15,7 @@
 | `internal/store` | SQLite: sessions, attempts, exam results |
 | `internal/telemetry` | OpenTelemetry setup and instruments |
 | `internal/tutor` | optional AI tutor (Claude API) |
+| `internal/export` | export questions to other platforms (Killercoda) |
 | `web/` | React + TypeScript UI, xterm.js terminal |
 | `content/` | tracks, lessons, questions |
 

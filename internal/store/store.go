@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS attempts (
   track TEXT NOT NULL, domain TEXT NOT NULL, question_id TEXT NOT NULL,
   score INTEGER NOT NULL, max INTEGER NOT NULL, at TEXT NOT NULL, owner TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS attempts_q ON attempts(track, question_id);
+CREATE TABLE IF NOT EXISTS ratings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, track TEXT NOT NULL, question_id TEXT NOT NULL,
+  owner TEXT NOT NULL DEFAULT '', stars INTEGER NOT NULL, comment TEXT NOT NULL DEFAULT '', at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS exams (
   session_id TEXT PRIMARY KEY, track TEXT NOT NULL, score INTEGER NOT NULL, max INTEGER NOT NULL,
   percent REAL NOT NULL, passed INTEGER NOT NULL, finished_at TEXT NOT NULL, domains TEXT NOT NULL, owner TEXT NOT NULL DEFAULT '');
@@ -151,4 +154,40 @@ func (s *Store) Exams(track, owner string) ([]Exam, error) {
 func (s *Store) MarkAllDestroyed() error {
 	_, err := s.db.Exec(`UPDATE sessions SET status='destroyed', data=json_set(data,'$.status','destroyed')`)
 	return err
+}
+
+// Rating is a learner's feedback on one question.
+type Rating struct {
+	Track      string    `json:"track"`
+	QuestionID string    `json:"questionId"`
+	Owner      string    `json:"owner,omitempty"`
+	Stars      int       `json:"stars"`
+	Comment    string    `json:"comment"`
+	At         time.Time `json:"at"`
+}
+
+func (s *Store) AddRating(r Rating) error {
+	_, err := s.db.Exec(`INSERT INTO ratings(track,question_id,owner,stars,comment,at) VALUES(?,?,?,?,?,?)`,
+		r.Track, r.QuestionID, r.Owner, r.Stars, r.Comment, r.At.UTC().Format(time.RFC3339))
+	return err
+}
+
+// Ratings returns all ratings, newest first; track may be empty for all tracks.
+func (s *Store) Ratings(track string) ([]Rating, error) {
+	rows, err := s.db.Query(`SELECT track,question_id,owner,stars,comment,at FROM ratings WHERE (?='' OR track=?) ORDER BY id DESC`, track, track)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Rating
+	for rows.Next() {
+		var r Rating
+		var at string
+		if err := rows.Scan(&r.Track, &r.QuestionID, &r.Owner, &r.Stars, &r.Comment, &at); err != nil {
+			return nil, err
+		}
+		r.At, _ = time.Parse(time.RFC3339, at)
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

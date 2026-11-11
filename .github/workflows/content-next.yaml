@@ -1,0 +1,30 @@
+# Runs the content proof against another Kubernetes version, to find out early
+# what the next version breaks. Start it by hand from the Actions tab.
+name: content-next
+on:
+  workflow_dispatch:
+    inputs:
+      kubernetes-version:
+        description: kindest/node tag to test, e.g. v1.38.0
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  content:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [cka, cks]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: {go-version-file: go.mod}
+      - uses: helm/kind-action@v1
+        with: {install_only: true, version: v0.33.0}
+      - run: sudo sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_user_watches=1048576
+      - run: make images go K8S_VERSION=${{ inputs.kubernetes-version }}
+      - run: ./bin/kubedojo content test --track ${{ matrix.track }} --kubernetes-version ${{ inputs.kubernetes-version }}

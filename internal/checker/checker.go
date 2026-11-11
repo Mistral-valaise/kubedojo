@@ -117,6 +117,9 @@ func runCheck(ctx context.Context, c *catalog.Check, run Runner) CheckResult {
 			cr.Observed = "resource not found"
 		case c.Type == "file":
 			cr.Observed = "file not found or unreadable"
+		case strings.Contains(msg, "array index out of bounds"):
+			// kubectl's jsonpath error for "the list is empty" is long and cryptic.
+			cr.Observed = "no matching object found"
 		default:
 			cr.Observed = fmt.Sprintf("exit code %d: %s", out.ExitCode, clip(msg))
 		}

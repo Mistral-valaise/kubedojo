@@ -1,4 +1,4 @@
-K8S_VERSION ?= v1.36.1
+K8S_VERSION ?= v1.37.0
 VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS     := -s -w -X main.version=$(VERSION)
 

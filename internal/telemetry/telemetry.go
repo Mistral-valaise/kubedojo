@@ -44,6 +44,7 @@ type Telemetry struct {
 	score     metric.Float64Histogram
 	exams     metric.Int64Counter
 	examScore metric.Float64Histogram
+	ratings   metric.Int64Histogram
 	terminals atomic.Int64
 	meter     metric.Meter
 }
@@ -120,6 +121,9 @@ func (t *Telemetry) instruments() {
 	t.examScore, _ = t.meter.Float64Histogram("kubedojo.exam.score", metric.WithUnit("%"),
 		metric.WithDescription("Exam result in percent."),
 		metric.WithExplicitBucketBoundaries(0, 10, 20, 30, 40, 50, 60, 66, 70, 80, 90, 100))
+	t.ratings, _ = t.meter.Int64Histogram("kubedojo.question.rating",
+		metric.WithDescription("Learner ratings per question (1-5 stars)."),
+		metric.WithExplicitBucketBoundaries(1, 2, 3, 4, 5))
 	_, _ = t.meter.Int64ObservableGauge("kubedojo.terminal.connections",
 		metric.WithDescription("Open browser terminals."),
 		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
@@ -185,6 +189,12 @@ func (t *Telemetry) ExamDone(track string, percent float64, passed bool) {
 	}
 	t.exams.Add(ctx, 1, metric.WithAttributes(attribute.String("track", track), attribute.String("result", res)))
 	t.examScore.Record(ctx, percent, metric.WithAttributes(attribute.String("track", track)))
+}
+
+// Rated records a learner's rating of a question.
+func (t *Telemetry) Rated(track, question string, stars int) {
+	t.ratings.Record(context.Background(), int64(stars),
+		metric.WithAttributes(attribute.String("track", track), attribute.String("question", question)))
 }
 
 // Terminal tracks open terminal connections.

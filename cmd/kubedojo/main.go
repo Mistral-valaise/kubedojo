@@ -15,12 +15,14 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"syscall"
 	"time"
 
 	"github.com/Mistral-valaise/kubedojo/content"
 	"github.com/Mistral-valaise/kubedojo/internal/api"
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
+	"github.com/Mistral-valaise/kubedojo/internal/export"
 	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 	"github.com/Mistral-valaise/kubedojo/internal/session"
 	"github.com/Mistral-valaise/kubedojo/internal/store"
@@ -37,8 +39,10 @@ Usage:
   kubedojo serve     Run the server only (containers, Kubernetes)
   kubedojo doctor    Check that this machine can run sandboxes
   kubedojo down      Remove every sandbox kubedojo created
+  kubedojo ratings   Show the feedback learners left on questions
   kubedojo content lint          Validate the content
   kubedojo content test          Prove every question is solvable (needs Docker)
+  kubedojo content export        Export questions as Killercoda scenarios
   kubedojo version
 
 Run "kubedojo <command> -h" for flags.
@@ -61,6 +65,8 @@ func main() {
 		err = cmdDoctor(ctx, os.Args[2:])
 	case "down":
 		err = cmdDown(ctx, os.Args[2:])
+	case "ratings":
+		err = cmdRatings(os.Args[2:])
 	case "content":
 		if len(os.Args) < 3 {
 			fmt.Print(usage)
@@ -71,6 +77,8 @@ func main() {
 			err = cmdLint(os.Args[3:])
 		case "test":
 			err = cmdTest(ctx, os.Args[3:])
+		case "export":
+			err = cmdExport(os.Args[3:])
 		default:
 			fmt.Print(usage)
 			os.Exit(2)
@@ -96,6 +104,8 @@ type common struct {
 	k8sVersion string
 	nodeImage  string
 	termImage  string
+	regCache   bool
+	regMirror  string
 }
 
 func env(key, def string) string {
@@ -116,8 +126,10 @@ func (c *common) register(fs *flag.FlagSet) {
 	home, _ := os.UserHomeDir()
 	fs.StringVar(&c.contentDir, "content", env("KUBEDOJO_CONTENT", ""), "load content from this directory instead of the built-in content")
 	fs.StringVar(&c.dataDir, "data", env("KUBEDOJO_DATA", filepath.Join(home, ".kubedojo")), "directory for the database")
-	fs.StringVar(&c.k8sVersion, "kubernetes-version", env("KUBEDOJO_K8S_VERSION", "v1.36.1"), "Kubernetes version of the sandbox clusters")
+	fs.StringVar(&c.k8sVersion, "kubernetes-version", env("KUBEDOJO_K8S_VERSION", "v1.37.0"), "Kubernetes version of the sandbox clusters")
 	fs.StringVar(&c.nodeImage, "node-image", env("KUBEDOJO_NODE_IMAGE", ""), "node image (default kubedojo/node:<kubernetes-version>)")
+	fs.BoolVar(&c.regCache, "registry-cache", env("KUBEDOJO_REGISTRY_CACHE", "true") != "false", "run a local pull-through cache for Docker Hub images")
+	fs.StringVar(&c.regMirror, "registry-mirror", env("KUBEDOJO_REGISTRY_MIRROR", ""), "use this existing Docker Hub mirror instead of a local cache")
 	fs.StringVar(&c.termImage, "terminal-image", env("KUBEDOJO_TERMINAL_IMAGE", ""), "terminal image (default kubedojo/terminal:<kubernetes-version>)")
 }
 
@@ -128,7 +140,7 @@ func (c *common) driver() *sandbox.Kind {
 	if c.termImage == "" {
 		c.termImage = "kubedojo/terminal:" + c.k8sVersion
 	}
-	return &sandbox.Kind{NodeImage: c.nodeImage, TerminalImage: c.termImage}
+	return &sandbox.Kind{NodeImage: c.nodeImage, TerminalImage: c.termImage, RegistryCache: c.regCache, RegistryMirror: c.regMirror}
 }
 
 func (c *common) contentFS() fs.FS {
@@ -211,7 +223,7 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 	tel.ObserveSessions(mgr.ActiveCount)
 
 	srv := &api.Server{Catalog: cat, Sessions: mgr, Store: st, UI: webui.FS(), Log: log, Version: version,
-		UserHeader: *userHeader, OnTerminal: tel.Terminal, Tutor: newTutor(log)}
+		UserHeader: *userHeader, OnTerminal: tel.Terminal, OnRating: tel.Rated, Tutor: newTutor(log)}
 	if *devOrigin != "" {
 		srv.AllowedOrigins = []string{*devOrigin}
 	}
@@ -275,5 +287,91 @@ func cmdLint(args []string) error {
 		return fmt.Errorf("content is invalid:\n%w", err)
 	}
 	fmt.Println("content is valid")
+	return nil
+}
+
+// cmdRatings prints the feedback learners left, worst questions first.
+func cmdRatings(args []string) error {
+	fl := flag.NewFlagSet("ratings", flag.ContinueOnError)
+	var c common
+	c.register(fl)
+	track := fl.String("track", "", "only this track")
+	if err := fl.Parse(args); err != nil {
+		return err
+	}
+	st, err := c.openStore()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	rs, err := st.Ratings(*track)
+	if err != nil {
+		return err
+	}
+	if len(rs) == 0 {
+		fmt.Println("no ratings yet")
+		return nil
+	}
+	type agg struct {
+		key      string
+		sum, n   int
+		comments []string
+	}
+	by := map[string]*agg{}
+	var order []*agg
+	for _, r := range rs {
+		k := r.Track + "/" + r.QuestionID
+		a := by[k]
+		if a == nil {
+			a = &agg{key: k}
+			by[k] = a
+			order = append(order, a)
+		}
+		a.sum += r.Stars
+		a.n++
+		if r.Comment != "" {
+			a.comments = append(a.comments, fmt.Sprintf("%d★ %s", r.Stars, r.Comment))
+		}
+	}
+	sort.Slice(order, func(i, j int) bool {
+		return float64(order[i].sum)/float64(order[i].n) < float64(order[j].sum)/float64(order[j].n)
+	})
+	for _, a := range order {
+		fmt.Printf("%.1f★  %-48s %d rating(s)\n", float64(a.sum)/float64(a.n), a.key, a.n)
+		for _, cm := range a.comments {
+			fmt.Println("       ", cm)
+		}
+	}
+	return nil
+}
+
+// cmdExport writes questions in another platform's format.
+func cmdExport(args []string) error {
+	fl := flag.NewFlagSet("content export", flag.ContinueOnError)
+	var c common
+	c.register(fl)
+	format := fl.String("format", "killercoda", "target format (killercoda)")
+	outDir := fl.String("out", "killercoda", "output directory")
+	track := fl.String("track", "", "only this track")
+	source := fl.String("source-url", "https://github.com/Mistral-valaise/kubedojo", "project URL shown in the scenarios")
+	if err := fl.Parse(args); err != nil {
+		return err
+	}
+	if *format != "killercoda" {
+		return fmt.Errorf("unknown format %q", *format)
+	}
+	cat, err := catalog.Load(c.contentFS())
+	if err != nil {
+		return fmt.Errorf("content is invalid:\n%w", err)
+	}
+	res, err := export.Killercoda(cat, *outDir, *track, *source)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("exported %d scenarios to %s\n", len(res.Exported), *outDir)
+	for _, s := range res.Skipped {
+		fmt.Printf("  skipped %s/%s: %s\n", s.Track, s.Question, s.Reason)
+	}
+	fmt.Println("The scenarios are generated, not tested on Killercoda. Try each one there before publishing.")
 	return nil
 }

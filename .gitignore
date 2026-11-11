@@ -17,3 +17,7 @@ internal/webui/dist/*
 .env
 .DS_Store
 images/sandbox-host/*.tar
+/node_modules/
+/package.json
+/package-lock.json
+/killercoda/

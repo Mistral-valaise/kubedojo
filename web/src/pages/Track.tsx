@@ -174,17 +174,17 @@ function DomainSection({ track, domainId, progress }: { track: Track; domainId: 
   );
 }
 
-export function QuestionRow({ track, q, best }: { track: string; q: QuestionMeta; best?: number }) {
+export function QuestionRow({ track, q, best, compact }: { track: string; q: QuestionMeta; best?: number; compact?: boolean }) {
   const icon = best === undefined ? <Circle className="size-4 text-line" />
     : best >= 1 ? <CheckCircle2 className="size-4 text-ok" /> : <CircleDot className="size-4 text-warn" />;
   return (
     <li>
-      <Link to={`/t/${track}/q/${q.id}`} className="group flex items-center gap-3 px-5 py-2.5 transition hover:bg-panel2/60">
+      <Link to={`/t/${track}/q/${q.id}`} className={cx("group flex items-center gap-3 py-2.5 transition hover:bg-panel2/60", compact ? "px-4" : "px-5")}>
         {icon}
-        <span className="min-w-0 flex-1 truncate text-sm">{q.title}</span>
+        <span className={cx("min-w-0 flex-1 text-sm", !compact && "truncate")}>{q.title}</span>
         {best !== undefined && best < 1 && <span className="text-xs tabular-nums text-warn">{Math.round(best * 100)}%</span>}
         <Difficulty level={q.difficulty} />
-        <span className="hidden w-14 text-right text-xs tabular-nums text-muted sm:block">{q.minutes} min</span>
+        {!compact && <span className="hidden w-14 text-right text-xs tabular-nums text-muted sm:block">{q.minutes} min</span>}
         <ChevronRight className="size-4 text-muted transition group-hover:translate-x-0.5 group-hover:text-accent" />
       </Link>
     </li>

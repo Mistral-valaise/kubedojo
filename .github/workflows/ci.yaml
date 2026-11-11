@@ -12,17 +12,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: {go-version-file: go.mod}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: {node-version: 24, cache: npm, cache-dependency-path: web/package-lock.json}
       - run: make build
       - run: test -z "$(gofmt -l cmd internal content images deploy)"
       - run: go vet ./...
       - run: make test
       - run: ./bin/kubedojo content lint
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - run: helm lint deploy/helm/kubedojo
       - name: Cross-compile
         run: |
@@ -42,8 +42,8 @@ jobs:
       matrix:
         track: [cka, cks]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: {go-version-file: go.mod}
       - uses: helm/kind-action@v1
         with: {install_only: true, version: v0.33.0}
