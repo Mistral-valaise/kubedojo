@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kubedojo/kubedojo/internal/catalog"
-	"github.com/kubedojo/kubedojo/internal/checker"
-	"github.com/kubedojo/kubedojo/internal/dockerhost"
-	"github.com/kubedojo/kubedojo/internal/sandbox"
-	"github.com/kubedojo/kubedojo/internal/store"
+	"github.com/Mistral-valaise/kubedojo/internal/catalog"
+	"github.com/Mistral-valaise/kubedojo/internal/checker"
+	"github.com/Mistral-valaise/kubedojo/internal/dockerhost"
+	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
+	"github.com/Mistral-valaise/kubedojo/internal/store"
 )
 
 const (

@@ -1,7 +1,7 @@
 # -- kubedojo server
 image:
-  repository: ghcr.io/kubedojo/server
-  tag: ""            # defaults to the chart's appVersion
+  repository: ghcr.io/mistral-valaise/kubedojo-server
+  tag: ""            # defaults to v<appVersion>
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
@@ -39,8 +39,8 @@ ingress:
 # dedicated, tainted node pool and never on nodes with other tenants' workloads.
 sandbox:
   image:
-    repository: ghcr.io/kubedojo/sandbox-host
-    tag: ""          # defaults to the chart's appVersion
+    repository: ghcr.io/mistral-valaise/kubedojo-sandbox-host
+    tag: ""          # defaults to v<appVersion>
   kubernetesVersion: v1.36.1
   nodeImage: ""      # defaults to kubedojo/node:<kubernetesVersion> (preloaded in the sandbox host image)
   terminalImage: ""  # defaults to kubedojo/terminal:<kubernetesVersion>

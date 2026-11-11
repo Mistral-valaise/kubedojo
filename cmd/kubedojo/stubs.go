@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kubedojo/kubedojo/internal/checker"
-	"github.com/kubedojo/kubedojo/internal/k8shost"
-	"github.com/kubedojo/kubedojo/internal/session"
-	"github.com/kubedojo/kubedojo/internal/telemetry"
+	"github.com/Mistral-valaise/kubedojo/internal/checker"
+	"github.com/Mistral-valaise/kubedojo/internal/k8shost"
+	"github.com/Mistral-valaise/kubedojo/internal/session"
+	"github.com/Mistral-valaise/kubedojo/internal/telemetry"
 )
 
 // telemetryHooks connects session events to the telemetry instruments.
@@ -39,7 +39,7 @@ func hostProvider(ctx context.Context, kind string, log *slog.Logger) (session.H
 		}
 		p, err := k8shost.New(k8shost.Config{
 			Namespace:    os.Getenv("KUBEDOJO_SANDBOX_NAMESPACE"),
-			Image:        env("KUBEDOJO_SANDBOX_IMAGE", "ghcr.io/kubedojo/sandbox-host:"+version),
+			Image:        env("KUBEDOJO_SANDBOX_IMAGE", "ghcr.io/mistral-valaise/kubedojo-sandbox-host:v"+strings.TrimPrefix(version, "v")),
 			CPURequest:   env("KUBEDOJO_SANDBOX_CPU_REQUEST", "1"),
 			MemRequest:   env("KUBEDOJO_SANDBOX_MEMORY_REQUEST", "3Gi"),
 			MemLimit:     env("KUBEDOJO_SANDBOX_MEMORY_LIMIT", "8Gi"),

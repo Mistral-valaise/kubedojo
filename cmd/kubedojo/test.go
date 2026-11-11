@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kubedojo/kubedojo/internal/catalog"
-	"github.com/kubedojo/kubedojo/internal/session"
-	"github.com/kubedojo/kubedojo/internal/store"
+	"github.com/Mistral-valaise/kubedojo/internal/catalog"
+	"github.com/Mistral-valaise/kubedojo/internal/session"
+	"github.com/Mistral-valaise/kubedojo/internal/store"
 )
 
 // cmdTest proves each question end to end against a real sandbox:

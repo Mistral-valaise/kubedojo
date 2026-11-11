@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kubedojo/kubedojo/internal/catalog"
-	"github.com/kubedojo/kubedojo/internal/sandbox"
+	"github.com/Mistral-valaise/kubedojo/internal/catalog"
+	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 )
 
 // Runner executes a script on a sandbox machine identified by role.

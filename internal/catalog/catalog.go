@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kubedojo/kubedojo/internal/sandbox"
+	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 	"gopkg.in/yaml.v3"
 )
 

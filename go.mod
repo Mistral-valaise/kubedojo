@@ -1,4 +1,4 @@
-module github.com/kubedojo/kubedojo
+module github.com/Mistral-valaise/kubedojo
 
 go 1.26.5
 

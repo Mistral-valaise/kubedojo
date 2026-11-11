@@ -4,8 +4,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/kubedojo/kubedojo/internal/api"
-	"github.com/kubedojo/kubedojo/internal/tutor"
+	"github.com/Mistral-valaise/kubedojo/internal/api"
+	"github.com/Mistral-valaise/kubedojo/internal/tutor"
 )
 
 // newTutor enables the AI tutor when an Anthropic API key is configured.

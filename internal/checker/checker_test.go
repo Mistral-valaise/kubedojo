@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/kubedojo/kubedojo/internal/catalog"
-	"github.com/kubedojo/kubedojo/internal/sandbox"
+	"github.com/Mistral-valaise/kubedojo/internal/catalog"
+	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 )
 
 func ptr[T any](v T) *T { return &v }

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kubedojo/kubedojo/internal/dockerhost"
+	"github.com/Mistral-valaise/kubedojo/internal/dockerhost"
 )
 
 const saDir = "/var/run/secrets/kubernetes.io/serviceaccount"

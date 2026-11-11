@@ -1,0 +1,29 @@
+name: Bug report
+description: Something in the platform does not work
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, what happened instead.
+    validations: {required: true}
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Environment
+      description: Output of `kubedojo doctor` and `kubedojo version`, plus your OS and Docker runtime (Docker Desktop, OrbStack, Colima ...).
+      render: text
+    validations: {required: true}
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options: [Local (kubedojo up), Kubernetes (Helm chart)]
+    validations: {required: true}
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant server output. Remove anything private.
+      render: text

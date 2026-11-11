@@ -1,0 +1,33 @@
+name: Question problem
+description: A question is wrong, unclear, or graded unfairly
+labels: [content]
+body:
+  - type: input
+    id: question
+    attributes:
+      label: Question
+      description: Track and question id (the last part of the URL), e.g. cka / rbac-pipeline-serviceaccount
+    validations: {required: true}
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is wrong?
+      options:
+        - A correct solution is graded as wrong
+        - A wrong solution is graded as correct
+        - The task text is unclear or ambiguous
+        - The setup fails or the starting state is broken
+        - The hints or the solution are wrong
+        - Something else
+    validations: {required: true}
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: What you did, what the check reported (expected / found), and what you expected instead.
+    validations: {required: true}
+  - type: input
+    id: version
+    attributes:
+      label: kubedojo version
+      description: Output of `kubedojo version`

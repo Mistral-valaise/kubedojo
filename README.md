@@ -24,7 +24,7 @@ You need [Docker](https://docs.docker.com/get-docker/) (Docker Desktop, OrbStack
 
 ```bash
 brew install kind            # macOS; see the kind docs for Linux and Windows
-git clone https://github.com/kubedojo/kubedojo && cd kubedojo
+git clone https://github.com/Mistral-valaise/kubedojo && cd kubedojo
 make build                   # needs Go 1.26+ and Node 22+
 ./bin/kubedojo up
 ```
@@ -43,7 +43,8 @@ kubedojo content lint | test    Validate content / prove every question against 
 Useful flags for `up`: `--observability` (local Grafana with dashboards), `--addr`, `--no-open`,
 `--kubernetes-version`. Set `ANTHROPIC_API_KEY` to enable the optional AI tutor.
 
-macOS is the primary platform. Linux works the same way. On Windows, run kubedojo inside WSL 2 with
+macOS is the primary platform. Linux works the same way; `kubedojo doctor` tells you if the inotify limits
+need raising for several clusters. On Windows, run kubedojo inside WSL 2 with
 Docker Desktop's WSL integration; a native Windows build compiles but is not tested yet.
 
 ## How it works

@@ -10,6 +10,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -33,6 +34,7 @@ jobs:
   # pull requests that touch content or the sandbox.
   content:
     runs-on: ubuntu-latest
+    timeout-minutes: 75
     needs: build
     if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'content')
     strategy:
@@ -44,6 +46,8 @@ jobs:
       - uses: actions/setup-go@v5
         with: {go-version-file: go.mod}
       - uses: helm/kind-action@v1
-        with: {install_only: true}
+        with: {install_only: true, version: v0.33.0}
+      # Several kind clusters need more inotify instances than the runner allows.
+      - run: sudo sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_user_watches=1048576
       - run: make images go
       - run: ./bin/kubedojo content test --track ${{ matrix.track }}

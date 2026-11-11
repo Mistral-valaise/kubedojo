@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/kubedojo/kubedojo/internal/dockerhost"
+	"github.com/Mistral-valaise/kubedojo/internal/dockerhost"
 	"github.com/moby/moby/client"
 )
 
@@ -56,9 +56,28 @@ func run(cmd *exec.Cmd, stdin string) (string, error) {
 		if msg == "" {
 			msg = strings.TrimSpace(out.String())
 		}
-		return out.String(), fmt.Errorf("%s: %w: %s", cmd.Args[0], err, lastLines(msg, 6))
+		return out.String(), fmt.Errorf("%s: %w: %s", cmd.Args[0], err, errorSummary(msg))
 	}
 	return out.String(), nil
+}
+
+// errorSummary picks the lines that explain a failure. kind prints "ERROR:"
+// lines followed by a long stack trace, so the tail alone says nothing.
+func errorSummary(msg string) string {
+	var hits []string
+	for _, l := range strings.Split(msg, "\n") {
+		t := strings.TrimSpace(l)
+		if strings.HasPrefix(t, "ERROR") || strings.Contains(t, "too many open files") || strings.Contains(t, "no space left") {
+			hits = append(hits, t)
+		}
+	}
+	if len(hits) > 0 {
+		if len(hits) > 4 {
+			hits = hits[:4]
+		}
+		return strings.Join(hits, " | ")
+	}
+	return lastLines(msg, 6)
 }
 
 func lastLines(s string, n int) string {

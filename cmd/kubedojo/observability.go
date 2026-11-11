@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kubedojo/kubedojo/deploy/helm/kubedojo/dashboards"
+	"github.com/Mistral-valaise/kubedojo/deploy/helm/kubedojo/dashboards"
 )
 
 const lgtmContainer = "kubedojo-lgtm"

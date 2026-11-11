@@ -14,11 +14,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mistral-valaise/kubedojo/internal/catalog"
+	"github.com/Mistral-valaise/kubedojo/internal/checker"
+	"github.com/Mistral-valaise/kubedojo/internal/session"
+	"github.com/Mistral-valaise/kubedojo/internal/store"
 	"github.com/coder/websocket"
-	"github.com/kubedojo/kubedojo/internal/catalog"
-	"github.com/kubedojo/kubedojo/internal/checker"
-	"github.com/kubedojo/kubedojo/internal/session"
-	"github.com/kubedojo/kubedojo/internal/store"
 )
 
 // Tutor explains failed checks (optional feature).

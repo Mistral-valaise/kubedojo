@@ -18,14 +18,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kubedojo/kubedojo/content"
-	"github.com/kubedojo/kubedojo/internal/api"
-	"github.com/kubedojo/kubedojo/internal/catalog"
-	"github.com/kubedojo/kubedojo/internal/sandbox"
-	"github.com/kubedojo/kubedojo/internal/session"
-	"github.com/kubedojo/kubedojo/internal/store"
-	"github.com/kubedojo/kubedojo/internal/telemetry"
-	"github.com/kubedojo/kubedojo/internal/webui"
+	"github.com/Mistral-valaise/kubedojo/content"
+	"github.com/Mistral-valaise/kubedojo/internal/api"
+	"github.com/Mistral-valaise/kubedojo/internal/catalog"
+	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
+	"github.com/Mistral-valaise/kubedojo/internal/session"
+	"github.com/Mistral-valaise/kubedojo/internal/store"
+	"github.com/Mistral-valaise/kubedojo/internal/telemetry"
+	"github.com/Mistral-valaise/kubedojo/internal/webui"
 )
 
 var version = "dev"

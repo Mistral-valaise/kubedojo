@@ -23,8 +23,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Image names must be lowercase, so the owner is spelled out here.
   images:
     runs-on: ubuntu-latest
+    env:
+      REGISTRY: ghcr.io/mistral-valaise
+      K8S_VERSION: v1.36.1
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -41,18 +45,33 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: VERSION=${{ github.ref_name }}
-          tags: ghcr.io/${{ github.repository_owner }}/server:${{ github.ref_name }}
+          tags: ${{ env.REGISTRY }}/kubedojo-server:${{ github.ref_name }}
       - name: Node image
         uses: docker/build-push-action@v6
         with:
           context: images/node
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/node:v1.36.1
+          build-args: K8S_VERSION=${{ env.K8S_VERSION }}
+          tags: ${{ env.REGISTRY }}/kubedojo-node:${{ env.K8S_VERSION }}
       - name: Terminal image
         uses: docker/build-push-action@v6
         with:
           context: images/terminal
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/terminal:v1.36.1
+          build-args: K8S_VERSION=${{ env.K8S_VERSION }}
+          tags: ${{ env.REGISTRY }}/kubedojo-terminal:${{ env.K8S_VERSION }}
+      # The sandbox host carries the node and terminal images as tarballs.
+      # It is built for amd64 only; build it yourself with `make sandbox-host`
+      # for arm64 sandbox nodes.
+      - name: Sandbox host image (amd64)
+        run: |
+          docker pull --platform linux/amd64 $REGISTRY/kubedojo-node:$K8S_VERSION
+          docker pull --platform linux/amd64 $REGISTRY/kubedojo-terminal:$K8S_VERSION
+          docker tag $REGISTRY/kubedojo-node:$K8S_VERSION kubedojo/node:$K8S_VERSION
+          docker tag $REGISTRY/kubedojo-terminal:$K8S_VERSION kubedojo/terminal:$K8S_VERSION
+          docker save -o images/sandbox-host/node.tar kubedojo/node:$K8S_VERSION
+          docker save -o images/sandbox-host/terminal.tar kubedojo/terminal:$K8S_VERSION
+          docker build --platform linux/amd64 -t $REGISTRY/kubedojo-sandbox-host:${{ github.ref_name }} images/sandbox-host
+          docker push $REGISTRY/kubedojo-sandbox-host:${{ github.ref_name }}

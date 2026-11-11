@@ -30,7 +30,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const scope = "github.com/kubedojo/kubedojo"
+const scope = "github.com/Mistral-valaise/kubedojo"
 
 // Telemetry holds the instruments kubedojo records to.
 type Telemetry struct {

@@ -55,9 +55,14 @@ spec:
 ```bash
 ssh {{host}}
 k apply -f policies.yaml
-k -n sec-vault exec deploy/client -- nc -z -w 3 vault 8200 && echo open        # open
-k -n sec-vault exec deploy/batch  -- nc -z -w 3 vault 8200 || echo blocked     # blocked
+VAULT=$(k -n sec-vault get pod -l app=vault -o jsonpath='{.items[0].status.podIP}')
+k -n sec-vault exec deploy/client -- nc -z -w 3 $VAULT 8200 && echo open        # open
+k -n sec-vault exec deploy/batch  -- nc -z -w 3 $VAULT 8200 || echo blocked     # blocked
+k -n sec-vault exec deploy/client -- nslookup vault.sec-vault.svc.cluster.local # resolves
 ```
 
 Policies are additive: the allow rules punch holes into the default deny, they never conflict with it.
-If the client could connect by IP but not by name, the DNS rule is what is missing.
+
+**Test with Pod IPs.** NetworkPolicies are defined for Pod-to-Pod traffic. Whether an egress rule with a
+`podSelector` also matches traffic sent to a Service's ClusterIP depends on the network plugin and the
+kube-proxy mode, so a test through the Service name can mislead you in either direction.

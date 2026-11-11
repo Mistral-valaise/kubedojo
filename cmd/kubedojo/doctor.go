@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kubedojo/kubedojo/images"
-	"github.com/kubedojo/kubedojo/internal/dockerhost"
-	"github.com/kubedojo/kubedojo/internal/sandbox"
+	"github.com/Mistral-valaise/kubedojo/images"
+	"github.com/Mistral-valaise/kubedojo/internal/dockerhost"
+	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 )
 
 func cmdDoctor(ctx context.Context, args []string) error {
@@ -65,6 +65,17 @@ func preflight(ctx context.Context, drv *sandbox.Kind, build bool) error {
 	}
 	v, _ := out(ctx, "kind", "version")
 	ok(v)
+
+	// Several kind clusters need more inotify instances than most Linux
+	// distributions allow by default; the symptom is a second cluster that
+	// fails to start.
+	if b, err := os.ReadFile("/proc/sys/fs/inotify/max_user_instances"); err == nil {
+		if n, _ := strconv.Atoi(strings.TrimSpace(string(b))); n > 0 && n < 512 {
+			warn(fmt.Sprintf("fs.inotify.max_user_instances is %d. Exams create several clusters; run: sudo sysctl -w fs.inotify.max_user_instances=512 fs.inotify.max_user_watches=524288", n))
+		} else {
+			ok("inotify limits are sufficient")
+		}
+	}
 
 	for _, img := range []struct{ tag, dir string }{{drv.NodeImage, "node"}, {drv.TerminalImage, "terminal"}} {
 		if _, err := out(ctx, "docker", "image", "inspect", "--format", "{{.Id}}", img.tag); err == nil {

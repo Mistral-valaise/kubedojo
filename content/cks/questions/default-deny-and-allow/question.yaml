@@ -16,6 +16,8 @@ task: |
      - Pods labeled `app=client` may resolve DNS names (port `53`, UDP and TCP)
 
   Nothing else may be allowed. Pods labeled `app=client` must, for example, not reach the Kubernetes API.
+
+  Your policies are tested with Pod IPs, not through the Service.
 hints:
   - "Default deny: an empty `podSelector: {}` with `policyTypes: [Ingress, Egress]` and no rules."
   - "With deny in both directions a connection needs two permissions: **egress** on the client and **ingress** on the vault. One NetworkPolicy object can only select one group of Pods — but nothing stops you from putting several YAML documents... into separate policies. The task only requires `client-to-vault` to make the connection work, so think about which Pods it should select and whether a second policy for the other direction is needed."
@@ -30,18 +32,26 @@ checks:
     explain: >-
       An empty podSelector matches every Pod of the Namespace. Listing a policy type without any rule for it means "allow nothing" in that direction.
   - id: client-vault
-    title: client can connect to vault on port 8200 by name
+    title: client can connect to the vault Pod on port 8200
     type: exec
     run: |-
-      kubectl -n sec-vault exec deploy/client -- nc -z -w 4 vault 8200 && echo open || echo blocked
+      kubectl -n sec-vault exec deploy/client -- nc -z -w 4 "$(kubectl -n sec-vault get pod -l app=vault -o jsonpath='{.items[0].status.podIP}')" 8200 && echo open || echo blocked
     expect: {equals: open}
     explain: >-
-      This needs three things at once: DNS egress for the client (to resolve "vault"), egress from client to vault, and ingress on vault from client. If one is missing the connection times out.
+      With deny in both directions this needs two permissions: egress from client to the vault Pods and ingress on vault from client. If one is missing the connection times out.
+  - id: client-dns
+    title: client can resolve DNS names
+    type: exec
+    run: |-
+      kubectl -n sec-vault exec deploy/client -- nslookup -timeout=3 vault.sec-vault.svc.cluster.local >/dev/null 2>&1 && echo resolves || echo fails
+    expect: {equals: resolves}
+    explain: >-
+      A default deny for Egress also blocks DNS. Without an egress rule for port 53 (UDP and TCP) the Pods cannot resolve any name, and applications fail long before they open a connection.
   - id: other-blocked
     title: Other Pods cannot connect to vault
     type: exec
     run: |-
-      kubectl -n sec-vault exec deploy/batch -- nc -z -w 3 "$(kubectl -n sec-vault get svc vault -o jsonpath='{.spec.clusterIP}')" 8200 && echo open || echo blocked
+      kubectl -n sec-vault exec deploy/batch -- nc -z -w 3 "$(kubectl -n sec-vault get pod -l app=vault -o jsonpath='{.items[0].status.podIP}')" 8200 && echo open || echo blocked
     expect: {equals: blocked}
     explain: >-
       Only app=client was to be allowed. A rule with an empty podSelector under `from` would allow the whole Namespace.

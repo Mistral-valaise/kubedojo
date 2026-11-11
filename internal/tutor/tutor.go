@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Mistral-valaise/kubedojo/internal/catalog"
+	"github.com/Mistral-valaise/kubedojo/internal/checker"
 	"github.com/anthropics/anthropic-sdk-go/v2"
-	"github.com/kubedojo/kubedojo/internal/catalog"
-	"github.com/kubedojo/kubedojo/internal/checker"
 )
 
 // DefaultModel is used unless KUBEDOJO_TUTOR_MODEL names another one.

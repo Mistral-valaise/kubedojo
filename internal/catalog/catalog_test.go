@@ -3,8 +3,8 @@ package catalog_test
 import (
 	"testing"
 
-	"github.com/kubedojo/kubedojo/content"
-	"github.com/kubedojo/kubedojo/internal/catalog"
+	"github.com/Mistral-valaise/kubedojo/content"
+	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 )
 
 // The shipped content must always be valid.

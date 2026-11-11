@@ -3,8 +3,8 @@ package session
 import (
 	"testing"
 
-	"github.com/kubedojo/kubedojo/content"
-	"github.com/kubedojo/kubedojo/internal/catalog"
+	"github.com/Mistral-valaise/kubedojo/content"
+	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 )
 
 func TestPickQuestionsFollowsDomainWeights(t *testing.T) {
