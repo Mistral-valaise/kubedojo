@@ -7,6 +7,8 @@ imagePullSecrets: []
 
 # Maximum number of live sessions (each owns a sandbox Pod).
 maxSessions: 5
+# Maximum number of terminal tabs one session may have open at the same time.
+maxTerminals: 4
 # Remove sandboxes nobody used for this long. "0" disables the cleanup.
 idleTTL: 3h
 

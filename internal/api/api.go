@@ -143,7 +143,8 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) *session.Sessio
 }
 
 func (s *Server) config(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"version": s.Version, "tutor": s.Tutor != nil, "user": s.owner(r)})
+	writeJSON(w, 200, map[string]any{"version": s.Version, "tutor": s.Tutor != nil, "user": s.owner(r),
+		"maxTerminals": s.Sessions.MaxTerminals()})
 }
 
 type questionMeta struct {
@@ -489,6 +490,10 @@ echo "## non-running pods"; kubectl get pods -A --field-selector=status.phase!=R
 echo "## recent warning events"; kubectl get events -A --field-selector=type=Warning --sort-by=.lastTimestamp 2>&1 | tail -15
 `
 
+// CloseTerminalLimit is the WebSocket close code sent when a session already
+// has the maximum number of terminals open (application range 4000–4999).
+const CloseTerminalLimit websocket.StatusCode = 4429
+
 func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	v := s.session(w, r)
 	if v == nil {
@@ -506,6 +511,12 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	tty, err := s.Sessions.Attach(ctx, v.ID, uint(cols), uint(rows))
+	if errors.Is(err, session.ErrTerminalLimit) {
+		// Browsers hide the HTTP status of a failed WebSocket handshake, so the
+		// limit is reported as a close code the UI can tell apart.
+		c.Close(CloseTerminalLimit, "terminal limit reached")
+		return
+	}
 	if err != nil {
 		_ = c.Write(ctx, websocket.MessageBinary, []byte("\r\n\x1b[31mCould not open terminal: "+err.Error()+"\x1b[0m\r\n"))
 		c.Close(websocket.StatusInternalError, "attach failed")

@@ -146,6 +146,7 @@ type Manager struct {
 	max    int
 	ttl    time.Duration
 	hooks  Hooks
+	terms  terminals
 	mu     sync.Mutex
 	byID   map[string]*Session
 	stopCh chan struct{}
@@ -879,6 +880,9 @@ func (m *Manager) Destroy(ctx context.Context, id string) error {
 	}
 	s.op.Lock()
 	defer s.op.Unlock()
+	// End the shells first: their slots are freed and the WebSockets close
+	// instead of waiting for a read error from a container that is gone.
+	m.terms.closeAll(s.ID)
 	host, err := m.hosts.Acquire(ctx, s.ID, func(string, ...any) {})
 	if err == nil {
 		if derr := m.drv.Destroy(ctx, host, s.ID, s.aliases()); derr != nil {
@@ -888,25 +892,6 @@ func (m *Manager) Destroy(ctx context.Context, id string) error {
 	_ = m.hosts.Release(ctx, s.ID)
 	m.update(s, func() { s.Status = StatusDestroyed })
 	return nil
-}
-
-// Attach opens an interactive shell on the session's terminal.
-func (m *Manager) Attach(ctx context.Context, id string, cols, rows uint) (sandbox.TTY, error) {
-	s, err := m.get(id)
-	if err != nil {
-		return nil, err
-	}
-	m.mu.Lock()
-	n := len(s.Envs)
-	m.mu.Unlock()
-	if n == 0 {
-		return nil, fmt.Errorf("%w: sandbox is not ready yet", ErrConflict)
-	}
-	host, err := m.hosts.Acquire(ctx, s.ID, func(string, ...any) {})
-	if err != nil {
-		return nil, err
-	}
-	return m.drv.Attach(ctx, host, s.ID, cols, rows)
 }
 
 // View returns a deep copy that is safe to serialise (without secrets).

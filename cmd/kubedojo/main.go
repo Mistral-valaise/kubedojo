@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -115,6 +116,13 @@ func env(key, def string) string {
 	return def
 }
 
+func envInt(key string, def int) int {
+	if n, err := strconv.Atoi(os.Getenv(key)); err == nil {
+		return n
+	}
+	return def
+}
+
 func envDuration(key string, def time.Duration) time.Duration {
 	if d, err := time.ParseDuration(os.Getenv(key)); err == nil {
 		return d
@@ -164,6 +172,7 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 	addr := fl.String("addr", env("KUBEDOJO_ADDR", "127.0.0.1:4400"), "listen address")
 	noOpen := fl.Bool("no-open", false, "do not open the browser")
 	maxSessions := fl.Int("max-sessions", 3, "maximum number of live sessions")
+	maxTerminals := fl.Int("max-terminals", envInt("KUBEDOJO_MAX_TERMINALS", session.DefaultMaxTerminals), "maximum number of terminal tabs one session may have open")
 	userHeader := fl.String("user-header", env("KUBEDOJO_USER_HEADER", ""), "trusted header carrying the user name (behind an OIDC proxy)")
 	hosts := fl.String("sandbox-host", env("KUBEDOJO_SANDBOX_HOST", "local"), "where sandboxes run: local | kubernetes")
 	idleTTL := fl.Duration("idle-ttl", envDuration("KUBEDOJO_IDLE_TTL", 0), "remove sandboxes that were not used for this long (0 = never)")
@@ -220,6 +229,7 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 		return err
 	}
 	defer mgr.Close()
+	mgr.SetMaxTerminals(*maxTerminals)
 	tel.ObserveSessions(mgr.ActiveCount)
 
 	srv := &api.Server{Catalog: cat, Sessions: mgr, Store: st, UI: webui.FS(), Log: log, Version: version,

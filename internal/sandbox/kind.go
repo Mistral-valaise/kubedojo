@@ -3,11 +3,15 @@ package sandbox
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/Mistral-valaise/kubedojo/internal/dockerhost"
 	"github.com/moby/moby/client"
@@ -197,7 +201,9 @@ func (k *Kind) EnsureTerminal(ctx context.Context, h dockerhost.Host, sessionID 
 	state, _ := run(h.Command(ctx, "docker", "inspect", "-f", "{{.State.Running}}", name), "")
 	if strings.TrimSpace(state) != "true" {
 		_, _ = run(h.Command(ctx, "docker", "rm", "-f", name), "")
-		if _, err := run(h.Command(ctx, "docker", "run", "-d", "--name", name, "--hostname", "terminal",
+		// --init: shells of closed terminals leave orphans behind; without an
+		// init process as PID 1 nobody reaps them and they stay as zombies.
+		if _, err := run(h.Command(ctx, "docker", "run", "-d", "--init", "--name", name, "--hostname", "terminal",
 			"--network", "kind", "--label", "kubedojo.session="+sessionID, "--restart", "unless-stopped",
 			k.TerminalImage), ""); err != nil {
 			return err
@@ -276,11 +282,21 @@ type tty struct {
 	}
 	resize func(ctx context.Context, cols, rows uint) error
 	closer func()
+	once   sync.Once
 }
 
 func (t *tty) Read(p []byte) (int, error)  { return t.conn.Read(p) }
 func (t *tty) Write(p []byte) (int, error) { return t.conn.Write(p) }
-func (t *tty) Close() error                { err := t.conn.Close(); t.closer(); return err }
+
+// Close ends the shell. It is safe to call more than once.
+func (t *tty) Close() error {
+	var err error
+	t.once.Do(func() {
+		err = t.conn.Close()
+		t.closer()
+	})
+	return err
+}
 func (t *tty) Resize(ctx context.Context, cols, rows uint) error {
 	return t.resize(ctx, cols, rows)
 }
@@ -294,10 +310,17 @@ func (k *Kind) Attach(ctx context.Context, h dockerhost.Host, sessionID string, 
 		cols, rows = 120, 32
 	}
 	size := client.ConsoleSize{Height: rows, Width: cols}
-	ex, err := cli.ExecCreate(ctx, terminalName(sessionID), client.ExecCreateOptions{
+	// Every process started from this shell inherits the marker, which is how
+	// Close finds them: closing the attach stream alone leaves the shell and
+	// whatever runs in it alive inside the container.
+	raw := make([]byte, 8)
+	_, _ = rand.Read(raw)
+	marker := "KD_TTY=" + hex.EncodeToString(raw)
+	name := terminalName(sessionID)
+	ex, err := cli.ExecCreate(ctx, name, client.ExecCreateOptions{
 		User: "candidate", TTY: true, AttachStdin: true, AttachStdout: true, AttachStderr: true,
 		WorkingDir: "/home/candidate", ConsoleSize: size,
-		Env: []string{"TERM=xterm-256color", "LANG=C.UTF-8"},
+		Env: []string{"TERM=xterm-256color", "LANG=C.UTF-8", marker},
 		Cmd: []string{"bash", "-l"},
 	})
 	if err != nil {
@@ -315,8 +338,38 @@ func (k *Kind) Attach(ctx context.Context, h dockerhost.Host, sessionID string, 
 			_, err := cli.ExecResize(ctx, ex.ID, client.ExecResizeOptions{Height: r, Width: c})
 			return err
 		},
-		closer: func() { cli.Close() },
+		closer: func() {
+			defer cli.Close()
+			// Not the request context: it is usually cancelled by now.
+			kctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			hangUp(kctx, cli, name, marker)
+		},
 	}, nil
+}
+
+// hangUpScript hangs up every process that carries the marker of a closed
+// terminal, as a real terminal does when its window is closed: SIGHUP for
+// all of them (jobs started with nohup survive, as they would anywhere), then
+// SIGKILL for a shell that did not leave.
+const hangUpScript = `
+marked() { for e in /proc/[0-9]*/environ; do tr '\0' '\n' < "$e" 2>/dev/null | grep -qx "$1" && { p=${e#/proc/}; echo "${p%/environ}"; }; done; }
+for p in $(marked "$1"); do kill -HUP "$p" 2>/dev/null; done
+sleep 1
+for p in $(marked "$1"); do [ "$(ps -o sid= -p "$p" 2>/dev/null | tr -d ' ')" = "$p" ] && kill -KILL "$p" 2>/dev/null; done
+exit 0
+`
+
+func hangUp(ctx context.Context, cli *client.Client, container, marker string) {
+	ex, err := cli.ExecCreate(ctx, container, client.ExecCreateOptions{
+		// As the shell's own user: without CAP_SYS_PTRACE not even root may
+		// read the environment of another user's processes.
+		User: "candidate", Cmd: []string{"sh", "-c", hangUpScript, "hangup", marker},
+	})
+	if err != nil {
+		return // the container is gone, and its processes with it
+	}
+	_, _ = cli.ExecStart(ctx, ex.ID, client.ExecStartOptions{Detach: true})
 }
 
 func (k *Kind) DeleteEnv(ctx context.Context, h dockerhost.Host, alias string) error {

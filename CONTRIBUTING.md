@@ -43,7 +43,7 @@ Add the `content` label to your pull request so CI runs the full content proof.
 ## Changing code
 
 ```bash
-make test             # Go unit tests + TypeScript type check
+make test             # Go unit tests, TypeScript type check, UI tests (vitest)
 go vet ./... && gofmt -l cmd internal
 helm lint deploy/helm/kubedojo
 ```
