@@ -30,6 +30,7 @@ checks:
     title: The zlib version matches the SBOM
     type: exec
     run: |-
+      [ -s /opt/course/sbom/zlib-version ] && [ -s /opt/course/sbom/nginx.spdx.json ] || { echo "/opt/course/sbom/zlib-version or the SBOM is missing or empty" >&2; exit 1; }
       [ "$(tr -d '[:space:]' < /opt/course/sbom/zlib-version)" = "$(jq -r '[.packages[] | select(.name=="zlib") | .versionInfo][0]' /opt/course/sbom/nginx.spdx.json)" ] && echo ok
     expect: {equals: ok}
     explain: >-

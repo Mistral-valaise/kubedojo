@@ -33,6 +33,7 @@ checks:
       A server-side dry run sends the object through admission without creating it — the quickest way to test a policy.
   - id: compliant
     title: The Deployment's Pod template complies with restricted
+    guard: true
     type: exec
     run: |-
       kubectl -n sec-magpie get deploy web -o json | jq '{apiVersion:"v1",kind:"Pod",metadata:{name:"psa-template-probe"},spec:.spec.template.spec}' | kubectl -n sec-magpie apply --dry-run=server -f - 2>&1 | grep -c 'created (server dry run)'
@@ -41,6 +42,7 @@ checks:
       restricted requires, per container: allowPrivilegeEscalation false, all capabilities dropped, runAsNonRoot true and a seccomp profile of RuntimeDefault or Localhost.
   - id: running
     title: Deployment web runs 2 ready replicas of the new template
+    guard: true
     type: resource
     resource: deployment/web
     namespace: sec-magpie

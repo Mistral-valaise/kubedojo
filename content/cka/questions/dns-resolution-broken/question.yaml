@@ -31,12 +31,14 @@ checks:
     title: kubernetes.default.svc.cluster.local resolves
     type: exec
     run: |-
-      dig +short +time=2 +tries=1 @$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}') kubernetes.default.svc.cluster.local
+      ips=$(kubectl -n kube-system get pod -l k8s-app=kube-dns -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.status.podIP}{"\n"}{end}'); [ -n "$ips" ] || { echo "no running CoreDNS Pod" >&2; exit 1; }
+      for ip in $ips; do a=$(dig +short +time=2 +tries=1 @$ip kubernetes.default.svc.cluster.local | tail -n 1); echo "${a:-no-answer}"; done | sort -u | xargs
     expect: {matches: "^\\d+\\.\\d+\\.\\d+\\.\\d+$"}
     explain: >-
       This is the same query every Pod makes through /etc/resolv.conf. CoreDNS picks up ConfigMap changes through its `reload` plugin, which can take up to a minute.
   - id: coredns-up
     title: CoreDNS is available
+    guard: true
     type: resource
     resource: deployment/coredns
     namespace: kube-system

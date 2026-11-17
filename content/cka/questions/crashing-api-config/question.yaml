@@ -48,6 +48,7 @@ checks:
       A liveness probe against a port nothing listens on fails forever, so the kubelet keeps killing a healthy container. Removing the probe would hide real outages.
   - id: image
     title: The image is unchanged
+    guard: true
     type: resource
     resource: deployment/api
     namespace: team-raven

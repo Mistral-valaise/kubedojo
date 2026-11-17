@@ -39,6 +39,7 @@ checks:
       spec.tls maps host names to a Secret in the same Namespace. Without the host entry the controller may serve its default (self-signed) certificate instead.
   - id: rule-kept
     title: The routing rule is unchanged
+    guard: true
     type: resource
     resource: ingress/portal
     namespace: sec-finch

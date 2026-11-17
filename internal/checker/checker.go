@@ -26,6 +26,15 @@ type CheckResult struct {
 	Observed string `json:"observed"`
 	Explain  string `json:"explain"`
 	Command  string `json:"command"`
+	// Debug data: how the command ended, on which machine, and how long the
+	// grader waited. Stderr is clipped and has credentials redacted.
+	On         string `json:"on"`
+	ExitCode   int    `json:"exitCode"`
+	Stderr     string `json:"stderr,omitempty"`
+	DurationMs int64  `json:"durationMs"`
+	Attempts   int    `json:"attempts"`
+	TimedOut   bool   `json:"timedOut,omitempty"`
+	Guard      bool   `json:"guard,omitempty"`
 }
 
 type Result struct {
@@ -62,34 +71,113 @@ func Command(c *catalog.Check) string {
 
 // Run grades all checks of q.
 func Run(ctx context.Context, q *catalog.Question, run Runner) Result {
+	return RunSettled(ctx, q, run, 0)
+}
+
+// RunSettled grades all checks of q and then keeps re-running the ones that
+// failed until they pass or settle has elapsed.
+func RunSettled(ctx context.Context, q *catalog.Question, run Runner, settle time.Duration) Result {
 	res := Result{QuestionID: q.ID, Max: q.Points, At: time.Now().UTC()}
 	for _, c := range q.Checks {
-		cr := runCheck(ctx, c, run)
-		if cr.Passed {
-			res.Score += c.Points
-		}
-		res.Checks = append(res.Checks, cr)
+		res.Checks = append(res.Checks, runCheck(ctx, c, run))
 	}
-	res.Passed = res.Score == res.Max
+	score(q, &res)
+	end := time.Now().Add(settle)
+	for settle > 0 && !res.Passed && time.Now().Add(retryPause).Before(end) && sleepCtx(ctx, retryPause) == nil {
+		res = Recheck(ctx, q, run, res)
+	}
 	return res
 }
 
-func runCheck(ctx context.Context, c *catalog.Check, run Runner) CheckResult {
-	cr := CheckResult{ID: c.ID, Title: c.Title, Points: c.Points, Explain: strings.TrimSpace(c.Explain), Command: Command(c)}
-	role := c.On
-	if role == "" {
-		role = "control-plane"
+// Recheck runs the failed checks of an earlier result again and keeps the
+// passed ones. Exam grading uses it: a Deployment fixed seconds before the
+// deadline is still rolling out, and a single look would grade the rollout
+// instead of the answer. A pass can never turn into a failure this way.
+func Recheck(ctx context.Context, q *catalog.Question, run Runner, prev Result) Result {
+	res := Result{QuestionID: q.ID, Max: q.Points, At: time.Now().UTC(), Checks: append([]CheckResult(nil), prev.Checks...)}
+	for i, c := range q.Checks {
+		if i >= len(res.Checks) || res.Checks[i].Passed || ctx.Err() != nil {
+			continue
+		}
+		old := res.Checks[i]
+		cr := runCheck(ctx, c, run)
+		cr.Attempts += old.Attempts
+		cr.DurationMs += old.DurationMs
+		res.Checks[i] = cr
 	}
-	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	score(q, &res)
+	return res
+}
+
+func score(q *catalog.Question, res *Result) {
+	res.Score = 0
+	for i, c := range q.Checks {
+		if i < len(res.Checks) && res.Checks[i].Passed {
+			res.Score += c.Points
+		}
+	}
+	res.Passed = res.Score == res.Max
+}
+
+// retryPause is the wait between two attempts of a retried check.
+var retryPause = 2 * time.Second
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// runCheck runs one check, repeating it while it fails when the check asks
+// for that with retry.
+func runCheck(ctx context.Context, c *catalog.Check, run Runner) CheckResult {
+	start := time.Now()
+	end := start.Add(c.RetryD)
+	var cr CheckResult
+	for n := 1; ; n++ {
+		cr = attempt(ctx, c, run)
+		cr.Attempts = n
+		if cr.Passed || c.RetryD == 0 || time.Now().Add(retryPause).After(end) || sleepCtx(ctx, retryPause) != nil {
+			break
+		}
+	}
+	cr.DurationMs = time.Since(start).Milliseconds()
+	return cr
+}
+
+func attempt(ctx context.Context, c *catalog.Check, run Runner) CheckResult {
+	cr := CheckResult{ID: c.ID, Title: c.Title, Points: c.Points, Explain: strings.TrimSpace(c.Explain),
+		Command: Command(c), Expected: describe(c), Guard: c.Guard}
+	cr.On = c.On
+	if cr.On == "" {
+		cr.On = "control-plane"
+	}
+	timeout := c.TimeoutD
+	if timeout <= 0 {
+		timeout = catalog.DefaultCheckTimeout
+	}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := run(cctx, role, cr.Command+"\n")
+	out, err := run(cctx, cr.On, cr.Command+"\n")
+	cr.ExitCode = out.ExitCode
+	cr.Stderr = clip(Redact(strings.TrimSpace(out.Stderr)))
+	// A command that outlived its budget is reported as such, whatever the
+	// runner made of the killed process (an error or exit code -1).
+	if cctx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
+		cr.TimedOut = true
+		cr.Observed = fmt.Sprintf("the check did not finish within %s", timeout)
+		return cr
+	}
 	if err != nil {
-		cr.Expected = describe(c)
-		cr.Observed = "grader error: " + err.Error()
+		cr.Observed = "grader error: " + Redact(err.Error())
 		return cr
 	}
 	stdout := strings.TrimSpace(out.Stdout)
-	cr.Expected = describe(c)
 
 	// Existence semantics for resource/file checks without matchers.
 	if c.Type == "resource" && c.Absent {
@@ -99,7 +187,7 @@ func runCheck(ctx context.Context, c *catalog.Check, run Runner) CheckResult {
 		} else if out.ExitCode == 0 {
 			cr.Observed = "still exists"
 		} else {
-			cr.Observed = clip(strings.TrimSpace(out.Stderr))
+			cr.Observed = cr.Stderr
 		}
 		return cr
 	}
@@ -108,9 +196,9 @@ func runCheck(ctx context.Context, c *catalog.Check, run Runner) CheckResult {
 		wantExit = *c.Expect.ExitCode
 	}
 	if out.ExitCode != wantExit {
-		msg := strings.TrimSpace(out.Stderr)
+		msg := cr.Stderr
 		if msg == "" {
-			msg = stdout
+			msg = clip(Redact(stdout))
 		}
 		switch {
 		case c.Type == "resource" && strings.Contains(msg, "NotFound"):
@@ -121,7 +209,7 @@ func runCheck(ctx context.Context, c *catalog.Check, run Runner) CheckResult {
 			// kubectl's jsonpath error for "the list is empty" is long and cryptic.
 			cr.Observed = "no matching object found"
 		default:
-			cr.Observed = fmt.Sprintf("exit code %d: %s", out.ExitCode, clip(msg))
+			cr.Observed = fmt.Sprintf("exit code %d: %s", out.ExitCode, msg)
 		}
 		return cr
 	}
@@ -136,6 +224,26 @@ func runCheck(ctx context.Context, c *catalog.Check, run Runner) CheckResult {
 		cr.Observed += "\n→ " + why
 	}
 	return cr
+}
+
+var redactions = []*regexp.Regexp{
+	// PEM blocks (keys and certificates).
+	regexp.MustCompile(`(?s)-----BEGIN [A-Z ]+-----.*?(-----END [A-Z ]+-----|$)`),
+	// JSON Web Tokens (ServiceAccount tokens).
+	regexp.MustCompile(`eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*`),
+	// Authorization headers.
+	regexp.MustCompile(`(?i)(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}`),
+}
+
+var keyValueRe = regexp.MustCompile(`(?i)\b([a-z0-9_.-]*(password|passwd|secret|token|api[_-]?key|client-key-data|private[_-]?key)[a-z0-9_.-]*)("?\s*[:=]\s*"?)([^\s"',;]+)`)
+
+// Redact removes credentials from grader debug output before it is stored or
+// shown: the stderr of a check may quote a kubeconfig, a token or a key.
+func Redact(s string) string {
+	for _, re := range redactions {
+		s = re.ReplaceAllString(s, "[redacted]")
+	}
+	return keyValueRe.ReplaceAllString(s, "${1}${3}[redacted]")
 }
 
 func clip(s string) string {

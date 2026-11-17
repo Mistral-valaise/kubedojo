@@ -2,7 +2,9 @@ package checker
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
@@ -68,5 +70,131 @@ func TestRunScoresChecks(t *testing.T) {
 	}
 	if res.Checks[3].Observed != "file not found or unreadable" {
 		t.Errorf("file check observed %q", res.Checks[3].Observed)
+	}
+}
+
+func chk(id string, e *catalog.Expect) *catalog.Check {
+	return &catalog.Check{ID: id, Title: id, Points: 1, Type: "exec", Run: id, Expect: e}
+}
+
+// A pipeline that ends in "wc -l" exits 0 and prints 0 even when the command
+// in front of it failed. The engine can only see exit 0 and "0": such checks
+// must assert the precondition themselves and exit non-zero. This pins the
+// engine side: a non-zero exit never passes, whatever was printed.
+func TestFailedCommandNeverPasses(t *testing.T) {
+	q := &catalog.Question{ID: "q", Points: 3, Checks: []*catalog.Check{
+		chk("zero", &catalog.Expect{Equals: ptr("0")}),
+		chk("empty", &catalog.Expect{NotEquals: ptr("true")}),
+		chk("none", nil),
+	}}
+	run := func(context.Context, string, string) (sandbox.ExecResult, error) {
+		return sandbox.ExecResult{Stdout: "0\n", ExitCode: 1, Stderr: "audit log missing"}, nil
+	}
+	res := Run(context.Background(), q, run)
+	if res.Score != 0 {
+		t.Fatalf("score %d, want 0: a failed command must not pass", res.Score)
+	}
+	c := res.Checks[0]
+	if c.ExitCode != 1 || c.Stderr != "audit log missing" || c.Attempts != 1 || c.On != "control-plane" {
+		t.Errorf("debug data = exit %d stderr %q attempts %d on %q", c.ExitCode, c.Stderr, c.Attempts, c.On)
+	}
+	if c.Observed != "exit code 1: audit log missing" {
+		t.Errorf("observed %q", c.Observed)
+	}
+}
+
+func TestTimeoutIsReported(t *testing.T) {
+	c := chk("slow", nil)
+	c.TimeoutD = 20 * time.Millisecond
+	q := &catalog.Question{ID: "q", Points: 1, Checks: []*catalog.Check{c}}
+	run := func(ctx context.Context, _, _ string) (sandbox.ExecResult, error) {
+		<-ctx.Done()
+		// What the kind driver returns when the docker CLI is killed.
+		return sandbox.ExecResult{ExitCode: -1}, nil
+	}
+	res := Run(context.Background(), q, run)
+	got := res.Checks[0]
+	if got.Passed || !got.TimedOut || !strings.Contains(got.Observed, "did not finish within 20ms") {
+		t.Fatalf("passed=%v timedOut=%v observed=%q", got.Passed, got.TimedOut, got.Observed)
+	}
+}
+
+func TestRetryUntilPass(t *testing.T) {
+	defer func(d time.Duration) { retryPause = d }(retryPause)
+	retryPause = time.Millisecond
+	c := chk("converges", &catalog.Expect{Equals: ptr("ready")})
+	c.RetryD = 2 * time.Second
+	never := chk("never", &catalog.Expect{Equals: ptr("ready")})
+	never.RetryD = 30 * time.Millisecond
+	q := &catalog.Question{ID: "q", Points: 2, Checks: []*catalog.Check{c, never}}
+	calls := 0
+	run := func(_ context.Context, _, script string) (sandbox.ExecResult, error) {
+		if script == "never\n" {
+			return sandbox.ExecResult{Stdout: "pending"}, nil
+		}
+		calls++
+		if calls < 3 {
+			return sandbox.ExecResult{Stdout: "pending"}, nil
+		}
+		return sandbox.ExecResult{Stdout: "ready"}, nil
+	}
+	res := Run(context.Background(), q, run)
+	if !res.Checks[0].Passed || res.Checks[0].Attempts != 3 {
+		t.Errorf("converging check: passed=%v attempts=%d, want true/3", res.Checks[0].Passed, res.Checks[0].Attempts)
+	}
+	if res.Checks[1].Passed || res.Checks[1].Attempts < 2 {
+		t.Errorf("check that never converges: passed=%v attempts=%d", res.Checks[1].Passed, res.Checks[1].Attempts)
+	}
+}
+
+// Exam grading re-runs failed checks only: a pass is final, and state that
+// converges within the window is graded once it has settled.
+func TestRecheckKeepsPasses(t *testing.T) {
+	defer func(d time.Duration) { retryPause = d }(retryPause)
+	retryPause = time.Millisecond
+	q := &catalog.Question{ID: "q", Points: 3, Checks: []*catalog.Check{
+		chk("stable", &catalog.Expect{Equals: ptr("ok")}),
+		chk("late", &catalog.Expect{Equals: ptr("ok")}),
+		chk("wrong", &catalog.Expect{Equals: ptr("ok")}),
+	}}
+	n := map[string]int{}
+	run := func(_ context.Context, _, script string) (sandbox.ExecResult, error) {
+		id := strings.TrimSpace(script)
+		n[id]++
+		switch {
+		case id == "stable" && n[id] == 1, id == "late" && n[id] >= 3:
+			return sandbox.ExecResult{Stdout: "ok"}, nil
+		}
+		return sandbox.ExecResult{Stdout: "no"}, nil
+	}
+	res := RunSettled(context.Background(), q, run, 200*time.Millisecond)
+	if n["stable"] != 1 {
+		t.Errorf("a passed check ran %d times, want 1", n["stable"])
+	}
+	if res.Score != 2 || res.Passed {
+		t.Fatalf("score %d passed=%v, want 2 false", res.Score, res.Passed)
+	}
+	if !res.Checks[1].Passed || res.Checks[1].Attempts != 3 {
+		t.Errorf("late check: passed=%v attempts=%d", res.Checks[1].Passed, res.Checks[1].Attempts)
+	}
+	if res.Checks[2].Passed {
+		t.Error("a wrong answer passed after settling")
+	}
+}
+
+func TestRedact(t *testing.T) {
+	jwt := "eyJhbGciOiJSUzI1NiIsImtpZCI6IngifQ.eyJpc3MiOiJrdWJlcm5ldGVzIn0.c2lnbmF0dXJl"
+	in := "token: " + jwt + "\npassword=hunter2 user=admin\nAuthorization: Bearer abcdef123456\n" +
+		"-----BEGIN PRIVATE KEY-----\nMIIEvQ\n-----END PRIVATE KEY-----\nclient-key-data: LS0tLS1CRUdJTg==\nError from server (NotFound): pods \"x\" not found"
+	out := Redact(in)
+	for _, leak := range []string{jwt, "hunter2", "abcdef123456", "MIIEvQ", "LS0tLS1CRUdJTg=="} {
+		if strings.Contains(out, leak) {
+			t.Errorf("redacted output still contains %q:\n%s", leak, out)
+		}
+	}
+	for _, keep := range []string{"user=admin", `pods "x" not found`} {
+		if !strings.Contains(out, keep) {
+			t.Errorf("redaction removed harmless text %q:\n%s", keep, out)
+		}
 	}
 }

@@ -30,6 +30,7 @@ checks:
       The claim asked for 10Gi and ReadWriteMany; the volume offers 5Gi and ReadWriteOnce. A claim only binds to a volume that is at least as large and offers the requested access mode.
   - id: pv-unchanged
     title: The PersistentVolume is unchanged
+    guard: true
     type: resource
     resource: pv/osprey-pv
     jsonpath: "{.spec.capacity.storage} {.spec.accessModes[0]} {.metadata.annotations.kubedojo\\.dev/original}"

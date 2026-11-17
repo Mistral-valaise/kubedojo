@@ -32,6 +32,7 @@ checks:
       Custom resources are addressed in RBAC like built-in ones — plural resource name plus API group of the CRD.
   - id: cannot-delete
     title: The ServiceAccount cannot delete Backups
+    guard: true
     type: exec
     run: |-
       kubectl -n team-egret auth can-i delete backups.ops.kubedojo.dev --as system:serviceaccount:team-egret:backup-operator
@@ -40,6 +41,7 @@ checks:
       Only four verbs were requested. Wildcards would let a compromised operator destroy all backups.
   - id: scoped
     title: The permissions do not apply in other Namespaces
+    guard: true
     type: exec
     run: |-
       kubectl -n default auth can-i list backups.ops.kubedojo.dev --as system:serviceaccount:team-egret:backup-operator

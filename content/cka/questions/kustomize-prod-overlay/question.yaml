@@ -50,6 +50,7 @@ checks:
       The labels field adds labels to all resources of the overlay in one place.
   - id: base-untouched
     title: The base is unchanged
+    guard: true
     type: exec
     run: "grep -c 'replicas: 1' /opt/course/kustomize/base/deployment.yaml"
     expect: {equals: "1"}

@@ -28,12 +28,14 @@ checks:
     title: A Pod with an untrusted image is rejected in sec-robin
     type: exec
     run: |-
-      kubectl -n sec-robin run probe --image=quay.io/prometheus/busybox:latest --dry-run=server -o name >/dev/null 2>&1 && echo admitted || echo denied
+      out=$(kubectl -n sec-robin run probe --image=quay.io/prometheus/busybox:latest --dry-run=server -o name 2>&1) && { echo admitted; exit 0; }
+      echo "$out" | grep -q ValidatingAdmissionPolicy && echo denied || { echo "the request failed, but not because of a ValidatingAdmissionPolicy: $out" >&2; exit 1; }
     expect: {equals: denied}
     explain: >-
       A ValidatingAdmissionPolicy needs matchConstraints for pods, a CEL validation, and a binding with validationActions [Deny]. Without the binding nothing is enforced.
   - id: allowed-k8s
     title: A Pod from registry.k8s.io is admitted
+    guard: true
     type: exec
     run: |-
       kubectl -n sec-robin run probe --image=registry.k8s.io/pause:3.10 --dry-run=server -o name >/dev/null 2>&1 && echo admitted || echo denied
@@ -42,6 +44,7 @@ checks:
       The expression must be true for allowed images. `all()` requires every container to match one of the prefixes.
   - id: allowed-library
     title: A Pod from docker.io/library is admitted
+    guard: true
     type: exec
     run: |-
       kubectl -n sec-robin run probe --image=docker.io/library/nginx:1.27-alpine --dry-run=server -o name >/dev/null 2>&1 && echo admitted || echo denied
@@ -50,6 +53,7 @@ checks:
       Both prefixes are joined with a logical OR inside the all() macro. Admission sees the image string exactly as written in the Pod, so short names like "nginx" would be rejected.
   - id: scoped
     title: Other Namespaces are not affected
+    guard: true
     type: exec
     run: |-
       kubectl -n default run probe --image=quay.io/prometheus/busybox:latest --dry-run=server -o name >/dev/null 2>&1 && echo admitted || echo denied

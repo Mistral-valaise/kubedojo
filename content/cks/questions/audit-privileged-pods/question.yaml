@@ -33,12 +33,14 @@ checks:
     title: The dangerous Pods are deleted
     type: exec
     run: |-
-      kubectl -n sec-wader get pod debug-shell log-shipper net-tools --no-headers 2>/dev/null | grep -v Terminating | wc -l | xargs
+      pods=$(kubectl -n sec-wader get pods --no-headers) || exit 1
+      echo "$pods" | awk '$1 ~ /^(debug-shell|log-shipper|net-tools)$/ && $3 != "Terminating" {n++} END {print n+0}'
     expect: {equals: "0"}
     explain: >-
       Bare Pods are not recreated. For Pods owned by a Deployment you would have to fix or remove the owner instead.
   - id: kept
     title: The harmless Pods are still running
+    guard: true
     type: exec
     run: |-
       kubectl -n sec-wader get pod api cache-warmer --no-headers 2>/dev/null | grep -c Running

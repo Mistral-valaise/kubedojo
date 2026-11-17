@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Mistral-valaise/kubedojo/content"
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
@@ -50,6 +51,33 @@ func TestVerifyScriptMatchers(t *testing.T) {
 	for _, c := range cases {
 		path := filepath.Join(dir, "verify.sh")
 		if err := os.WriteFile(path, []byte(Verify(c.q)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		err := exec.Command("bash", path).Run()
+		if (err == nil) != c.pass {
+			t.Errorf("%s: script passed=%v, want %v", c.name, err == nil, c.pass)
+		}
+	}
+}
+
+// A check with retry is run again until it passes; one without is not.
+func TestVerifyScriptRetry(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available")
+	}
+	dir := t.TempDir()
+	// Passes on the second run: the first one leaves a marker behind.
+	run := "f=" + filepath.Join(dir, "seen") + "; [ -e $f ] && echo ready || { touch $f; echo pending; }"
+	for _, c := range []struct {
+		name  string
+		retry time.Duration
+		pass  bool
+	}{{"without retry", 0, false}, {"with retry", 10 * time.Second, true}} {
+		os.Remove(filepath.Join(dir, "seen"))
+		q := &catalog.Question{ID: "q", Checks: []*catalog.Check{{ID: "c", Title: "converges", Type: "exec", Run: run,
+			Expect: &catalog.Expect{Equals: ptr("ready")}, RetryD: c.retry}}}
+		path := filepath.Join(dir, "verify.sh")
+		if err := os.WriteFile(path, []byte(Verify(q)), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		err := exec.Command("bash", path).Run()

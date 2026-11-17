@@ -21,8 +21,10 @@ checks:
     title: kube-scheduler is running and ready
     type: exec
     run: |-
-      kubectl -n kube-system get pod -l component=kube-scheduler -o jsonpath='{.items[0].status.containerStatuses[0].ready}'
-    expect: {equals: "true"}
+      [ -n "$(crictl ps --name kube-scheduler -q 2>/dev/null)" ] || { echo "no running kube-scheduler container on this node"; exit 0; }
+      curl -sk -m 5 https://127.0.0.1:10259/healthz
+    expect: {equals: ok}
+    retry: 30s
     explain: >-
       The scheduler assigns Pods to nodes. It runs as a static Pod defined in /etc/kubernetes/manifests on the control plane; the kubelet restarts it when the manifest changes.
   - id: manifest
@@ -44,6 +46,7 @@ checks:
       Once the scheduler is back, it picks up all Pending Pods by itself — nothing has to be recreated.
   - id: pod-original
     title: Pod reports was not recreated
+    guard: true
     type: resource
     resource: pod/reports
     namespace: team-ibis

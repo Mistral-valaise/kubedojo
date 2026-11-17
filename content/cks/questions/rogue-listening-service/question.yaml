@@ -31,8 +31,9 @@ checks:
     type: exec
     on: worker
     run: |-
-      ss -ltn | grep -c ':9977 ' || true
-    expect: {equals: "0"}
+      out=$(ss -ltn) || exit 1
+      echo "$out" | grep -q ':9977 ' && echo listening || echo closed
+    expect: {equals: closed}
     explain: >-
       Every open port is attack surface. Nodes should expose only what Kubernetes needs (kubelet, kube-proxy, CNI).
   - id: disabled

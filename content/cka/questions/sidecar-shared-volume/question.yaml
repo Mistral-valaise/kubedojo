@@ -51,7 +51,8 @@ checks:
     title: Requests to nginx show up in the sidecar's log
     type: exec
     run: |-
-      kubectl -n team-tern exec web-logger -c web -- wget -qO- http://localhost/kubedojo-probe >/dev/null 2>&1; sleep 2; kubectl -n team-tern logs web-logger -c log-tail --tail=50 | grep -c kubedojo-probe
+      kubectl -n team-tern exec web-logger -c web -- wget -qO- http://localhost/kubedojo-probe >/dev/null 2>&1; kubectl -n team-tern logs web-logger -c log-tail --tail=50 | grep -c kubedojo-probe
     expect: {gte: 1}
+    retry: 20s
     explain: >-
       This is the whole point of the pattern — the application keeps writing to a file, and the sidecar turns it into a log stream that `kubectl logs` and log collectors can read.

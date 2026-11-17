@@ -36,6 +36,7 @@ checks:
       The profiling endpoint (/debug/pprof) exposes internals and can be abused for denial of service. It is enabled by default and must be switched off explicitly.
   - id: healthy
     title: The API server is healthy
+    guard: true
     type: exec
     run: |-
       kubectl get --raw /readyz

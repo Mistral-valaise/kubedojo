@@ -37,6 +37,7 @@ checks:
       Setting nodeName bypasses the scheduler entirely — it would ignore the taint, but also resources and every other scheduling rule. Only the scheduler emits the Scheduled event.
   - id: taint-kept
     title: The control plane node is still tainted
+    guard: true
     type: exec
     run: |-
       kubectl get node ${KD_HOST}-control-plane -o jsonpath='{.spec.taints[?(@.key=="node-role.kubernetes.io/control-plane")].effect}'

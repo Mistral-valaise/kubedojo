@@ -30,6 +30,7 @@ checks:
       With a read-only root filesystem an attacker cannot drop tools, replace binaries or modify the web root. allowPrivilegeEscalation false stops setuid binaries from gaining more rights.
   - id: ready
     title: The Deployment is ready with the hardened template
+    guard: true
     type: resource
     resource: deployment/cache
     namespace: sec-osprey
@@ -47,6 +48,7 @@ checks:
       emptyDir volumes are separate mounts and stay writable; everything that comes from the image is read-only.
   - id: serves
     title: nginx still serves HTTP
+    guard: true
     type: exec
     run: |-
       kubectl -n sec-osprey exec deploy/cache -- wget -qO- -T 3 http://127.0.0.1 | grep -c 'Welcome to nginx'

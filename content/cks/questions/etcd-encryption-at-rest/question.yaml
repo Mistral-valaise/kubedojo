@@ -46,6 +46,7 @@ checks:
       Encrypted values in etcd start with k8s:enc:<provider>:v1:<key name>. Existing objects stay in their old form until they are written again, so they have to be replaced once.
   - id: readable
     title: The Secret is still readable through the API
+    guard: true
     type: exec
     run: |-
       kubectl -n sec-pelican get secret db-pass -o jsonpath='{.data.password}' | base64 -d

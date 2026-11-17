@@ -49,6 +49,7 @@ checks:
       Authentication (the certificate) and authorization (RBAC for user "dana") must both be in place. The RoleBinding's subject is kind User, name dana.
   - id: limited
     title: dana cannot read Secrets or other Namespaces
+    guard: true
     type: exec
     run: |-
       a=$(kubectl -n sec-kite auth can-i get secrets --as dana); b=$(kubectl -n default auth can-i list pods --as dana); echo "$a $b"
