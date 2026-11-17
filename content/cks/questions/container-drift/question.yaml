@@ -1,0 +1,63 @@
+title: Find and stop a container that drifted from its image
+domain: runtime-security
+difficulty: hard
+minutes: 10
+environment: base
+tags: [immutability, drift, readonlyrootfilesystem, incident]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `ledger` in Namespace `sec-dunlin` runs three replicas of the same image. Monitoring
+  reports that **one** of the Pods differs from the others: somebody copied an extra program into its
+  filesystem at runtime and started it.
+
+  1. Find the Pod that was modified and write its name to `/opt/course/drift/pod`.
+  2. Remove that Pod, so that it is replaced by a clean one.
+  3. Make sure this cannot happen again: change the Deployment so that the root filesystem of its
+     container is read-only. The application writes its state to `/data`; that directory must stay
+     writable.
+
+  Afterwards three clean replicas must be running.
+hints:
+  - "Compare the replicas: `for p in $(kubectl -n sec-dunlin get pod -o name); do echo $p; kubectl -n sec-dunlin exec $p -- ps; done` — one of them runs a process the others do not have."
+  - "The process list shows the path of the program. `kubectl -n sec-dunlin exec <pod> -- ls -l <path>` exists in one Pod only: a file that is not part of the image is drift."
+  - "`securityContext.readOnlyRootFilesystem: true` on the container, plus an `emptyDir` volume mounted at `/data`."
+checks:
+  - id: identified
+    title: The modified Pod is named in /opt/course/drift/pod
+    type: exec
+    run: |-
+      [ -s /root/.kd/drift-pod ] || { echo "setup did not record the modified Pod" >&2; exit 1; }
+      [ "$(tr -d '[:space:]' < /opt/course/drift/pod 2>/dev/null | sed 's|^pod/||')" = "$(cat /root/.kd/drift-pod)" ] && echo correct || echo wrong
+    expect: {equals: correct}
+    explain: >-
+      Replicas of one Deployment start from the same image, so any difference between them appeared at runtime. Comparing process lists or file listings of the replicas finds it quickly.
+  - id: removed
+    title: The modified Pod is gone
+    type: exec
+    retry: 30s
+    run: |-
+      [ -s /root/.kd/drift-pod ] || { echo "setup did not record the modified Pod" >&2; exit 1; }
+      out=$(kubectl -n sec-dunlin get pod "$(cat /root/.kd/drift-pod)" -o name 2>&1) && echo present || { echo "$out" | grep -q NotFound && echo gone || { echo "$out" >&2; exit 1; }; }
+    expect: {equals: gone}
+    explain: >-
+      A container is cattle: do not repair it, replace it. Deleting the Pod lets the ReplicaSet start a fresh one from the image. In a real incident you would first keep evidence.
+  - id: immutable
+    title: The container cannot write to its root filesystem, but to /data
+    type: exec
+    timeout: 120s
+    run: |-
+      kubectl -n sec-dunlin rollout status deploy ledger --timeout=60s >/dev/null 2>&1
+      kubectl -n sec-dunlin exec deploy/ledger -- sh -c 'touch /bin/kd-probe 2>/dev/null && { rm -f /bin/kd-probe; echo root-writable; } || echo root-readonly; touch /data/kd-probe 2>/dev/null && { rm -f /data/kd-probe; echo data-writable; } || echo data-readonly'
+    expect: {equals: "root-readonly\ndata-writable"}
+    explain: >-
+      With a read-only root filesystem an attacker who gets code execution cannot drop a binary next to the application or change its files. What must be writable becomes an explicit volume.
+  - id: running
+    title: Three replicas of the new template are ready
+    type: resource
+    resource: deployment/ledger
+    namespace: sec-dunlin
+    jsonpath: "{.spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem} {.status.readyReplicas}/{.status.updatedReplicas}/{.status.replicas}"
+    expect: {equals: "true 3/3/3"}
+    explain: >-
+      The application writes a heartbeat to /data every few seconds. Without a writable volume there it crashes as soon as the root filesystem is read-only, and the rollout never finishes.

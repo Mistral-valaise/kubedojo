@@ -44,7 +44,7 @@ Names as they appear in Prometheus/Mimir:
 | `kubedojo_exam_score_percent` | histogram | `track` | exam results |
 | `http_server_request_duration_seconds` | histogram | `http_route`, `http_request_method`, `http_response_status_code` | API latency (OTel HTTP semantic conventions) |
 
-The `question` label has one value per question (58 today). No metric carries user or session ids.
+The `question` label has one value per question (66 today). No metric carries user or session ids.
 
 ## Traces and logs
 

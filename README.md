@@ -11,7 +11,7 @@ browser, tasks in exam format — graded automatically, with an explanation for 
 [![Release](https://img.shields.io/github/v/release/Mistral-valaise/kubedojo)](https://github.com/Mistral-valaise/kubedojo/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.37-326ce5)
-![Questions](https://img.shields.io/badge/questions-58_verified-3ddc97)
+![Questions](https://img.shields.io/badge/questions-66_verified-3ddc97)
 
 [Quick start](#quick-start) · [What you can do](#what-you-can-do) · [How it works](#how-it-works) · [Run it for your team](#run-it-for-your-team) · [Contribute](#contributing)
 
@@ -27,7 +27,7 @@ machine, for free:
 
 | | |
 |---|---|
-| 🎯 **Exam-format tasks** | 58 original questions (37 CKA, 21 CKS) across all exam domains, weighted like the real exams. |
+| 🎯 **Exam-format tasks** | 66 original questions (37 CKA, 29 CKS) across all exam domains, weighted like the real exams. |
 | 🖥️ **Real clusters** | kubeadm, systemd, kubelet, etcd, static Pods. Break a kubelet, restore etcd, encrypt Secrets at rest. |
 | ✅ **Feedback that teaches** | Every check shows what was expected, what was found, why it matters — and the command that checked it. |
 | ⏱️ **Timed simulations** | 120 minutes, no hints, a report with your score per domain and a clear pass or fail. |
@@ -179,7 +179,9 @@ sequenceDiagram
 
 Checks are plain commands with an expected result, so the grader never knows more than you could find
 out yourself. A question is a directory with a task, checks, a setup script and a reference solution —
-see [docs/writing-questions.md](docs/writing-questions.md).
+see [docs/writing-questions.md](docs/writing-questions.md). How the CKS questions map to the official
+curriculum, and which objectives are not covered yet:
+[docs/cks-coverage.md](docs/cks-coverage.md).
 
 ## Run it for your team
 
