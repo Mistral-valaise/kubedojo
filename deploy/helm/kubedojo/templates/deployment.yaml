@@ -33,6 +33,7 @@ spec:
           args:
             - serve
             - --max-sessions={{ .Values.maxSessions }}
+            - --max-terminals={{ .Values.maxTerminals }}
             - --idle-ttl={{ .Values.idleTTL }}
             - --sandbox-host=kubernetes
             - --kubernetes-version={{ $k8s }}

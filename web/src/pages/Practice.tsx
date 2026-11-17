@@ -10,7 +10,7 @@ import { Provisioning } from "../components/Provisioning";
 import { Rating } from "../components/Rating";
 import { Results } from "../components/Results";
 import { Split } from "../components/Split";
-import { Terminal } from "../components/Terminal";
+import { TerminalTabs } from "../components/TerminalTabs";
 import { Badge, Brand, Button, Difficulty, ErrorNote, Modal, Spinner, ThemeToggle } from "../components/ui";
 
 export function PracticePage() {
@@ -139,7 +139,7 @@ export function PracticePage() {
   );
 
   const right = session && termReady
-    ? <Terminal sessionId={session.id} />
+    ? <TerminalTabs sessionId={session.id} />
     : <Provisioning session={session} title={t("Creating your sandbox")} />;
 
   return (

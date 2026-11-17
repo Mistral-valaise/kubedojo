@@ -29,7 +29,7 @@ sandbox-host: images ## build the Docker-in-Docker sandbox host image (hosted mo
 
 test: ## unit tests
 	go test ./...
-	cd web && npm run typecheck
+	cd web && npm run typecheck && npm test
 
 lint: go ## validate the content
 	./bin/kubedojo content lint

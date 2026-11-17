@@ -94,7 +94,8 @@ with `--registry-cache=false`.
 | Exam session | 3–5 GB | two clusters and all task setups |
 | Session start | about 1 min | about 30 s to start the sandbox host and load its images, then about 35 s per cluster |
 
-`sandbox.resources.memoryRequest` (default 3Gi) drives scheduling; `maxSessions` caps concurrency;
+`sandbox.resources.memoryRequest` (default 3Gi) drives scheduling; `maxSessions` caps concurrency; `maxTerminals` (default 4) caps the terminal tabs one session may have
+open — each is a shell in the sandbox and a WebSocket to the server;
 `idleTTL` (default 3h) removes sandboxes nobody uses. Sandbox Pods use `emptyDir` for Docker's data:
 plan about 10 GB of ephemeral storage per session.
 

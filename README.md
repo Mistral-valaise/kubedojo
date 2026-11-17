@@ -111,6 +111,11 @@ task, press **Check**. Each check tells you what it expected, what it found and 
 Stuck? Three hints, from a nudge to nearly the command, then the worked solution. Commands in hints and
 solutions have a **Run** button that types them into your terminal.
 
+Need a second shell? The **+** next to the terminal tabs opens another one in the same sandbox — keep
+`watch kubectl get pods` running in one tab while you work in the other. Each tab is its own shell with
+its own scrollback; up to four can be open (`--max-terminals`). `Alt+Shift+T` opens a tab,
+`Alt+Shift+W` closes it, `Alt+Shift+←/→` and `Alt+Shift+1…9` switch.
+
 ### Simulate — the exam, timed
 
 A full exam is 16–17 tasks in 120 minutes across several clusters, weighted by domain like the real

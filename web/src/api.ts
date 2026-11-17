@@ -45,7 +45,7 @@ export interface Progress {
   exams: { sessionId: string; score: number; max: number; percent: number; passed: boolean; finishedAt: string }[];
   recommendations: { domain: string; title: string; reason: string; next?: string }[] | null;
 }
-export interface Config { version: string; tutor: boolean; user: string }
+export interface Config { version: string; tutor: boolean; user: string; maxTerminals: number }
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }

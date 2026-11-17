@@ -4,7 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { RotateCw } from "lucide-react";
 import { t } from "../i18n";
-import { registerTerminal } from "../terminalBus";
+import { activateTerminal, registerTerminal } from "../terminalBus";
 
 const theme = {
   background: "#0a0e17", foreground: "#d7deea", cursor: "#5b9dff", cursorAccent: "#0a0e17",
@@ -15,11 +15,50 @@ const theme = {
   brightBlue: "#86b7ff", brightMagenta: "#d9b3f5", brightCyan: "#86e5ec", brightWhite: "#ffffff",
 };
 
-/** Browser terminal attached to the session's `candidate@terminal` container. */
-export function Terminal({ sessionId }: { sessionId: string }) {
+/** WebSocket close code the server sends when the session has no terminal slot left. */
+export const CLOSE_TERMINAL_LIMIT = 4429;
+
+/** Tab actions a focused terminal can trigger from the keyboard. */
+export type TerminalShortcut = "new" | "close" | "next" | "previous" | { select: number };
+
+/**
+ * Alt+Shift+T/W/arrows/1-9. Matched on `code`, so they work on every keyboard
+ * layout, and chosen to collide neither with the browser's own tab shortcuts
+ * nor with anything a shell or editor commonly binds.
+ */
+export function shortcutOf(ev: Pick<KeyboardEvent, "type" | "altKey" | "shiftKey" | "ctrlKey" | "metaKey" | "code">): TerminalShortcut | null {
+  if (ev.type !== "keydown" || !ev.altKey || !ev.shiftKey || ev.ctrlKey || ev.metaKey) return null;
+  switch (ev.code) {
+    case "KeyT": return "new";
+    case "KeyW": return "close";
+    case "ArrowRight": return "next";
+    case "ArrowLeft": return "previous";
+  }
+  const digit = /^Digit([1-9])$/.exec(ev.code);
+  return digit ? { select: Number(digit[1]) } : null;
+}
+
+/**
+ * Browser terminal: one shell in the session's `candidate@terminal` container.
+ * Every mounted Terminal is its own shell with its own scrollback; all of them
+ * share the sandbox. Unmounting closes the WebSocket, which ends the shell.
+ *
+ * `active` is false for a terminal in a background tab: it stays connected and
+ * keeps its scrollback, but does not take focus or "Run" commands.
+ */
+export function Terminal({ sessionId, active = true, onShortcut }: {
+  sessionId: string; active?: boolean; onShortcut?: (s: TerminalShortcut) => void;
+}) {
   const host = useRef<HTMLDivElement>(null);
-  const [state, setState] = useState<"connecting" | "open" | "closed">("connecting");
+  const [state, setState] = useState<"connecting" | "open" | "closed" | "limit">("connecting");
   const [attempt, setAttempt] = useState(0);
+  // The effect below owns the xterm instance; these let the other effects and
+  // callbacks reach the current one without re-creating it.
+  const live = useRef<{ activate: () => void } | null>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const shortcutRef = useRef(onShortcut);
+  shortcutRef.current = onShortcut;
 
   useEffect(() => {
     const el = host.current;
@@ -34,6 +73,13 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     term.loadAddon(new WebLinksAddon());
     term.open(el);
     try { fit.fit(); } catch { /* not visible yet */ }
+    term.attachCustomKeyEventHandler((ev) => {
+      const shortcut = shortcutRef.current ? shortcutOf(ev) : null;
+      if (!shortcut) return true;
+      ev.preventDefault();
+      shortcutRef.current?.(shortcut);
+      return false; // not for the shell
+    });
 
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${proto}://${location.host}/api/sessions/${sessionId}/terminal?cols=${term.cols}&rows=${term.rows}`);
@@ -45,13 +91,23 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       if (!alive) return;
       setState("open");
       ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-      term.focus();
+      if (activeRef.current) term.focus();
     };
     ws.onmessage = (ev) => term.write(typeof ev.data === "string" ? ev.data : new Uint8Array(ev.data as ArrayBuffer));
-    ws.onclose = () => { if (alive) setState("closed"); };
-    const unregister = registerTerminal((text) => {
+    ws.onclose = (ev) => { if (alive) setState(ev.code === CLOSE_TERMINAL_LIMIT ? "limit" : "closed"); };
+    const send = (text: string) => {
       if (ws.readyState === WebSocket.OPEN) { ws.send(enc.encode(text)); term.focus(); }
-    });
+    };
+    const unregister = registerTerminal(send);
+    live.current = {
+      activate: () => {
+        activateTerminal(send);
+        // The tab was hidden: its size may be stale, and it needs the keyboard.
+        try { fit.fit(); } catch { /* hidden */ }
+        term.focus();
+      },
+    };
+    if (activeRef.current) activateTerminal(send);
     const onData = term.onData((d) => ws.readyState === WebSocket.OPEN && ws.send(enc.encode(d)));
     const onResize = term.onResize(({ cols, rows }) =>
       ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: "resize", cols, rows })));
@@ -65,6 +121,7 @@ export function Terminal({ sessionId }: { sessionId: string }) {
 
     return () => {
       alive = false;
+      live.current = null;
       cancelAnimationFrame(raf);
       ro.disconnect();
       unregister();
@@ -75,12 +132,21 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     };
   }, [sessionId, attempt]);
 
+  // Becoming the visible tab: take the keyboard and the "Run" commands.
+  useEffect(() => {
+    if (!active) return;
+    const raf = requestAnimationFrame(() => live.current?.activate());
+    return () => cancelAnimationFrame(raf);
+  }, [active, attempt]);
+
   return (
     <div className="relative h-full w-full bg-[#0a0e17]">
       <div ref={host} className="h-full w-full" />
-      {state === "closed" && (
-        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 border-t border-white/10 bg-[#141b2b] px-4 py-2.5 text-sm text-[#d7deea]">
-          <span>{t("The terminal session ended.")}</span>
+      {(state === "closed" || state === "limit") && (
+        <div role="status" className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 border-t border-white/10 bg-[#141b2b] px-4 py-2.5 text-sm text-[#d7deea]">
+          <span>{state === "limit"
+            ? t("This session has reached its terminal limit. Close another terminal, then try again.")
+            : t("The terminal session ended.")}</span>
           <button onClick={() => { setState("connecting"); setAttempt((n) => n + 1); }}
             className="inline-flex items-center gap-1.5 rounded-md bg-[#5b9dff] px-2.5 py-1 text-[13px] font-medium text-white hover:brightness-110">
             <RotateCw className="size-3.5" /> {t("New terminal")}

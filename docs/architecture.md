@@ -35,6 +35,26 @@ same code. Nothing above `dockerhost` knows the difference.
 
 Checks, setup and solution scripts run through `docker exec` on the nodes.
 
+### Terminals
+
+Every terminal tab in the UI is one WebSocket (`GET /api/sessions/{id}/terminal`) and one
+`docker exec bash -l` with a TTY in the terminal container. Tabs are therefore independent shells —
+own process, own scrollback, own window size — that share the sandbox: same files, same kubeconfig,
+same clusters. No tab creates a cluster.
+
+- **Limit.** `session.Manager` counts the open terminals of each session and refuses more than
+  `--max-terminals` (default 4). The slot is reserved before the shell starts, so parallel requests
+  cannot exceed it. The server answers a refused terminal with WebSocket close code `4429`; the UI
+  disables **+** at the limit.
+- **Cleanup.** Closing the WebSocket — tab closed, page left, exam finished, network gone — closes the
+  terminal. Closing the attach stream does not end the shell by itself, so the driver hangs up every
+  process that carries the tab's `KD_TTY` marker in its environment (SIGHUP, then SIGKILL for a shell
+  that stays). The container runs with an init process that reaps them. Destroying a session closes
+  all of its terminals first.
+- **In the browser** all tabs stay mounted; background tabs are hidden with `visibility`, keep
+  receiving output and are resized together with the visible one. "Run" buttons type into the active
+  tab (`web/src/terminalBus.ts`).
+
 ## Sessions
 
 - **Practice**: one long-lived session per track and user. Clusters are created the first time a

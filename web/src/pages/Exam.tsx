@@ -14,6 +14,7 @@ import { Rating } from "../components/Rating";
 import { Results } from "../components/Results";
 import { Split } from "../components/Split";
 import { Terminal } from "../components/Terminal";
+import { TerminalTabs } from "../components/TerminalTabs";
 import { Badge, Bar, Brand, Button, Card, ErrorNote, Modal, Page, Ring, Spinner, ThemeToggle, cx } from "../components/ui";
 
 export function ExamPage() {
@@ -229,7 +230,7 @@ function Workspace({ session, track, onSession, refresh }: {
         <ThemeToggle />
         <Button size="sm" variant="primary" onClick={() => setConfirm(true)}>{t("Finish exam")}</Button>
       </header>
-      <Split left={leftPane} right={<Terminal sessionId={session.id} />} storageKey="kubedojo.split.exam" />
+      <Split left={leftPane} right={<TerminalTabs sessionId={session.id} />} storageKey="kubedojo.split.exam" />
       {confirm && (
         <Modal title={t("Finish the exam?")} onClose={() => !busy && setConfirm(false)}
           footer={<><Button disabled={busy} onClick={() => setConfirm(false)}>{t("Keep working")}</Button><Button variant="primary" loading={busy} onClick={finish}>{t("Finish and grade")}</Button></>}>
