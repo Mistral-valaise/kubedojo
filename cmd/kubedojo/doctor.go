@@ -16,6 +16,9 @@ import (
 	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 )
 
+// publishedImages is where the release workflow pushes the sandbox images.
+const publishedImages = "ghcr.io/mistral-valaise"
+
 func cmdDoctor(ctx context.Context, args []string) error {
 	fl := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	var c common
@@ -78,30 +81,42 @@ func preflight(ctx context.Context, drv *sandbox.Kind, build bool) error {
 	}
 
 	for _, img := range []struct{ tag, dir string }{{drv.NodeImage, "node"}, {drv.TerminalImage, "terminal"}} {
-		have, err := out(ctx, "docker", "image", "inspect", "--format", `{{index .Config.Labels "`+images.RevLabel+`"}}`, img.tag)
-		present := err == nil
-		// Only kubedojo's own tags are compared: an image passed with
-		// --node-image is the user's business.
-		stale := present && strings.HasPrefix(img.tag, "kubedojo/"+img.dir+":") && have != images.Rev(img.dir)
-		if present && !stale {
+		// Only kubedojo's own tags have a revision and a published copy: an
+		// image passed with --node-image is the user's business.
+		own := strings.HasPrefix(img.tag, "kubedojo/"+img.dir+":")
+		current := func(ref string) (present, fresh bool) {
+			have, err := out(ctx, "docker", "image", "inspect", "--format", `{{index .Config.Labels "`+images.RevLabel+`"}}`, ref)
+			return err == nil, err == nil && (!own || have == images.Rev(img.dir))
+		}
+		present, fresh := current(img.tag)
+		if fresh {
 			ok("image " + img.tag)
 			continue
 		}
-		if !present {
-			if _, err := out(ctx, "docker", "pull", "-q", img.tag); err == nil {
-				ok("image " + img.tag + " (pulled)")
-				continue
+		if own {
+			// Releases publish the images; a copy of the right revision saves the build.
+			published := publishedImages + "/kubedojo-" + img.dir + img.tag[strings.LastIndex(img.tag, ":"):]
+			if _, err := out(ctx, "docker", "pull", "-q", published); err == nil {
+				if _, fresh := current(published); fresh {
+					if _, err := out(ctx, "docker", "tag", published, img.tag); err == nil {
+						ok("image " + img.tag + " (pulled)")
+						continue
+					}
+				}
 			}
+		} else if _, err := out(ctx, "docker", "pull", "-q", img.tag); err == nil {
+			ok("image " + img.tag + " (pulled)")
+			continue
 		}
 		if !build {
-			if stale {
+			if present {
 				warn("image " + img.tag + " is from an older kubedojo and lacks tools newer questions need. Run `kubedojo doctor --build`")
 			} else {
 				warn("image " + img.tag + " is missing. Run `kubedojo doctor --build` (takes a few minutes, once)")
 			}
 			continue
 		}
-		if stale {
+		if present {
 			fmt.Printf("  … rebuilding %s: this kubedojo ships a newer version of it (takes a few minutes)\n", img.tag)
 		} else {
 			fmt.Printf("  … building %s (first run only, takes a few minutes)\n", img.tag)
