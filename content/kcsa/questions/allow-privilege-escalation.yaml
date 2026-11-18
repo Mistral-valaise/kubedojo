@@ -1,0 +1,33 @@
+title: Setuid binaries in a non-root container
+domain: overview-of-cloud-native-security
+difficulty: medium
+tags: [security-context, workload]
+stem: |-
+  A container starts as user 1000. Its image contains a setuid-root binary that an attacker with code
+  execution in the container could run.
+
+  Which `securityContext` setting keeps a process from gaining more privileges than its parent that
+  way?
+options:
+  - text: "`runAsNonRoot: true`"
+    explain: >-
+      The kubelet only checks at start that the container does not run as UID 0. What a process does
+      later, such as executing a setuid binary, is not covered.
+  - text: "`readOnlyRootFilesystem: true`"
+    explain: >-
+      The root filesystem cannot be written to, but files on it, including setuid binaries, can
+      still be executed.
+  - text: "`privileged: false`"
+    explain: >-
+      That is already the default and only means the container does not get all host privileges and
+      devices. It does not set `no_new_privs`.
+  - text: "`allowPrivilegeEscalation: false`"
+    correct: true
+explanation: >-
+  `allowPrivilegeEscalation` controls whether a process can gain more privileges than its parent,
+  for example by executing a setuid binary. Setting it to false sets the `no_new_privs` flag on the
+  container process. Left out, it defaults to true, which is why the Restricted Pod Security Standard
+  requires it to be set to false explicitly.
+references:
+  - title: Configure a Security Context for a Pod or Container
+    url: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/

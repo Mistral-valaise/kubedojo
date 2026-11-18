@@ -1,0 +1,33 @@
+title: The layers of the 4C model
+domain: overview-of-cloud-native-security
+difficulty: easy
+tags: [4cs, defense-in-depth]
+stem: |-
+  The 4C model describes cloud native security as four nested layers, each of which builds on the
+  layer around it.
+
+  Which layer is the outermost one, the trusted computing base that the other three depend on?
+options:
+  - text: Cluster
+    explain: >-
+      The cluster layer (the Kubernetes components and their configuration) sits inside the cloud
+      layer: a hardened cluster on a compromised infrastructure is still compromised.
+  - text: Cloud
+    correct: true
+  - text: Container
+    explain: >-
+      The container layer (image contents, runtime privileges, isolation) is the third layer. It
+      relies on the cluster and the infrastructure underneath it.
+  - text: Code
+    explain: >-
+      Code is the innermost layer and the one you control most directly. It benefits from the layers
+      around it, but cannot make up for weaknesses in them.
+explanation: >-
+  The 4Cs are Cloud, Cluster, Container and Code, from the outside in. The cloud layer (or the
+  datacenter, or co-located servers) is the trusted computing base of the cluster: if it is
+  vulnerable, nothing built on top of it can be guaranteed secure. The model is a form of defense in
+  depth, and it says explicitly that you cannot compensate for poor security in an outer layer by
+  working on an inner one.
+references:
+  - title: Overview of Cloud Native Security (Kubernetes v1.28 documentation source)
+    url: https://github.com/kubernetes/website/blob/release-1.28/content/en/docs/concepts/security/overview.md

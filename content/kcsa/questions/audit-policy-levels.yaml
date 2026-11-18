@@ -1,0 +1,31 @@
+title: Choosing an audit level
+domain: kubernetes-security-fundamentals
+difficulty: medium
+tags: [audit-logging]
+stem: |-
+  An audit policy rule for ConfigMaps must record who made each request and the object that was
+  submitted with it. The content that the API server sends back must not be written to the log.
+
+  Which audit level does the rule need?
+options:
+  - text: "`Metadata`"
+    explain: >-
+      Metadata records the requesting user, timestamp, resource and verb, but neither the request
+      body nor the response body. The submitted object would be missing.
+  - text: "`RequestResponse`"
+    explain: >-
+      RequestResponse records the metadata, the request body and the response body. The returned
+      content would be logged too.
+  - text: "`Request`"
+    correct: true
+  - text: "`None`"
+    explain: >-
+      None means that events matching the rule are not logged at all.
+explanation: >-
+  The audit levels are None, Metadata, Request and RequestResponse, each adding to the one before:
+  Request logs the event metadata and the request body but not the response body. The rules of an
+  audit policy are compared with an event in order, and the first rule that matches sets its level.
+  Without a policy file (`--audit-policy-file`) the API server logs no audit events at all.
+references:
+  - title: Auditing - Audit policy
+    url: https://kubernetes.io/docs/tasks/debug/debug-cluster/audit/#audit-policy

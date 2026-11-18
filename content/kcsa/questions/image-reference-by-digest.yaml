@@ -1,0 +1,32 @@
+title: Pinning the content of a container image
+domain: overview-of-cloud-native-security
+difficulty: easy
+tags: [images, supply-chain]
+stem: |-
+  A Deployment uses `registry.example.com/shop/api:1.4`. After an incident the team learns that
+  somebody pushed a different image under the same tag, and that new replicas ran it.
+
+  What makes sure that every replica runs exactly the image content that was reviewed?
+options:
+  - text: Setting `imagePullPolicy` to `Always`
+    explain: >-
+      The kubelet then resolves the tag at every container start, so it picks up whatever the tag
+      points to at that moment: the opposite of pinning.
+  - text: Setting `imagePullPolicy` to `IfNotPresent`
+    explain: >-
+      A node that already holds the tag keeps its copy, a new node pulls the current one. Replicas
+      can then run different content under one name.
+  - text: Referencing the image by its digest
+    correct: true
+  - text: Adding an `imagePullSecrets` entry
+    explain: >-
+      A pull secret authenticates the kubelet to the registry. It controls who may pull, not which
+      content a name resolves to.
+explanation: >-
+  A digest is a hash of the image content and is immutable, while a tag can be moved to point to a
+  different image. With `image: name@sha256:...` the same content is used every time a container
+  starts, whatever happens to the tags in the registry. If a reference carries a tag and a digest,
+  only the digest is used for pulling.
+references:
+  - title: Images - Image names and updating images
+    url: https://kubernetes.io/docs/concepts/containers/images/

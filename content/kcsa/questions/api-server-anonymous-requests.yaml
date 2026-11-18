@@ -1,0 +1,33 @@
+title: Requests without credentials at the API server
+domain: kubernetes-cluster-component-security
+difficulty: medium
+tags: [api-server, authentication]
+stem: |-
+  A kube-apiserver runs with `--authorization-mode=Node,RBAC` and no flag or configuration that
+  touches anonymous access. A request arrives that carries no credentials at all.
+
+  How does the API server treat it?
+options:
+  - text: It rejects the request with 401 Unauthorized before any authorizer is asked
+    explain: >-
+      That happens to a request that presents credentials which are invalid, such as a wrong bearer
+      token. A request with no credentials is not rejected by any authenticator.
+  - text: It handles it as user `system:anonymous` in the group `system:unauthenticated`
+    correct: true
+  - text: It handles it as the `default` ServiceAccount of the `default` namespace
+    explain: >-
+      A ServiceAccount identity is only assigned to a request that presents a valid token of that
+      ServiceAccount. Nothing falls back to it.
+  - text: It handles it as a member of `system:authenticated` that has no user name
+    explain: >-
+      `system:authenticated` is the group added to requests that did authenticate. Anonymous
+      requests are kept apart from it on purpose.
+explanation: >-
+  With anonymous access enabled, a request that no configured authentication method rejects is
+  treated as anonymous: user name `system:anonymous`, group `system:unauthenticated`. Anonymous
+  access is enabled by default when an authorization mode other than AlwaysAllow is used, and the
+  request then goes through authorization like any other, so it gets only what has been granted to
+  that user or group. `--anonymous-auth=false` turns this off.
+references:
+  - title: Authenticating - Anonymous requests
+    url: https://kubernetes.io/docs/reference/access-authn-authz/authentication/#anonymous-requests

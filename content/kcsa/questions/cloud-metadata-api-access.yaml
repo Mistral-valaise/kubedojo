@@ -1,0 +1,34 @@
+title: Pods and the cloud instance metadata service
+domain: overview-of-cloud-native-security
+difficulty: medium
+tags: [cloud-provider, infrastructure]
+stem: |-
+  A cluster runs on virtual machines of a cloud provider. The provider's instance metadata service is
+  reachable from every Pod and can return the cloud credentials of the node.
+
+  Which measure does the Kubernetes documentation recommend to keep Pods away from that service?
+options:
+  - text: "Setting `automountServiceAccountToken: false` on the Pods"
+    explain: >-
+      That keeps the Kubernetes API token out of a Pod. The metadata service belongs to the cloud
+      platform and needs no Kubernetes token.
+  - text: Enabling encryption at rest for Secrets on the API server
+    explain: >-
+      That protects API objects stored in etcd. The node's cloud credentials are served by the cloud
+      platform and never pass through etcd.
+  - text: Restricting Pod egress to the metadata API with network policies
+    correct: true
+  - text: Disabling anonymous authentication on every kubelet
+    explain: >-
+      That protects the kubelet's own HTTPS API on port 10250. The metadata service is a different
+      endpoint, run by the cloud provider.
+explanation: >-
+  Cloud platforms expose a metadata service locally to each instance, and by default Pods running on
+  the instance can reach it. It can hand out the node's cloud credentials or provisioning data such
+  as kubelet credentials, which an attacker can use to escalate inside the cluster or into other
+  cloud services. The documentation recommends three things: limit the permissions of instance
+  credentials, use network policies to restrict Pod access to the metadata API, and do not deliver
+  secrets through provisioning data.
+references:
+  - title: Securing a Cluster - Restricting cloud metadata API access
+    url: https://kubernetes.io/docs/tasks/administer-cluster/securing-a-cluster/#restricting-cloud-metadata-api-access

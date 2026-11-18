@@ -1,0 +1,32 @@
+title: Pod Security Standards and a container running as root
+domain: kubernetes-security-fundamentals
+difficulty: medium
+tags: [pod-security-standards]
+stem: |-
+  A Pod runs one container as root (UID 0). It is not privileged, uses no host namespaces, no
+  hostPath volumes and no host ports, and adds no capabilities.
+
+  Which Pod Security Standards profiles does this Pod satisfy?
+options:
+  - text: Privileged only
+    explain: >-
+      Privileged is unrestricted, so it accepts the Pod, but it is not the only profile that does:
+      nothing in this Pod is a known privilege escalation.
+  - text: Privileged and Baseline
+    correct: true
+  - text: Baseline and Restricted
+    explain: >-
+      Restricted requires `runAsNonRoot: true` and forbids `runAsUser: 0`. And Privileged, which
+      allows everything, cannot be missing from the list.
+  - text: Privileged, Baseline and Restricted
+    explain: >-
+      Restricted requires containers to run as non-root, with `allowPrivilegeEscalation: false`, all
+      capabilities dropped and a seccomp profile set. This Pod meets none of that.
+explanation: >-
+  Baseline is the minimally restrictive profile: it prevents known privilege escalations (privileged
+  containers, host namespaces, hostPath volumes, host ports, extra capabilities) but allows the
+  default, minimally specified Pod, and that includes running as root. Only Restricted, which follows
+  current hardening best practices, requires containers to run as non-root.
+references:
+  - title: Pod Security Standards
+    url: https://kubernetes.io/docs/concepts/security/pod-security-standards/
