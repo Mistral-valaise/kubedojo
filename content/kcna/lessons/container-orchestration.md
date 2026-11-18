@@ -19,7 +19,7 @@ front of the Pods that a label selector picks.
 | Service type | Reachable from | How |
 |---|---|---|
 | `ClusterIP` (default) | inside the cluster | virtual cluster IP |
-| `NodePort` | outside, via any node | static port on every node (30000-32767), plus a cluster IP |
+| `NodePort` | outside, via any node | static port on every node (by default from 30000-32767), plus a cluster IP |
 | `LoadBalancer` | outside | external load balancer, usually from the cloud provider |
 | `ExternalName` | (points outwards) | DNS CNAME to an external hostname, no proxying |
 
@@ -27,18 +27,19 @@ front of the Pods that a label selector picks.
 - **DNS**: a Service is `<service>.<namespace>.svc.cluster.local`. The short name works only inside
   the same Namespace; from another one use at least `<service>.<namespace>`.
 - **Ingress** routes HTTP(S) from outside to Services by host and path. The object does nothing
-  without an **Ingress controller**. The Ingress API is frozen; its successor is **Gateway API**,
-  split by role: `GatewayClass` (infrastructure provider), `Gateway` (cluster operator),
-  `HTTPRoute` (application developer).
+  without an **Ingress controller**. The Ingress API is frozen; the project recommends its successor,
+  **Gateway API**, with kinds modelled on roles: `GatewayClass` (a kind of gateway and its
+  controller), `Gateway` (one instance of traffic handling infrastructure, run by the cluster
+  operator), `HTTPRoute` (the routing rules, owned by the application developer).
 - **NetworkPolicy** is the firewall between Pods. Without a policy a Pod accepts and sends everything.
   A Pod selected by a policy for a direction is isolated for it, except for what is allowed.
   Policies only add allowances, and the **network plugin** enforces them, if it supports them.
 
 ### Security
 
-The **4Cs** are the classic layered picture of cloud native security: **Cloud**, **Cluster**,
-**Container**, **Code**. Each layer rests on the one outside it. The Kubernetes documentation now
-arranges the same ground by lifecycle phase: develop, distribute, deploy, runtime.
+The **4Cs** (**Cloud**, **Cluster**, **Container**, **Code**) are a layered picture of security, each
+layer building on the one outside it. It comes from older versions of the Kubernetes documentation;
+the current page goes by lifecycle phase instead: develop, distribute, deploy, runtime.
 
 - **RBAC**: a Role or ClusterRole lists permissions, a binding hands them to users, groups or
   ServiceAccounts. Permissions are additive; there is no deny rule.

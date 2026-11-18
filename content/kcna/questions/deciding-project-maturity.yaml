@@ -26,8 +26,7 @@ explanation: >-
   The TOC is the technical governing body of the CNCF: it admits and oversees all projects and
   evaluates whether a project meets the criteria of a level. The levels are sandbox (experimental,
   early), incubating (gaining adoption, becoming stable) and graduated (highly mature, proven in
-  production); inactive projects are archived. Inside the Kubernetes project, work is organised in
-  SIGs, and larger changes are proposed as Kubernetes Enhancement Proposals (KEPs).
+  production); inactive projects are archived.
 references:
   - title: CNCF Technical Oversight Committee (TOC)
     url: https://github.com/cncf/toc/blob/main/README.md

@@ -25,8 +25,8 @@ options:
     correct: true
   - text: Every Pod whose containers declare the port the Service forwards to
     explain: >-
-      Ports decide where traffic is sent on a selected Pod. They play no part in selecting Pods, and a
-      declared `containerPort` is informational.
+      Ports decide where traffic is sent on a selected Pod. They play no part in selecting Pods; only
+      the labels do.
 explanation: >-
   The set of Pods behind a Service is determined by its label selector. Several requirements in a
   selector are combined with a logical AND, so a Pod must carry all of them; additional labels do not

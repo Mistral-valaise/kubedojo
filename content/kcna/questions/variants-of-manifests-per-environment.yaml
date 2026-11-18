@@ -1,0 +1,36 @@
+title: One set of manifests, several environments
+domain: cloud-native-application-delivery
+difficulty: medium
+tags: [kustomize, helm, delivery]
+stem: |-
+  A team keeps the plain YAML manifests of an application in a directory. The development and the
+  production environment need the same objects with a different name prefix and replica count. The
+  team wants to use Kustomize and apply each variant with `kubectl apply -k`.
+
+  How does Kustomize arrange this?
+options:
+  - text: A chart holds templates of the manifests; a values file per environment fills them in
+    explain: >-
+      That is Helm. A chart contains a `templates/` directory and default values, and the values given
+      at installation are rendered into the templates.
+  - text: A base holds templates of the manifests; an overlay per environment sets their variables
+    explain: >-
+      The nouns are right, the mechanism is not. Kustomize is template-free: a base contains ordinary
+      manifests that stay usable as they are.
+  - text: A base holds the manifests; an overlay per environment refers to it and patches it
+    correct: true
+  - text: A release holds the manifests; a revision per environment records what was changed
+    explain: >-
+      Release and revision are Helm terms: an installed instance of a chart and one version in its
+      history. They describe what runs in a cluster, not how variants are written.
+explanation: >-
+  Kustomize customizes plain manifests without templates. A base is a directory with a
+  `kustomization.yaml` that lists a set of resources; an overlay is a directory whose
+  `kustomization.yaml` refers to other kustomization directories as its bases and adds changes such as
+  a name prefix or patches. A base has no knowledge of an overlay and can be used in multiple overlays.
+  Helm reaches the same goal differently, by rendering the templates of a chart with values.
+references:
+  - title: Declarative Management of Kubernetes Objects Using Kustomize (Bases and Overlays)
+    url: https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/#bases-and-overlays
+  - title: Helm - Charts
+    url: https://helm.sh/docs/topics/charts/

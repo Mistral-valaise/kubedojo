@@ -39,7 +39,7 @@ is repeated. Pods themselves are disposable; you create them through a workload 
 
 | Component | Runs on | Job |
 | --- | --- | --- |
-| kube-apiserver | control plane | exposes the API; the only component that talks to etcd |
+| kube-apiserver | control plane | exposes the API; stores objects in etcd, which ideally only it can access |
 | etcd | control plane | key-value store holding all cluster state: this is what you back up |
 | kube-scheduler | control plane | assigns Pods without a node to a node |
 | kube-controller-manager | control plane | runs the controllers (Deployment, ReplicaSet, Job, Node, ...) |

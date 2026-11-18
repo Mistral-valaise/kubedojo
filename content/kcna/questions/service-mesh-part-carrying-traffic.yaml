@@ -1,0 +1,35 @@
+title: The part of a service mesh that handles the requests
+domain: cloud-native-architecture
+difficulty: medium
+tags: [service-mesh, networking]
+stem: |-
+  A team adds its services to a service mesh. From then on the calls between the services are encrypted
+  and measured, although the code of the services was not changed.
+
+  Which part of the mesh do the requests between the services pass through?
+options:
+  - text: The control plane, which configures the mesh
+    explain: >-
+      The control plane manages and configures the proxies, for example with routing rules. The
+      requests between the services do not pass through it.
+  - text: The data plane, a set of proxies next to the services
+    correct: true
+  - text: The kube-proxy, which runs on every node
+    explain: >-
+      kube-proxy maintains the network rules that implement Services. It is a Kubernetes node
+      component and exists without any mesh.
+  - text: The Ingress controller, which runs at the cluster edge
+    explain: >-
+      An Ingress controller handles HTTP traffic that enters the cluster from outside. A mesh is about
+      the traffic between the services.
+explanation: >-
+  A service mesh manages the traffic between services and adds reliability, observability and security
+  features uniformly across all services. It is split into two parts. The data plane consists of
+  proxies, classically one sidecar next to each service instance, that mediate all network
+  communication between the services and collect telemetry on it. The control plane manages and
+  configures those proxies. Because the proxies do the work, the applications need no changes.
+references:
+  - title: Istio - Architecture
+    url: https://istio.io/latest/docs/ops/deployment/architecture/
+  - title: CNCF Glossary - Service Mesh
+    url: https://glossary.cncf.io/service-mesh/
