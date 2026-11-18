@@ -23,11 +23,11 @@ options:
       its node.
 explanation: >-
   In Webhook mode the kubelet delegates authorization to the API server: for each request it calls the
-  SubjectAccessReview API with the authenticated user and the node resource the request maps to (for
-  `/pods` that is `nodes/proxy`), and the API server's authorizers, usually RBAC, decide. Together with
-  `--anonymous-auth=false`, which answers requests without credentials with 401, this is how kubeadm
-  sets up kubelets. The default mode, AlwaysAllow, lets every caller do everything, including running
-  commands in containers.
+  SubjectAccessReview API with the authenticated user and a subresource of `nodes` derived from the
+  request path, and the API server's authorizers, usually RBAC, decide. Most kubelet endpoints map to
+  `nodes/proxy`; for `/pods`, releases with fine-grained kubelet authorization check `nodes/pods`
+  first and fall back to `nodes/proxy`. `--anonymous-auth=false` makes the kubelet answer requests
+  without credentials with 401. The default authorization mode, AlwaysAllow, allows all requests.
 references:
   - title: Kubelet authentication/authorization
     url: https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/

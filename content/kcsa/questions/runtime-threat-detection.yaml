@@ -12,7 +12,7 @@ options:
     explain: >-
       The audit log records requests to the Kubernetes API. A process that an exploited application
       starts inside its container never causes an API request.
-  - text: A runtime security tool such as Falco, which checks system calls against rules
+  - text: The system calls made on each node, which a runtime security tool checks against rules
     correct: true
   - text: A vulnerability scanner that examines every image stored in the registry
     explain: >-
@@ -24,8 +24,8 @@ options:
       program a container executed or which file it opened.
 explanation: >-
   What a process does inside a container is visible at the kernel: every program start and file
-  access is a system call. Falco is a CNCF runtime security tool that monitors system calls on the
-  host, evaluates them against rules and raises an alert when a rule matches. It detects and alerts;
+  access is a system call. Falco, a graduated CNCF project, is such a runtime security tool: it parses
+  the system calls on the host, evaluates them against rules and raises an alert when a rule matches. It detects and alerts;
   blocking or responding is left to components that receive its alerts.
 references:
   - title: The Falco Project documentation

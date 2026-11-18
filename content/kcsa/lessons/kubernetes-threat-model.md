@@ -25,9 +25,10 @@ the API server is not authorized by RBAC, not checked by admission and not in th
 | Static Pod manifests | run Pods without the API server's consent | file permissions and auditing on the node |
 | Container runtime socket | start containers, enter running ones | file permissions, never mount it into Pods |
 
-Two details worth knowing: a certificate from the CA that etcd trusts usually means full access,
-whatever it was issued for; and `get` on `nodes/proxy` is not read-only, because it reaches kubelet
-endpoints that execute commands.
+Three details worth knowing: a certificate from the CA that etcd trusts usually means full access,
+whatever it was issued for; `get` on `nodes/proxy` is not read-only, because it reaches kubelet
+endpoints that execute commands; and a kubelet's own credential is held back by the Node authorizer,
+which lets it read only the Secrets and ConfigMaps of Pods bound to its node.
 
 ### The attacker's steps and the control for each
 

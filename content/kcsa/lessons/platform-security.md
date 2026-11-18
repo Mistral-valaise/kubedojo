@@ -23,8 +23,9 @@ registry, admission, runtime. Each stage has its own control:
 - A **signature** binds an identity to a digest. Sigstore is the common tooling: Cosign signs and
   verifies, Fulcio issues short-lived certificates for an OIDC identity, Rekor is the transparency
   log that records signing events. A signature proves who signed, not that the image is free of flaws.
-- **`imagePullSecrets`** let the kubelet authenticate to a private registry. They do not verify
-  images.
+- Signing enforces nothing until something **verifies** the signature before the image runs: an
+  admission controller such as Sigstore's policy-controller or a Kyverno image verification rule.
+- **`imagePullSecrets`** hold the credentials for a private registry. They do not verify images.
 
 ### Admission control
 

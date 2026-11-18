@@ -16,7 +16,7 @@ options:
     explain: >-
       That protects API objects stored in etcd. The node's cloud credentials are served by the cloud
       platform and never pass through etcd.
-  - text: Restricting Pod egress to the metadata API with network policies
+  - text: Using network policies to block Pod traffic to the metadata API
     correct: true
   - text: Disabling anonymous authentication on every kubelet
     explain: >-

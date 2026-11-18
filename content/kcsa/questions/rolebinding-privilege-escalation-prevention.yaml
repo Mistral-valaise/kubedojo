@@ -1,0 +1,36 @@
+title: Granting a role through a RoleBinding you write yourself
+domain: kubernetes-security-fundamentals
+difficulty: hard
+tags: [authorization, rbac]
+stem: |-
+  In the namespace `dev` the user `dana` may create and update RoleBindings and may read Pods; she has
+  no other permissions. The ClusterRole `secret-reader` allows `get` and `list` on Secrets. She
+  submits a RoleBinding in `dev` that binds `secret-reader` to herself.
+
+  What does the API server do with this request?
+options:
+  - text: It creates the RoleBinding, because creating RoleBindings is the only permission it checks
+    explain: >-
+      For RoleBindings the API checks more than the verb on the resource: it also compares the
+      permissions of the referenced role with those of the requesting user. Otherwise the right to
+      write bindings would amount to every right in the namespace.
+  - text: It rejects the RoleBinding, because she holds neither the role's permissions nor `bind` on it
+    correct: true
+  - text: It rejects the RoleBinding, because a RoleBinding can reference only a Role of its namespace
+    explain: >-
+      A RoleBinding may reference a Role of its namespace or a ClusterRole; in the second case the
+      ClusterRole's rules are granted within the namespace of the RoleBinding only.
+  - text: It creates the RoleBinding, but RBAC ignores every binding whose subject is also its author
+    explain: >-
+      RBAC does not record or evaluate who wrote a binding. A binding that exists is effective for
+      its subjects, which is why the check is made when the binding is created or updated.
+explanation: >-
+  The RBAC API prevents privilege escalation through role bindings: a user can create or update a
+  binding only if they already have all the permissions contained in the referenced role, at the same
+  scope as the binding, or if they have been authorized to perform the `bind` verb on that role. Dana
+  cannot read Secrets in `dev` and has no `bind` permission, so the request is forbidden. The
+  matching rule for writing roles uses the `escalate` verb. Both verbs, like `impersonate`, should
+  be granted very sparingly.
+references:
+  - title: Using RBAC Authorization - Privilege escalation prevention and bootstrapping
+    url: https://kubernetes.io/docs/reference/access-authn-authz/rbac/#privilege-escalation-prevention-and-bootstrapping

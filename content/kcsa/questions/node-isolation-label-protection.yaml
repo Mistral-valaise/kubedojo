@@ -11,8 +11,8 @@ stem: |-
 options:
   - text: The Node authorizer
     explain: >-
-      The Node authorizer is what allows a kubelet to write Node objects in the first place. It does
-      not look at which node or which labels a request changes.
+      The Node authorizer is what allows kubelets to write Node objects in the first place, and it
+      limits what they may read. Which labels a kubelet puts on a Node is not something it checks.
   - text: The NodeRestriction admission plugin
     correct: true
   - text: The PodNodeSelector admission plugin
