@@ -1,0 +1,70 @@
+title: Feed a gateway from a ConfigMap
+domain: application-environment-configuration-security
+difficulty: easy
+minutes: 7
+environment: base
+tags: [configmap, env, volume, from-file]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `gateway` in Namespace `app-ocelot` runs nginx with the configuration baked into the
+  image. The team wants to configure it from a ConfigMap.
+
+  1. Create a ConfigMap `gateway-config` in Namespace `app-ocelot` with exactly these keys:
+     - `UPSTREAM_HOST` = `orders.app-ocelot.svc`
+     - `UPSTREAM_TIMEOUT` = `15`
+     - `FEATURE_BETA` = `off`
+     - `gateway.conf` = the content of the file `/opt/course/ocelot/gateway.conf`
+  2. Change Deployment `gateway` so that its container gets:
+     - the environment variable `UPSTREAM_HOST` from the key `UPSTREAM_HOST`
+     - the environment variable `TIMEOUT_SECONDS` from the key `UPSTREAM_TIMEOUT`
+     - the key `gateway.conf` as the file `/etc/nginx/conf.d/default.conf`
+
+  `FEATURE_BETA` must not become an environment variable, and `/etc/nginx/conf.d` must contain no
+  file other than `default.conf`. With the new configuration nginx answers on port `8080`.
+hints:
+  - "`kubectl create configmap` takes `--from-literal` and `--from-file` in the same command. With `--from-file=<path>` the key is the file name."
+  - "One variable per key: `env[].valueFrom.configMapKeyRef` (the variable name and the key may differ). `envFrom` would import every key, also `FEATURE_BETA`."
+  - "A configMap volume with `items: [{key: gateway.conf, path: default.conf}]` mounted at `/etc/nginx/conf.d` projects just that key under a new file name. Test: `kubectl -n app-ocelot exec deploy/gateway -- wget -qO- 127.0.0.1:8080/healthz`."
+checks:
+  - id: configmap
+    title: ConfigMap gateway-config has the three literals and the file
+    type: exec
+    run: |-
+      kubectl -n app-ocelot get configmap gateway-config -o json | jq -r '[(.data | keys | join(",")), .data.UPSTREAM_HOST, .data.UPSTREAM_TIMEOUT, .data.FEATURE_BETA, (.data["gateway.conf"] | test("listen +8080;") and test("ocelot gateway ok"))] | join(" ")'
+    expect: {equals: "FEATURE_BETA,UPSTREAM_HOST,UPSTREAM_TIMEOUT,gateway.conf orders.app-ocelot.svc 15 off true"}
+    explain: >-
+      --from-literal and --from-file can be mixed in one command. --from-file names the key after the file; --from-file=other-key=path renames it. --from-env-file would instead split the file into one key per line.
+  - id: env
+    title: The container sees UPSTREAM_HOST and TIMEOUT_SECONDS from the ConfigMap, not FEATURE_BETA
+    type: exec
+    retry: 30s
+    run: |-
+      kubectl -n app-ocelot exec deploy/gateway -- true >/dev/null || { echo "cannot run a command in deploy/gateway: is its Pod running?" >&2; exit 1; }
+      kubectl -n app-ocelot get deploy gateway -o json | jq -r '[.spec.template.spec.containers[0].env[]? | select(.name=="UPSTREAM_HOST" or .name=="TIMEOUT_SECONDS") | .valueFrom.configMapKeyRef.name // "literal"] | join(" ")'
+      kubectl -n app-ocelot exec deploy/gateway -- sh -c 'echo "$UPSTREAM_HOST $TIMEOUT_SECONDS ${FEATURE_BETA-unset}"'
+    expect: {equals: "gateway-config gateway-config\norders.app-ocelot.svc 15 unset"}
+    explain: >-
+      configMapKeyRef picks single keys and lets the variable have another name than the key. envFrom imports all keys, which is not what was asked. A literal `value:` would look right today and silently ignore later changes of the ConfigMap.
+  - id: file
+    title: nginx runs with the mounted gateway.conf as the only file in conf.d
+    type: exec
+    retry: 30s
+    run: |-
+      kubectl -n app-ocelot exec deploy/gateway -- true >/dev/null || { echo "cannot run a command in deploy/gateway: is its Pod running?" >&2; exit 1; }
+      kubectl -n app-ocelot get deploy gateway -o jsonpath='{.spec.template.spec.volumes[*].configMap.name}{"\n"}'
+      kubectl -n app-ocelot exec deploy/gateway -- sh -c 'ls /etc/nginx/conf.d; wget -qO- -T 3 http://127.0.0.1:8080/healthz'
+    expect: {equals: "gateway-config\ndefault.conf\nocelot gateway ok"}
+    explain: >-
+      A configMap volume turns every key into a file unless `items` selects keys; `path` gives the file its name. Mounting the whole ConfigMap would also drop UPSTREAM_HOST and the other keys into conf.d, and the file would be called gateway.conf.
+  - id: ready
+    title: Deployment gateway is ready with the current template
+    guard: true
+    type: resource
+    resource: deployment/gateway
+    namespace: app-ocelot
+    jsonpath: "{.status.readyReplicas}/{.status.updatedReplicas}/{.status.replicas}"
+    expect: {equals: 1/1/1}
+    retry: 30s
+    explain: >-
+      A reference to a ConfigMap or key that does not exist leaves the new Pod in CreateContainerConfigError or ContainerCreating, while the old Pod keeps running. Always look at the rollout.

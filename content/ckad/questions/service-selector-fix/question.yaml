@@ -1,0 +1,72 @@
+title: A Service that balances over the wrong Pods
+domain: services-networking
+difficulty: easy
+minutes: 5
+environment: base
+tags: [service, selector, labels, endpoints]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Namespace `app-skunk` runs the order system: Deployment `api` serves HTTP on port `80`, Deployment
+  `worker` processes a queue and listens on no port at all.
+
+  Clients of Service `orders` report that about every second request fails with *connection refused*,
+  although all Pods are running.
+
+  Fix Service `orders` so that it sends traffic to the Pods of Deployment `api` and to no other Pod.
+
+  Both Deployments must keep running unchanged with 2 replicas each: do not delete, scale or relabel
+  them. Other tooling selects all Pods of the order system by the label `app=orders`.
+hints:
+  - "Compare what the Service selects with what runs: `kubectl -n app-skunk get svc orders -o wide` and `kubectl -n app-skunk get pod -o wide --show-labels`. How many addresses does `kubectl -n app-skunk get endpointslices` list?"
+  - "The selector `app=orders` matches the Pods of both Deployments. A selector with two labels matches only Pods that carry both: which label do only the api Pods have?"
+  - "`kubectl -n app-skunk set selector service orders 'app=orders,tier=api'` (or edit `spec.selector`)."
+checks:
+  - id: endpoints
+    title: The endpoints of Service orders are exactly the api Pods
+    type: exec
+    run: |-
+      pods=$(kubectl -n app-skunk get pods -o json) || exit 1
+      want=$(echo "$pods" | jq -r '.items[] | select(.metadata.deletionTimestamp == null) | select(any(.metadata.ownerReferences[]?; .kind == "ReplicaSet" and (.name | startswith("api-")))) | .status.podIP // empty' | sort)
+      [ -n "$want" ] || { echo "Deployment api has no running Pods in app-skunk" >&2; exit 1; }
+      got=$(kubectl -n app-skunk get endpointslices -l kubernetes.io/service-name=orders -o json | jq -r '.items[].endpoints[]? | .addresses[]' | sort)
+      if [ "$want" = "$got" ]; then echo exact; else echo "endpoints: $(echo $got) / api Pods: $(echo $want)" >&2; echo different; fi
+    expect: {equals: exact}
+    retry: 20s
+    explain: >-
+      A Service selects every Pod in its Namespace that carries all labels of its selector, whichever Deployment owns the Pod. `app=orders` alone also matched the workers; adding the label only the api Pods have (`tier=api`) narrows it down.
+  - id: no-refused
+    title: Twenty requests in a row to the Service succeed
+    type: exec
+    run: |-
+      ip=$(kubectl -n app-skunk get svc orders -o jsonpath='{.spec.clusterIP}') || exit 1
+      ok=0
+      for i in $(seq 20); do curl -s -m 3 "http://$ip:80" | grep -q 'Welcome to nginx' && ok=$((ok+1)); done
+      echo "$ok/20"
+    expect: {equals: 20/20}
+    retry: 20s
+    timeout: 90s
+    explain: >-
+      kube-proxy picks one endpoint per connection at random. With two of four endpoints not listening, about half of the requests are refused: an intermittent failure is the fingerprint of a wrong Pod behind a Service.
+  - id: workloads-intact
+    title: Both Deployments still run 2 ready replicas with their original labels
+    guard: true
+    type: exec
+    run: |-
+      for d in api worker; do
+        kubectl -n app-skunk get deployment "$d" -o jsonpath='{.metadata.name}|{.spec.template.metadata.labels.app}|{.spec.template.metadata.labels.tier}|{.spec.replicas}|{.status.readyReplicas}{"\n"}' || exit 1
+      done
+    expect: {sameLines: ["api|orders|api|2|2", "worker|orders|worker|2|2"]}
+    retry: 30s
+    explain: >-
+      Removing `app=orders` from the workers, scaling them to zero or deleting them also empties the endpoint list, but it breaks whatever else relies on that label. The Service was wrong, so the Service is what gets fixed.
+  - id: service-kept
+    title: Service orders still exposes port 80 as a ClusterIP Service
+    guard: true
+    type: resource
+    resource: service/orders
+    namespace: app-skunk
+    jsonpath: "{.spec.type} {.spec.ports[0].port} {.spec.ports[0].targetPort}"
+    expect: {matches: "^ClusterIP 80 (80|http)$"}
+    explain: >-
+      Clients keep using the same name and port; only the set of Pods behind the Service changes.

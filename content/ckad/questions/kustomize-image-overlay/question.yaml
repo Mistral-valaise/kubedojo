@@ -1,0 +1,77 @@
+title: Kustomize overlay with image tag and generated ConfigMap
+domain: application-deployment
+difficulty: medium
+minutes: 9
+environment: base
+tags: [kustomize, configmap]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The application `reporter` is defined as a Kustomize base in `/opt/course/jackal/base`. Its
+  Deployment reads its environment from a ConfigMap `reporter-config`, which every environment has
+  to provide itself.
+
+  Create an overlay in `/opt/course/jackal/overlays/staging` that uses the base, and apply it to the
+  cluster. The overlay must:
+
+  - deploy all resources into Namespace `app-jackal` with the name prefix `stg-`
+  - add the label `stage: staging` to all resources
+  - run the container with image tag `1.27-alpine` instead of the tag of the base
+  - run `2` replicas
+  - generate the ConfigMap `reporter-config` with the entry `REPORT_INTERVAL=30s`. Use Kustomize's
+    generator and keep the content hash it appends to the name.
+
+  Do not modify the files in `base`.
+hints:
+  - "An overlay is a directory with a `kustomization.yaml` that lists the base under `resources:` (`../../base`). `kubectl kustomize <dir>` shows what it renders without applying anything."
+  - "The fields are `namespace`, `namePrefix`, `labels`, `images` (with `name` and `newTag`), `replicas` (with `name` and `count`) and `configMapGenerator` (with `name` and `literals`). Use the names from the base, Kustomize adds prefix and hash itself."
+  - "`images: [{name: nginx, newTag: 1.27-alpine}]`, `replicas: [{name: reporter, count: 2}]`, `configMapGenerator: [{name: reporter-config, literals: [REPORT_INTERVAL=30s]}]`, then `kubectl apply -k /opt/course/jackal/overlays/staging`."
+checks:
+  - id: renders
+    title: The overlay renders and builds on the base
+    type: exec
+    run: |-
+      d=/opt/course/jackal/overlays/staging
+      kubectl kustomize $d >/dev/null && grep -Eq 'base' $d/kustomization.yaml && echo ok
+    expect: {equals: ok}
+    explain: >-
+      An overlay does not copy manifests. It lists the base as a resource and describes only what differs in this environment.
+  - id: deployed
+    title: Deployment stg-reporter runs 2 ready replicas of nginx:1.27-alpine in app-jackal
+    type: resource
+    resource: deployment/stg-reporter
+    namespace: app-jackal
+    jsonpath: "{.spec.template.spec.containers[0].image} {.spec.replicas}/{.status.readyReplicas}"
+    expect: {matches: "^(docker\\.io/(library/)?)?nginx:1\\.27-alpine 2/2$"}
+    retry: 60s
+    explain: >-
+      The images field replaces the tag of every container that uses the named image, replicas sets the count of a named Deployment. Both use the names as written in the base.
+  - id: labels
+    title: Deployment, Service and ConfigMap carry the label stage=staging
+    type: exec
+    run: |-
+      kubectl -n app-jackal get deploy,svc,cm -l stage=staging -o jsonpath='{range .items[*]}{.kind}{"\n"}{end}' | sort | xargs
+    expect: {equals: "ConfigMap Deployment Service"}
+    explain: >-
+      The labels field adds labels to every resource of the overlay in one place, including generated ones. No manifest has to be touched.
+  - id: config
+    title: The Pods get REPORT_INTERVAL from the generated ConfigMap
+    type: exec
+    run: |-
+      ns=app-jackal
+      cm=$(kubectl -n $ns get deploy stg-reporter -o jsonpath='{.spec.template.spec.containers[0].envFrom[0].configMapRef.name}')
+      [ -n "$cm" ] || { echo "Deployment stg-reporter not found or without envFrom" >&2; exit 1; }
+      echo "$cm $(kubectl -n $ns exec deploy/stg-reporter -- printenv REPORT_INTERVAL)"
+    expect: {matches: "^stg-reporter-config-[a-z0-9]{6,} 30s$"}
+    retry: 30s
+    explain: >-
+      configMapGenerator names the ConfigMap with a hash of its content and rewrites the reference in the Deployment. A changed value gives a new name and therefore a rollout, which a hand-written ConfigMap does not.
+  - id: base-untouched
+    title: The base is unchanged
+    guard: true
+    type: exec
+    run: |-
+      grep -c -e 'image: nginx:1.26$' -e 'replicas: 1$' -e 'name: reporter-config$' /opt/course/jackal/base/deployment.yaml
+    expect: {equals: "3"}
+    explain: >-
+      The base stays neutral so that dev, staging and prod can all build on it. Everything specific to an environment lives in its overlay.

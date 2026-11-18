@@ -1,0 +1,66 @@
+title: Run a web server as non-root with one capability
+domain: application-environment-configuration-security
+difficulty: medium
+minutes: 8
+environment: base
+tags: [securitycontext, capabilities, non-root]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `edge` in Namespace `app-puma` serves a status page on port `80`. Its container `httpd`
+  runs as root, may escalate privileges and holds more capabilities than it needs. Harden the
+  Deployment:
+
+  - the container runs as user `10001` and group `10001`, and the kubelet must refuse to start it as root
+  - privilege escalation is not allowed
+  - all capabilities are dropped; the only capability added back is `NET_BIND_SERVICE`
+
+  Keep the image, the command and port `80`. The Deployment must be ready and still serve the page
+  afterwards.
+hints:
+  - "`runAsUser`, `runAsGroup` and `runAsNonRoot` exist on Pod and container level; `allowPrivilegeEscalation` and `capabilities` only on the container."
+  - "`capabilities: {drop: [ALL], add: [NET_BIND_SERVICE]}`. Capability names are written without the `CAP_` prefix. The template already adds capabilities: replace that list."
+  - "Verify inside the container: `kubectl -n app-puma exec deploy/edge -- sh -c 'id; grep -E \"NoNewPrivs|Cap(Bnd|Eff)\" /proc/1/status'`."
+checks:
+  - id: user
+    title: The process runs as 10001:10001 and runAsNonRoot is set
+    type: exec
+    retry: 30s
+    run: |-
+      kubectl -n app-puma exec deploy/edge -- true >/dev/null || { echo "cannot run a command in deploy/edge: is its Pod running?" >&2; exit 1; }
+      kubectl -n app-puma get deploy edge -o json | jq -r '.spec.template.spec | (.containers[0].securityContext.runAsNonRoot // .securityContext.runAsNonRoot // false)'
+      kubectl -n app-puma exec deploy/edge -- sh -c 'echo "$(id -u):$(id -g)"'
+    expect: {equals: "true\n10001:10001"}
+    explain: >-
+      runAsUser chooses the UID. runAsNonRoot is the safety net: the kubelet refuses to start the container when the effective user would be 0, for example after someone removes runAsUser and the image defaults to root.
+  - id: no-escalation
+    title: The process cannot gain new privileges
+    type: exec
+    retry: 30s
+    run: |-
+      kubectl -n app-puma exec deploy/edge -- true >/dev/null || { echo "cannot run a command in deploy/edge: is its Pod running?" >&2; exit 1; }
+      kubectl -n app-puma exec deploy/edge -- sh -c 'grep NoNewPrivs /proc/1/status' | tr -s '\t ' ' '
+    expect: {equals: "NoNewPrivs: 1"}
+    explain: >-
+      allowPrivilegeEscalation false sets the kernel flag no_new_privs on the process: setuid binaries and file capabilities can no longer raise its rights. It is a container-level field and defaults to true.
+  - id: capabilities
+    title: NET_BIND_SERVICE is the only capability left
+    type: exec
+    retry: 30s
+    run: |-
+      kubectl -n app-puma exec deploy/edge -- true >/dev/null || { echo "cannot run a command in deploy/edge: is its Pod running?" >&2; exit 1; }
+      kubectl -n app-puma exec deploy/edge -- sh -c 'echo "$(grep CapBnd /proc/1/status | cut -f2) $(grep CapEff /proc/1/status | cut -f2)"'
+    expect: {matches: "^0000000000000400 0000000000000(000|400)$"}
+    explain: >-
+      CapBnd is the set of capabilities the container can ever hold; 0x400 is bit 10, NET_BIND_SERVICE. `drop: [ALL]` empties the default set, `add` puts back single ones. Leaving NET_ADMIN in the list, or only dropping a few names, fails here. For a non-root user the effective set (CapEff) stays empty.
+  - id: serves
+    title: The Deployment is ready and still serves the page on port 80
+    guard: true
+    type: exec
+    retry: 30s
+    run: |-
+      kubectl -n app-puma get deploy edge -o jsonpath='{.status.readyReplicas}/{.status.updatedReplicas}/{.status.replicas}{"\n"}'
+      kubectl -n app-puma exec deploy/edge -- wget -qO- -T 3 http://127.0.0.1:80/
+    expect: {equals: "1/1/1\npuma edge ok"}
+    explain: >-
+      Hardening that stops the application is not a solution. After every securityContext change check the rollout and the application itself; a new Pod in CrashLoopBackOff hides behind the old one that keeps running.

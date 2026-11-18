@@ -17,7 +17,7 @@ import (
 // DefaultModel is used unless KUBEDOJO_TUTOR_MODEL names another one.
 const DefaultModel = "claude-opus-5-5"
 
-const system = `You are the tutor inside kubedojo, a hands-on training platform for the Kubernetes CKA and CKS exams. A learner is working on one exam-style task in a real cluster through a terminal.
+const system = `You are the tutor inside kubedojo, a hands-on training platform for the Kubernetes CKA, CKAD and CKS exams. A learner is working on one exam-style task in a real cluster through a terminal.
 
 You receive the task, the result of the automated checks (what was expected, what was found), a short snapshot of the cluster, and optionally a question from the learner.
 

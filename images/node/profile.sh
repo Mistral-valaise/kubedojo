@@ -1,5 +1,7 @@
 # kubedojo shell defaults (same conveniences the real exam environment offers)
 alias k=kubectl
+# Image builds need root on a node that is itself a container (no nested user namespaces).
+if [ "$(id -u)" != 0 ]; then alias podman='sudo podman' buildah='sudo buildah'; fi
 export EDITOR=vim
 export do="--dry-run=client -o yaml"
 export now="--force --grace-period 0"

@@ -1,0 +1,52 @@
+title: Readiness and liveness probes for a web shop
+domain: application-observability-maintenance
+difficulty: easy
+minutes: 6
+environment: base
+tags: [probes, readiness, liveness, deployment]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `shop` in Namespace `app-koala` has no probes. Each Pod needs about 12 seconds to warm
+  up, and during that time Service `shop` already sends requests to it, which are answered with
+  `404`.
+
+  Add two probes to container `web` of the Deployment:
+
+  - a **readiness probe**: HTTP GET on path `/ready`, port `8080`, checked every `5` seconds
+  - a **liveness probe**: a TCP check on port `8080` that starts `10` seconds after the container
+    started and runs every `10` seconds
+
+  Afterwards all 3 replicas must be ready. Do not change the image or the command.
+hints:
+  - "Probes are fields of the container, next to `image`: `kubectl explain deploy.spec.template.spec.containers.readinessProbe`. Edit the Deployment with `kubectl -n app-koala edit deploy shop`."
+  - "A probe has one handler (`httpGet`, `tcpSocket`, `exec` or `grpc`) and timings next to it: `initialDelaySeconds`, `periodSeconds`, `failureThreshold`."
+  - "`readinessProbe: {httpGet: {path: /ready, port: 8080}, periodSeconds: 5}` and `livenessProbe: {tcpSocket: {port: 8080}, initialDelaySeconds: 10, periodSeconds: 10}`, then `kubectl -n app-koala rollout status deploy shop`."
+checks:
+  - id: readiness
+    title: The readiness probe asks GET /ready on port 8080 every 5 seconds
+    type: resource
+    resource: deployment/shop
+    namespace: app-koala
+    jsonpath: "{.spec.template.spec.containers[0].readinessProbe.httpGet.path} {.spec.template.spec.containers[0].readinessProbe.httpGet.port} {.spec.template.spec.containers[0].readinessProbe.periodSeconds}"
+    expect: {matches: "^/ready (8080|http) 5$"}
+    explain: >-
+      A Pod that fails its readiness probe is taken out of the Service's endpoints but is not restarted. The port may be the number or the name of a container port (`http`); the path must be one the app really answers with 2xx/3xx.
+  - id: liveness
+    title: The liveness probe is a TCP check on port 8080 with delay 10 and period 10
+    type: resource
+    resource: deployment/shop
+    namespace: app-koala
+    jsonpath: "{.spec.template.spec.containers[0].livenessProbe.tcpSocket.port} {.spec.template.spec.containers[0].livenessProbe.initialDelaySeconds} {.spec.template.spec.containers[0].livenessProbe.periodSeconds}"
+    expect: {matches: "^(8080|http) 10 10$"}
+    explain: >-
+      A failing liveness probe makes the kubelet restart the container. `tcpSocket` only needs the port to accept a connection; `initialDelaySeconds` and `periodSeconds` sit next to the handler, not inside it.
+  - id: rolled-out
+    title: All 3 Pods run with both probes and are Ready
+    type: exec
+    retry: 60s
+    run: |-
+      kubectl -n app-koala get pod -l app=shop -o json | jq -r '[.items[] | select(.metadata.deletionTimestamp == null)] | "\(length) pods, \([.[] | select(.spec.containers[0].readinessProbe != null and .spec.containers[0].livenessProbe != null) | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))] | length) ready with probes"'
+    expect: {equals: "3 pods, 3 ready with probes"}
+    explain: >-
+      Probes are part of the Pod template, so changing them rolls out new Pods. With a readiness probe the rollout itself becomes safe: an old Pod is only removed once a new one has passed its probe. A probe with a wrong path or port leaves the rollout hanging at 0 ready new Pods.

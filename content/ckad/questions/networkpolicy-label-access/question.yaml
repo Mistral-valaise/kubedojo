@@ -1,0 +1,72 @@
+title: Get a client through existing NetworkPolicies
+domain: services-networking
+difficulty: hard
+minutes: 9
+environment: base
+tags: [networkpolicy, labels, deployment]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Namespace `app-tiger` is locked down by four NetworkPolicies written by the security team. They are
+  correct and you are **not allowed to change, delete or add** NetworkPolicies.
+
+  Since the lockdown the Pods of Deployment `checkout` get timeouts when they call `http://ledger`
+  (Service `ledger`, TCP port `80`). The policies already describe which Pods may talk to the ledger;
+  the checkout Pods just do not qualify yet.
+
+  Make Deployment `checkout` qualify, so that:
+
+  - its Pods can reach `http://ledger`, and still can after the Pods have been replaced (restart, rollout)
+  - the Pods of Deployment `reports` remain unable to reach the ledger
+hints:
+  - "Read all four policies: `kubectl -n app-tiger describe netpol`. For each one note which Pods it selects and which peer it allows. Compare with `kubectl -n app-tiger get pod --show-labels`."
+  - "`default-deny` blocks both directions. The connection needs the ledger's ingress rule (it admits Pods with one label) and an egress rule for the client (it selects Pods with another label). Labels on a Deployment's Pods belong into `spec.template.metadata.labels`."
+  - "`kubectl -n app-tiger edit deploy checkout` and add `role: ledger-client` and `ledger-access: granted` to the Pod template's labels, next to `app: checkout`."
+checks:
+  - id: checkout-reaches
+    title: checkout Pods reach http://ledger
+    type: exec
+    run: |-
+      kubectl -n app-tiger exec deploy/checkout -- wget -qO- -T 4 http://ledger 2>/dev/null | grep -q 'Welcome to nginx' && echo reachable
+    expect: {equals: reachable}
+    retry: 30s
+    timeout: 30s
+    explain: >-
+      With a default deny for Ingress and Egress, a connection needs two allowances: the client's egress (policy ledger-client-egress selects `role=ledger-client`) and the server's ingress (policy ledger-ingress admits `ledger-access=granted`). One label alone still ends in a timeout.
+  - id: template-labels
+    title: The Pod template of Deployment checkout carries both labels
+    type: resource
+    resource: deployment/checkout
+    namespace: app-tiger
+    jsonpath: "{.spec.template.metadata.labels.app}|{.spec.template.metadata.labels.role}|{.spec.template.metadata.labels.ledger-access}"
+    expect: {equals: "checkout|ledger-client|granted"}
+    explain: >-
+      `kubectl label pod` changes only the running Pod; the next rollout or crash brings back a Pod without the labels. `kubectl label deployment` labels the Deployment object, which no policy looks at. The labels have to be in spec.template.metadata.labels.
+  - id: reports-blocked
+    title: reports Pods still cannot reach the ledger
+    guard: true
+    type: exec
+    run: |-
+      kubectl -n app-tiger exec deploy/reports -- true >/dev/null || { echo "cannot run a command in deploy/reports: the probe needs this Pod" >&2; exit 1; }
+      kubectl -n app-tiger get service ledger >/dev/null || { echo "Service ledger is missing" >&2; exit 1; }
+      [ "$(kubectl -n app-tiger get deployment ledger -o jsonpath='{.status.readyReplicas}')" = 2 ] || { echo "Deployment ledger does not have 2 ready replicas" >&2; exit 1; }
+      kubectl -n app-tiger exec deploy/reports -- wget -qO- -T 4 http://ledger >/dev/null 2>&1 && echo reachable || echo blocked
+    expect: {equals: blocked}
+    retry: 20s
+    timeout: 30s
+    explain: >-
+      Labelling every Pod in the Namespace (`kubectl label pod --all`) makes checkout work and silently opens the ledger to everything else. Labels are the access control here: give them only to the workload that needs them.
+  - id: policies-unchanged
+    title: The four NetworkPolicies are untouched and no policy was added
+    guard: true
+    type: exec
+    run: |-
+      kubectl -n app-tiger get networkpolicy -o json | jq -cS '.items[] | {name: .metadata.name, spec: .spec}'
+    expect:
+      sameLines:
+        - '{"name":"allow-dns","spec":{"egress":[{"ports":[{"port":53,"protocol":"UDP"},{"port":53,"protocol":"TCP"}]}],"podSelector":{},"policyTypes":["Egress"]}}'
+        - '{"name":"default-deny","spec":{"podSelector":{},"policyTypes":["Ingress","Egress"]}}'
+        - '{"name":"ledger-client-egress","spec":{"egress":[{"ports":[{"port":80,"protocol":"TCP"}],"to":[{"podSelector":{"matchLabels":{"app":"ledger"}}}]}],"podSelector":{"matchLabels":{"role":"ledger-client"}},"policyTypes":["Egress"]}}'
+        - '{"name":"ledger-ingress","spec":{"ingress":[{"from":[{"podSelector":{"matchLabels":{"ledger-access":"granted"}}}],"ports":[{"port":80,"protocol":"TCP"}]}],"podSelector":{"matchLabels":{"app":"ledger"}},"policyTypes":["Ingress"]}}'
+    explain: >-
+      Editing a policy until the traffic flows is the reflex, but the policies are owned by someone else and encode who may talk to whom. The application side of the contract is to carry the labels the policies select on.

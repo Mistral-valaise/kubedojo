@@ -2,6 +2,9 @@
 # terminal attaches to. From here the candidate reaches every exam host via ssh.
 FROM debian:trixie-slim
 
+# Raise this whenever the image gets new contents; see images/node/Dockerfile.
+LABEL dev.kubedojo.image-rev="1"
+
 ARG TARGETARCH
 ARG K8S_VERSION=v1.37.0
 ARG HELM_VERSION=v3.22.1

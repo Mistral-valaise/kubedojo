@@ -1,0 +1,36 @@
+id: ckad
+title: Certified Kubernetes Application Developer
+short: CKAD
+description: >-
+  Design, build, configure and expose applications on Kubernetes. Performance-based exam:
+  you solve real tasks on a real cluster from a terminal.
+kubernetesVersion: v1.37
+exam:
+  durationMinutes: 120
+  passPercent: 66
+  questions: 16
+domains:
+  - id: application-design-build
+    title: Application Design and Build
+    weight: 20
+    summary: Container images, Jobs and CronJobs, multi-container Pods, and volumes.
+  - id: application-deployment
+    title: Application Deployment
+    weight: 20
+    summary: Rolling updates, blue/green and canary releases, Helm and Kustomize.
+  - id: application-observability-maintenance
+    title: Application Observability and Maintenance
+    weight: 15
+    summary: Probes, logs, debugging broken workloads and API deprecations.
+  - id: application-environment-configuration-security
+    title: Application Environment, Configuration and Security
+    weight: 25
+    summary: ConfigMaps, Secrets, SecurityContexts, ServiceAccounts, requests, limits and quotas.
+  - id: services-networking
+    title: Services and Networking
+    weight: 20
+    summary: Services, Ingress rules and NetworkPolicies from an application's point of view.
+environments:
+  base:
+    workers: 1
+    description: General purpose cluster for application tasks.
