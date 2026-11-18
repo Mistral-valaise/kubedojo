@@ -1,0 +1,34 @@
+title: An image tag overwritten in the registry
+domain: platform-security
+difficulty: easy
+tags: [supply-chain, images, registry]
+stem: |-
+  A Deployment uses the image `registry.example.com/shop/api:1.4`, which was scanned and approved.
+  Later an attacker with push access to the repository uploads a different image under the same tag.
+
+  How must the Deployment reference the image so that nodes can only ever run the approved content?
+options:
+  - text: "With the tag and `imagePullPolicy: Always`"
+    explain: >-
+      `Always` makes the kubelet resolve the tag at every container start, so new containers get
+      whatever the tag points to now, which is the attacker's image.
+  - text: "With the tag and `imagePullPolicy: IfNotPresent`"
+    explain: >-
+      Nodes that have the old image cached keep using it, but every node that pulls for the first
+      time gets the attacker's image.
+  - text: With the tag and an `imagePullSecrets` entry for the registry
+    explain: >-
+      A pull secret authenticates the kubelet to the registry. It says nothing about which content
+      is stored behind a tag.
+  - text: With its digest, as `registry.example.com/shop/api@sha256:...`
+    correct: true
+explanation: >-
+  A tag is a movable pointer: the registry can make it refer to different content at any time. A
+  digest is a hash of the image's content and cannot change, so a reference by digest pins exactly
+  the content that was reviewed. The security checklist asks for images to be referenced by sha256
+  digest, or for the image's signature to be verified at deploy time through admission control.
+references:
+  - title: Images
+    url: https://kubernetes.io/docs/concepts/containers/images/
+  - title: Security Checklist
+    url: https://kubernetes.io/docs/concepts/security/security-checklist/

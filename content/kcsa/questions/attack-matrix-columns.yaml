@@ -1,0 +1,33 @@
+title: Reading the ATT&CK matrix for containers
+domain: compliance-and-security-frameworks
+difficulty: medium
+tags: [threat-modelling, mitre-attack]
+stem: |-
+  The MITRE ATT&CK matrix for containers has columns headed, for example, "Persistence" and
+  "Privilege Escalation". Under them stand entries such as "Escape to Host".
+
+  What do the column headings represent in ATT&CK?
+options:
+  - text: Techniques, the ways in which an adversary carries out an action
+    explain: >-
+      Techniques are the entries inside the columns, such as "Escape to Host". They describe how a
+      goal is achieved.
+  - text: Tactics, the goals an adversary pursues with an action
+    correct: true
+  - text: Procedures, the concrete implementations a specific adversary has used
+    explain: >-
+      Procedures are the lowest level: the specific way an adversary implemented a technique or
+      sub-technique. They are documented within the techniques.
+  - text: Mitigations, the kinds of controls that prevent an action from succeeding
+    explain: >-
+      ATT&CK lists mitigations for each technique, but they are not what the matrix is arranged by.
+explanation: >-
+  ATT&CK is a knowledge base of adversary behaviour. Its matrices are arranged by tactics, which
+  represent the "why" of a technique: the tactical goal, such as keeping a foothold or gaining higher
+  privileges. Techniques represent "how" an adversary achieves that goal, sub-techniques describe the
+  behaviour more specifically, and procedures are the specific implementations seen in use.
+references:
+  - title: MITRE ATT&CK, frequently asked questions
+    url: https://attack.mitre.org/resources/faq/
+  - title: MITRE ATT&CK Containers Matrix
+    url: https://attack.mitre.org/matrices/enterprise/containers/

@@ -1,0 +1,35 @@
+title: Direct access to the etcd API
+domain: kubernetes-threat-model
+difficulty: medium
+tags: [trust-boundaries, etcd]
+stem: |-
+  An attacker on a control plane network can reach etcd on port 2379 and has stolen a client
+  certificate that was issued by the CA etcd trusts. The certificate was meant only for a
+  health-check script.
+
+  What can the attacker typically do with it?
+options:
+  - text: Only query the health endpoints, because etcd limits the certificate to them
+    explain: >-
+      etcd authenticates clients by certificate but typically has no authorization configured. A
+      certificate meant for health checks usually grants full read and write access as well.
+  - text: Read and change any cluster data, without RBAC, admission control or audit logging
+    correct: true
+  - text: Read all cluster data, while writes fail because they skip admission control
+    explain: >-
+      Admission control is a step inside the API server. etcd does not know about it, so skipping it
+      does not make a write fail: the write is simply never checked.
+  - text: Nothing until a ClusterRoleBinding grants the certificate's user access to etcd
+    explain: >-
+      RBAC is evaluated by the API server for requests to the Kubernetes API. A client that talks to
+      etcd directly never passes through it.
+explanation: >-
+  The API server is the place where authentication, authorization, admission control and audit
+  logging happen; etcd sits behind that boundary and trusts its clients. Any certificate issued by a
+  CA that etcd trusts typically allows full access to the stored data, and direct access is neither
+  subject to admission control nor recorded in the Kubernetes audit log. That is why the etcd CA
+  should be used for nothing else and the etcd port should only be reachable from the API servers and
+  backup tooling.
+references:
+  - title: Kubernetes API Server Bypass Risks
+    url: https://kubernetes.io/docs/concepts/security/api-server-bypass-risks/

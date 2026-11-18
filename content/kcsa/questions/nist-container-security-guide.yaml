@@ -1,0 +1,33 @@
+title: What NIST SP 800-190 is
+domain: compliance-and-security-frameworks
+difficulty: medium
+tags: [compliance, nist]
+stem: |-
+  An auditor asks a platform team to show how its container platform relates to NIST SP 800-190.
+
+  What kind of document is that?
+options:
+  - text: A catalog of security and privacy controls for information systems of any kind
+    explain: >-
+      That is NIST SP 800-53. It is not specific to containers; organizations select controls from
+      it as part of managing risk.
+  - text: A set of prescriptive configuration settings for Kubernetes, developed by consensus
+    explain: >-
+      That describes the CIS Kubernetes Benchmark, which is published by the Center for Internet
+      Security, not by NIST.
+  - text: A guide to the security concerns of container technologies, with recommendations
+    correct: true
+  - text: A knowledge base of adversary tactics and techniques seen in real attacks
+    explain: >-
+      That is MITRE ATT&CK, which includes a matrix for containers. It describes adversary
+      behaviour and is not a NIST publication.
+explanation: >-
+  NIST Special Publication 800-190 is the Application Container Security Guide. It explains the
+  potential security concerns associated with the use of containers and gives recommendations for
+  addressing them. It is guidance on one technology, unlike SP 800-53, which is a general catalog of
+  controls, and unlike a benchmark, which prescribes concrete settings for one product.
+references:
+  - title: NIST SP 800-190, Application Container Security Guide
+    url: https://csrc.nist.gov/pubs/sp/800/190/final
+  - title: NIST SP 800-53 Rev. 5, Security and Privacy Controls
+    url: https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final

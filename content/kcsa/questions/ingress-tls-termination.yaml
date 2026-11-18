@@ -1,0 +1,33 @@
+title: How far TLS on an Ingress reaches
+domain: platform-security
+difficulty: medium
+tags: [connectivity, ingress, tls]
+stem: |-
+  An Ingress lists a host under `spec.tls` with a Secret holding a certificate and key. Nothing else
+  about TLS is configured in the cluster. An auditor asks which part of the path from a browser to
+  the application Pod is encrypted.
+
+  What is the correct answer?
+options:
+  - text: The whole path, because the controller reuses the certificate towards the Pods
+    explain: >-
+      The Secret is used to serve TLS to clients. Encrypting the hop to the backends is not part of
+      the Ingress resource and needs controller-specific configuration or a service mesh.
+  - text: The path from the browser to the ingress controller; behind it traffic is plain text
+    correct: true
+  - text: The path from the ingress controller to the Pod; the browser side stays plain HTTP
+    explain: >-
+      It is the other way round: the certificate in `spec.tls` is the one presented to clients on
+      port 443.
+  - text: The whole path, because the controller passes the TLS connection through to the Pod
+    explain: >-
+      Passthrough would require the Pod to hold the certificate. The Ingress resource assumes that
+      TLS ends at the ingress point.
+explanation: >-
+  The Ingress resource supports a single TLS port, 443, and assumes TLS termination at the ingress
+  point: the controller decrypts the request using the `tls.crt` and `tls.key` of the Secret, and
+  traffic to the Service and its Pods is in plain text. Where encryption is required all the way to
+  the workload, something else has to provide it, for example mutual TLS in a service mesh.
+references:
+  - title: Ingress
+    url: https://kubernetes.io/docs/concepts/services-networking/ingress/

@@ -1,0 +1,32 @@
+title: Gaining root through a setuid binary
+domain: kubernetes-threat-model
+difficulty: medium
+tags: [privilege-escalation, security-context]
+stem: |-
+  An attacker exploits a web application and runs commands as UID 1000 inside its container. The
+  image contains a setuid-root binary, which the attacker executes to obtain a root process.
+
+  Which container `securityContext` setting is designed to stop exactly this step?
+options:
+  - text: "`runAsNonRoot: true`"
+    explain: >-
+      With this the kubelet checks at start that the container is not going to run as UID 0 and
+      refuses to start it otherwise. It does not watch what the processes do afterwards.
+  - text: "`privileged: false`"
+    explain: >-
+      This is the default and keeps the container from getting all capabilities and device access.
+      An unprivileged container can still execute a setuid binary.
+  - text: "`allowPrivilegeEscalation: false`"
+    correct: true
+  - text: "`runAsUser: 1000`"
+    explain: >-
+      This sets the UID of the container's first process, which is already 1000 here. The setuid bit
+      changes the effective user of a later process.
+explanation: >-
+  `allowPrivilegeEscalation` controls whether a process can gain more privileges than its parent, for
+  example by executing a setuid binary. Setting it to false sets the kernel's `no_new_privs` flag on
+  the container process. When the field is not set it defaults to true, which is why the Restricted
+  Pod Security Standard requires it to be set to false explicitly.
+references:
+  - title: Configure a Security Context for a Pod or Container
+    url: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
