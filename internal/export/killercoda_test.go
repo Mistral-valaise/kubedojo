@@ -99,20 +99,33 @@ func TestExportShippedContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	total := 0
+	total, tasks := 0, 0
+	choice := map[string]bool{}
 	for _, tr := range cat.List() {
 		total += len(tr.Questions)
+		for _, q := range tr.Questions {
+			if q.Type == catalog.TypeChoice {
+				choice[tr.ID+"/"+q.ID] = true
+			} else {
+				tasks++
+			}
+		}
 	}
 	if len(res.Exported)+len(res.Skipped) != total {
 		t.Fatalf("exported %d + skipped %d != %d questions", len(res.Exported), len(res.Skipped), total)
 	}
-	if len(res.Exported) < total/2 {
-		t.Errorf("only %d of %d questions export", len(res.Exported), total)
+	// Choice questions never export, so they do not count towards the share.
+	if len(res.Exported) < tasks/2 {
+		t.Errorf("only %d of %d tasks export", len(res.Exported), tasks)
 	}
 	for _, s := range res.Skipped {
 		if s.Reason == "" {
 			t.Errorf("%s/%s skipped without a reason", s.Track, s.Question)
 		}
+		delete(choice, s.Track+"/"+s.Question)
+	}
+	if len(choice) > 0 {
+		t.Errorf("choice questions were exported as scenarios: %v", choice)
 	}
 	if _, err := exec.LookPath("bash"); err != nil {
 		return

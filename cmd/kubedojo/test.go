@@ -100,7 +100,8 @@ type proofOptions struct {
 	quick    bool
 }
 
-// cmdTest proves each question end to end against a real sandbox:
+// cmdTest proves each question end to end. A multiple-choice question is
+// proven without a sandbox (see proveChoice); a task against a real one:
 //  1. setup.sh runs,
 //  2. every check that is not a guard FAILS on the untouched environment,
 //  3. solution.sh runs,
@@ -132,8 +133,10 @@ func cmdTest(ctx context.Context, args []string) error {
 		return fmt.Errorf("content is invalid:\n%w", err)
 	}
 	drv := c.driver()
-	if err := preflight(ctx, drv, true); err != nil {
-		return err
+	if needsSandbox(cat, *track) {
+		if err := preflight(ctx, drv, true); err != nil {
+			return err
+		}
 	}
 	tmp, err := os.MkdirTemp("", "kubedojo-test-*")
 	if err != nil {
@@ -183,7 +186,12 @@ func cmdTest(ctx context.Context, args []string) error {
 			if *track != "" && t.ID != *track {
 				continue
 			}
-			ep := testExam(ctx, mgr, t, *keep)
+			var ep *examProof
+			if t.Sandboxless() {
+				ep = testQuizExam(mgr, t)
+			} else {
+				ep = testExam(ctx, mgr, t, *keep)
+			}
 			rep.Exams = append(rep.Exams, ep)
 			if ep.Status != statusOK {
 				fmt.Printf("  ✗ %s: %s\n", t.ID, ep.Reason)
@@ -209,7 +217,7 @@ func cmdTest(ctx context.Context, args []string) error {
 			if len(want) > 0 && !want[q.ID] {
 				continue
 			}
-			if q.Driver != drv.Name() {
+			if !q.RunsOn(drv.Name()) {
 				// Never silently: a question that cannot run here is listed with the reason.
 				qp := newProof(q)
 				qp.Status, qp.Reason = statusSkipped, fmt.Sprintf("needs driver %q, this run uses %q", q.Driver, drv.Name())
@@ -229,7 +237,13 @@ func cmdTest(ctx context.Context, args []string) error {
 		fmt.Printf("\n%s (%d questions, session %s)\n", t.Title, len(qs), ses.ID)
 		for _, q := range qs {
 			total++
-			qp := proveQuestion(ctx, mgr, ses.ID, q, opts)
+			var qp *questionProof
+			if q.Type == catalog.TypeChoice {
+				// Nothing to repeat, settle or vary: grading an answer is a pure function.
+				qp = proveChoice(mgr, ses.ID, q)
+			} else {
+				qp = proveQuestion(ctx, mgr, ses.ID, q, opts)
+			}
 			rep.Questions = append(rep.Questions, qp)
 			rep.Summary[qp.Status]++
 			if qp.Status != statusOK {
@@ -243,7 +257,7 @@ func cmdTest(ctx context.Context, args []string) error {
 				break
 			}
 		}
-		if !*keep {
+		if !*keep || t.Sandboxless() {
 			dctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 			_ = mgr.Destroy(dctx, ses.ID)
 			cancel()

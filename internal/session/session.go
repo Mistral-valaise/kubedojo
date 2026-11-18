@@ -54,6 +54,10 @@ type QState struct {
 	HintsUsed      int             `json:"hintsUsed"`
 	SolutionViewed bool            `json:"solutionViewed"`
 	Last           *checker.Result `json:"last,omitempty"`
+	// Choice questions: the order the options are shown in and the options
+	// the learner picked. Never the correct ones; see quiz.go.
+	Order  []string `json:"order,omitempty"`
+	Answer []string `json:"answer,omitempty"`
 }
 
 type DomainScore struct {
@@ -316,7 +320,8 @@ func (m *Manager) newAlias(track string) string {
 func (m *Manager) activeCount() int {
 	n := 0
 	for _, s := range m.byID {
-		if s.Status != StatusDestroyed {
+		// Sessions without a sandbox cost nothing and are not limited.
+		if s.Status != StatusDestroyed && !m.sandboxless(s) {
 			n++
 		}
 	}
@@ -325,7 +330,8 @@ func (m *Manager) activeCount() int {
 
 // Practice returns the active practice session of a track, creating it if needed.
 func (m *Manager) Practice(track, owner string) (*Session, error) {
-	if m.cat.Tracks[track] == nil {
+	t := m.cat.Tracks[track]
+	if t == nil {
 		return nil, ErrNotFound
 	}
 	m.mu.Lock()
@@ -335,12 +341,15 @@ func (m *Manager) Practice(track, owner string) (*Session, error) {
 			return s, nil
 		}
 	}
-	if m.activeCount() >= m.max {
-		return nil, ErrLimit
-	}
-	keys, err := sandbox.NewKeyPair()
-	if err != nil {
-		return nil, err
+	var keys sandbox.KeyPair
+	if !t.Sandboxless() {
+		if m.activeCount() >= m.max {
+			return nil, ErrLimit
+		}
+		var err error
+		if keys, err = sandbox.NewKeyPair(); err != nil {
+			return nil, err
+		}
 	}
 	s := &Session{ID: newID(), Mode: ModePractice, Track: track, Status: StatusReady, CreatedAt: time.Now().UTC(),
 		TouchedAt: time.Now().UTC(), Envs: map[string]string{}, Keys: keys, Owner: owner}
@@ -371,6 +380,9 @@ func (m *Manager) NewExam(track string, opt ExamOptions) (*Session, error) {
 	if len(picked) == 0 {
 		return nil, fmt.Errorf("track %s has no questions for driver %s", track, m.drv.Name())
 	}
+	if t.Sandboxless() {
+		return m.newQuizExam(t, opt, picked), nil
+	}
 	keys, err := sandbox.NewKeyPair()
 	if err != nil {
 		return nil, err
@@ -399,7 +411,7 @@ func pickQuestions(t *catalog.Track, n int, driver string) []*catalog.Question {
 	byDomain := map[string][]*catalog.Question{}
 	total := 0
 	for _, q := range t.Questions {
-		if q.Driver == driver {
+		if q.RunsOn(driver) {
 			byDomain[q.Domain] = append(byDomain[q.Domain], q)
 			total++
 		}
@@ -594,6 +606,9 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 	if q == nil {
 		return ErrNotFound
 	}
+	if q.Type == catalog.TypeChoice {
+		return m.prepareChoice(s, q, reset)
+	}
 	m.mu.Lock()
 	qs := s.q(qid)
 	if qs == nil {
@@ -728,6 +743,9 @@ func (m *Manager) CheckOnce(ctx context.Context, id, qid string, once func(*cata
 	}
 	t := m.cat.Tracks[s.Track]
 	q := t.Question(qid)
+	if q != nil && q.Type == catalog.TypeChoice {
+		return m.checkChoice(s, q)
+	}
 	m.mu.Lock()
 	qs := s.q(qid)
 	mode, status := s.Mode, s.Status
@@ -777,6 +795,9 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	if m.sandboxless(s) {
+		return m.finishQuiz(s)
+	}
 	m.mu.Lock()
 	if s.Mode != ModeExam || s.Status != StatusRunning {
 		m.mu.Unlock()
@@ -795,11 +816,6 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 		defer cancel()
 		t := m.cat.Tracks[s.Track]
 		logf := m.logf(s)
-		rep := Report{PassPercent: t.Exam.PassPercent}
-		dom := map[string]*DomainScore{}
-		for _, d := range t.Domains {
-			dom[d.ID] = &DomainScore{ID: d.ID, Title: d.Title, Weight: d.Weight}
-		}
 		results := make([]checker.Result, len(s.Questions))
 		for i, qs := range s.Questions {
 			q := t.Question(qs.ID)
@@ -835,42 +851,58 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 			case <-ctx.Done():
 			}
 		}
-		for i, qs := range s.Questions {
-			q := t.Question(qs.ID)
-			res := results[i]
-			rep.Score += res.Score
-			rep.Max += res.Max
-			dom[q.Domain].Score += res.Score
-			dom[q.Domain].Max += res.Max
-			_ = m.st.AddAttempt(store.Attempt{SessionID: s.ID, Mode: ModeExam, Track: s.Track, Domain: q.Domain,
-				QuestionID: q.ID, Score: res.Score, Max: res.Max, At: res.At, Owner: s.Owner})
-			if m.hooks.Checked != nil {
-				m.hooks.Checked(s.Track, q.ID, ModeExam, res)
-			}
-		}
-		for _, d := range t.Domains {
-			if dom[d.ID].Max > 0 {
-				rep.Domains = append(rep.Domains, *dom[d.ID])
-			}
-		}
-		if rep.Max > 0 {
-			rep.Percent = float64(int(float64(rep.Score)/float64(rep.Max)*1000+0.5)) / 10
-		}
-		rep.Passed = rep.Percent >= float64(rep.PassPercent)
-		if s.StartedAt != nil {
-			rep.UsedSeconds = int(s.FinishedAt.Sub(*s.StartedAt).Seconds())
-		}
-		m.update(s, func() { s.Report, s.Status = &rep, StatusFinished })
-		db, _ := json.Marshal(rep.Domains)
-		_ = m.st.AddExam(store.Exam{SessionID: s.ID, Track: s.Track, Score: rep.Score, Max: rep.Max,
-			Percent: rep.Percent, Passed: rep.Passed, FinishedAt: *s.FinishedAt, Domains: db, Owner: s.Owner})
-		if m.hooks.ExamDone != nil {
-			m.hooks.ExamDone(s.Track, rep)
-		}
-		logf("Exam graded: %d/%d points (%.1f%%).", rep.Score, rep.Max, rep.Percent)
+		m.conclude(s, t, results)
 	}()
 	_ = ctx
 	return nil
+}
+
+// conclude turns the results of a graded exam into its report, records the
+// attempts and marks the session finished.
+func (m *Manager) conclude(s *Session, t *catalog.Track, results []checker.Result) {
+	rep := Report{PassPercent: t.Exam.PassPercent}
+	dom := map[string]*DomainScore{}
+	for _, d := range t.Domains {
+		dom[d.ID] = &DomainScore{ID: d.ID, Title: d.Title, Weight: d.Weight}
+	}
+	for i, qs := range s.Questions {
+		q := t.Question(qs.ID)
+		res := results[i]
+		rep.Score += res.Score
+		rep.Max += res.Max
+		dom[q.Domain].Score += res.Score
+		dom[q.Domain].Max += res.Max
+		_ = m.st.AddAttempt(store.Attempt{SessionID: s.ID, Mode: ModeExam, Track: s.Track, Domain: q.Domain,
+			QuestionID: q.ID, Score: res.Score, Max: res.Max, At: res.At, Owner: s.Owner})
+		if m.hooks.Checked != nil {
+			m.hooks.Checked(s.Track, q.ID, ModeExam, res)
+		}
+	}
+	for _, d := range t.Domains {
+		if dom[d.ID].Max > 0 {
+			rep.Domains = append(rep.Domains, *dom[d.ID])
+		}
+	}
+	if rep.Max > 0 {
+		rep.Percent = float64(int(float64(rep.Score)/float64(rep.Max)*1000+0.5)) / 10
+	}
+	rep.Passed = rep.Percent >= float64(rep.PassPercent)
+	if s.StartedAt != nil {
+		rep.UsedSeconds = int(s.FinishedAt.Sub(*s.StartedAt).Seconds())
+	}
+	m.update(s, func() {
+		for i, qs := range s.Questions {
+			qs.Last = &results[i]
+		}
+		s.Report, s.Status = &rep, StatusFinished
+	})
+	db, _ := json.Marshal(rep.Domains)
+	_ = m.st.AddExam(store.Exam{SessionID: s.ID, Track: s.Track, Score: rep.Score, Max: rep.Max,
+		Percent: rep.Percent, Passed: rep.Passed, FinishedAt: *s.FinishedAt, Domains: db, Owner: s.Owner})
+	if m.hooks.ExamDone != nil {
+		m.hooks.ExamDone(s.Track, rep)
+	}
+	m.logf(s)("Exam graded: %d/%d points (%.1f%%).", rep.Score, rep.Max, rep.Percent)
 }
 
 // Patch updates candidate-owned fields of a question.
@@ -925,6 +957,11 @@ func (m *Manager) Destroy(ctx context.Context, id string) error {
 	s, err := m.get(id)
 	if err != nil {
 		return err
+	}
+	if m.sandboxless(s) {
+		// Nothing was created. Acquiring a host here would create one in hosted mode.
+		m.update(s, func() { s.Status = StatusDestroyed })
+		return nil
 	}
 	s.op.Lock()
 	defer s.op.Unlock()
@@ -1001,6 +1038,9 @@ func (m *Manager) Exec(ctx context.Context, id, qid, role, script string) (sandb
 	q := m.cat.Tracks[s.Track].Question(qid)
 	if q == nil {
 		return sandbox.ExecResult{}, ErrNotFound
+	}
+	if q.Type == catalog.TypeChoice {
+		return sandbox.ExecResult{}, fmt.Errorf("%w: a choice question has no sandbox", ErrConflict)
 	}
 	return m.exec(ctx, s, q, role, script)
 }

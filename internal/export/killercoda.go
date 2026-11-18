@@ -38,6 +38,8 @@ func reason(q *catalog.Question, workers int) string {
 		all += c.Run + c.On
 	}
 	switch {
+	case q.Type == catalog.TypeChoice:
+		return "is a multiple-choice question: there is nothing to set up or verify"
 	case q.Driver != "kind":
 		return "needs a VM driver"
 	case q.FreshEnvironment:

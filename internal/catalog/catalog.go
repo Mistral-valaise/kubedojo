@@ -332,6 +332,10 @@ func loadTrack(fsys fs.FS, dir string) (*Track, []error) {
 	if t.Kind == KindTheory && len(t.Environments) > 0 {
 		fail("a theory track has no environments: its questions need no sandbox")
 	}
+	if t.Environments == nil {
+		// Serialised as {} rather than null: clients iterate over it.
+		t.Environments = map[string]*sandbox.EnvSpec{}
+	}
 
 	entries, _ := fs.ReadDir(fsys, path.Join(dir, "questions"))
 	for _, e := range entries {

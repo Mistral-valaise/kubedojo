@@ -11,12 +11,18 @@ disclaimer: >-
   CNCF or the Linux Foundation. Kubestronaut is a program of the Cloud Native
   Computing Foundation; passing mock exams here earns no title or certificate.
 steps:
+  - track: kcna
+    role: required
+    why: The concepts and vocabulary of Kubernetes and cloud native.
   - track: ckad
     role: required
     why: Build, deploy and configure applications on Kubernetes.
   - track: cka
     role: required
     why: Operate the cluster itself, from installation to troubleshooting.
+  - track: kcsa
+    role: required
+    why: Security concepts, right before practising them hands-on.
   - track: cks
     role: required
-    why: Harden clusters and workloads. The real exam requires a valid CKA.
+    why: Harden clusters and workloads. The real exam asks for a passed CKA first.
