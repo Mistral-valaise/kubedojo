@@ -1,0 +1,80 @@
+title: Repair the indentation of a pasted YAML block
+domain: vim
+difficulty: medium
+minutes: 7
+environment: base
+tags: [vim, yaml, indentation, retab]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Somebody completed the Pod manifest `/opt/course/vim-yaml-indent/pod.yaml` by pasting blocks from
+  a chat window. The pasted lines are indented with tab characters and stand at the wrong depth, so
+  the file is not valid YAML any more.
+
+  Repair the indentation so that the file is valid YAML, indented with spaces only, in which
+
+  - `env` (three variables) and `resources` are keys of the container `api`, like `image` and
+    `ports`,
+  - `volumeMounts` stays a key of the container `api`, and
+  - `volumes` is a key of the Pod's `spec`, next to `containers`.
+
+  Do not change, add or remove any key or value: only the indentation is wrong.
+hints:
+  - "Make the problem visible first: in Vim, `:set list` shows every tab as `^I` (`:set nolist` switches it off). YAML forbids tabs in indentation, and the depth of a line is nothing but its number of leading spaces."
+  - "`:retab` turns the tabs into spaces using the current `tabstop`. After that, select the lines of a block with `V` and the arrow keys or `j`, and shift the selection with `>` or `<` by one `shiftwidth`; `.` repeats the shift."
+  - "`:set ts=2 sw=2 et`, `:retab`, then `V` from `env:` down to `memory: 128Mi` and `>` followed by `.` (two levels right). `V` from `volumes:` to the last line, `<` and `.` (two levels left). `:wq`."
+checks:
+  - id: no-tabs
+    title: The file contains no tab characters
+    type: exec
+    run: |-
+      f=/opt/course/vim-yaml-indent/pod.yaml
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      n=$(grep -c "$(printf '\t')" "$f")
+      [ "$n" -eq 0 ] || { echo "$n line(s) still contain a tab character" >&2; exit 1; }
+      echo clean
+    expect: {equals: clean}
+    explain: >-
+      YAML does not allow tabs for indentation, and a tab looks exactly like spaces on screen.
+      `:set list` makes them visible, `:retab` converts them, and `:set expandtab` makes the Tab key
+      insert spaces from then on.
+  - id: env
+    title: env belongs to the container and has its three variables
+    type: exec
+    run: |-
+      python3 /opt/course/vim-yaml-indent/.grade/check.py env
+    expect: {equals: ok}
+    explain: >-
+      A key belongs to the mapping whose keys start in the same column. `env` must start in the
+      column of `image` and `ports`; after `:retab` it stands in the column of `containers` and
+      would be a field of the Pod's spec, which the API server rejects as unknown.
+  - id: resources
+    title: resources belongs to the container, with requests nested below it
+    type: exec
+    run: |-
+      python3 /opt/course/vim-yaml-indent/.grade/check.py resources
+    expect: {equals: ok}
+    explain: >-
+      Shifting a block must keep its inner structure: `requests` stays one level below `resources`,
+      `cpu` and `memory` one level below `requests`. Select the whole block in visual line mode and
+      shift it at once instead of fixing line by line.
+  - id: volumes
+    title: volumes is a key of spec, volumeMounts a key of the container
+    type: exec
+    run: |-
+      python3 /opt/course/vim-yaml-indent/.grade/check.py volumes
+    expect: {equals: ok}
+    explain: >-
+      `volumes` describes the Pod and `volumeMounts` the container; pasted one below the other they
+      end up at the same depth. `volumes` has to move left until it starts in the column of
+      `containers`.
+  - id: unchanged
+    title: The rest of the manifest is valid and unchanged
+    type: exec
+    run: |-
+      python3 /opt/course/vim-yaml-indent/.grade/check.py unchanged
+    expect: {equals: ok}
+    explain: >-
+      As long as a single line is indented with a tab or stands at a depth that matches no enclosing
+      block, the whole file is rejected, not only that block. `kubectl apply --dry-run=client -f`
+      names the first offending line in the same way.
