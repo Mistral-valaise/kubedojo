@@ -1,0 +1,86 @@
+title: Rank login shells and accounts from a passwd export
+domain: text-search-logs
+difficulty: easy
+minutes: 6
+tags: [cut, sort, uniq, head, grep]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  For an audit you get `/opt/course/rank-login-shells/accounts.txt`, an export in the format of
+  `/etc/passwd` (seven fields separated by colons: name, password, UID, GID, comment, home, shell)
+  with a few comment lines on top.
+
+  1. Write to `/opt/course/rank-login-shells/shells.txt` how many accounts use each login shell:
+     one line per shell with the number of accounts, a space and the shell, the most used shell
+     first. Example line: `3 /bin/ksh`.
+  2. Write to `/opt/course/rank-login-shells/top-uids.txt` the **names** of the five accounts with
+     the highest UID among those that can log in, that is whose shell is neither
+     `/usr/sbin/nologin` nor `/bin/false`. One name per line, the highest UID first.
+
+  Do not change `accounts.txt`.
+hints:
+  - "Build the pipeline step by step and look at the output after every step: first only the column you need, then the order, then the count."
+  - "`cut -d: -f7` prints the seventh field, `sort | uniq -c` counts equal lines (uniq only merges neighbours), `sort -rn` puts the largest number first. Lines without a colon are printed whole by `cut` unless they are filtered out. For the UIDs: `sort -t: -k3,3nr` sorts on field 3 as a number."
+  - "`grep -v '^#' accounts.txt | cut -d: -f7 | sort | uniq -c | sort -rn > shells.txt` and `grep -v '^#' accounts.txt | grep -Ev ':(/usr/sbin/nologin|/bin/false)$' | sort -t: -k3,3nr | head -n 5 | cut -d: -f1 > top-uids.txt`"
+checks:
+  - id: shells
+    title: shells.txt has the right number of accounts for every shell
+    type: exec
+    run: |-
+      f=/opt/course/rank-login-shells/shells.txt
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      awk 'NF {$1=$1; print}' "$f"
+    expect:
+      sameLines:
+        - 14 /bin/bash
+        - 11 /usr/sbin/nologin
+        - 6 /bin/sh
+        - 4 /bin/zsh
+        - 2 /bin/false
+        - 1 /usr/bin/fish
+    explain: >-
+      `uniq -c` counts only lines that follow each other, so the input must be sorted first, or a
+      shell appears several times with partial counts. The comment lines have no colon, and `cut`
+      prints such lines unchanged: filter them out, or use `cut -s`.
+  - id: ranked
+    title: The most used shell comes first
+    type: exec
+    run: |-
+      f=/opt/course/rank-login-shells/shells.txt
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      awk 'NF && $1 !~ /^[0-9]+$/ {bad=1} END {exit bad}' "$f" || { echo "every line must start with a number" >&2; exit 1; }
+      awk 'NF {print $1}' "$f" | sort -c -rn 2>/dev/null && echo ranked
+    expect: {equals: ranked}
+    explain: >-
+      `uniq -c` leaves the lines in the order of the names, not of the counts. A second
+      `sort -rn` (numeric, reversed) turns the count into a ranking; without `-n`, 6 would sort
+      before 14.
+  - id: top-uids
+    title: top-uids.txt names the five highest UIDs that can log in, in order
+    type: exec
+    run: |-
+      f=/opt/course/rank-login-shells/top-uids.txt
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      awk 'NF {$1=$1; print}' "$f"
+    expect:
+      equals: |-
+        hana
+        dario
+        mira
+        fenna
+        kira
+    explain: >-
+      Sorting field 3 as text puts 999 above 31007, because the comparison goes character by
+      character: `-n` in the key (`-k3,3nr`) compares numbers. Filter before you count off five
+      lines, or accounts such as `nobody` (65534, nologin) take the top places.
+  - id: untouched
+    title: accounts.txt is untouched
+    type: exec
+    guard: true
+    run: |-
+      cd /opt/course/rank-login-shells || exit 1
+      sha256sum accounts.txt | cut -d' ' -f1 | diff -q - .manifest >/dev/null && echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      Deleting the comment lines or the service accounts from the export makes the pipeline
+      shorter and the evidence worthless. Filters such as `grep -v` leave the source as it is.
