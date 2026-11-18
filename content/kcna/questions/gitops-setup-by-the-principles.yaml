@@ -1,0 +1,33 @@
+title: A delivery setup that follows the OpenGitOps principles
+domain: cloud-native-application-delivery
+difficulty: medium
+tags: [gitops, delivery]
+stem: |-
+  A team wants to run its cluster according to the OpenGitOps principles. The manifests for all
+  environments are already kept as declarative files in a Git repository.
+
+  Which way of getting them into the cluster matches the principles?
+options:
+  - text: A CI job runs `kubectl apply` against the cluster after every merge
+    explain: >-
+      This is a push: the pipeline acts once per merge and holds cluster credentials. Nothing watches
+      the cluster afterwards, so a manual change stays unnoticed until the next merge.
+  - text: An agent in the cluster pulls the repository and keeps reconciling
+    correct: true
+  - text: Operators apply changes by hand and commit them to Git afterwards
+    explain: >-
+      Then Git is a record of what somebody did, not the source of the desired state. In GitOps the
+      change is made in Git first and software applies it.
+  - text: A webhook rebuilds and pushes the container images on every commit
+    explain: >-
+      Building and publishing images is continuous integration. It produces artifacts; it does not
+      bring the cluster to a desired state.
+explanation: >-
+  OpenGitOps names four principles: the desired state is declarative; it is stored versioned and
+  immutable, with a complete history; software agents pull it automatically from the source; and they
+  continuously reconcile, observing the actual state and applying the desired one. The last two
+  separate GitOps from a pipeline that pushes: an agent such as Argo CD or Flux runs next to the
+  workloads, fetches the declarations itself and corrects drift whenever it appears.
+references:
+  - title: OpenGitOps principles
+    url: https://opengitops.dev/

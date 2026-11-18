@@ -1,0 +1,31 @@
+title: What the access mode ReadWriteOnce permits
+domain: container-orchestration
+difficulty: medium
+tags: [storage, persistentvolume]
+stem: |-
+  A PersistentVolumeClaim requests the access mode `ReadWriteOnce` and is bound to a volume. Several
+  Pods refer to this claim.
+
+  Which use of the volume does this access mode permit?
+options:
+  - text: Read-write by exactly one Pod in the whole cluster
+    explain: >-
+      That is ReadWriteOncePod. The "Once" in ReadWriteOnce counts nodes, not Pods.
+  - text: Read-write by Pods on many nodes at the same time
+    explain: >-
+      That is ReadWriteMany, which needs storage that can be shared between nodes, such as a network
+      file system.
+  - text: Read-write by Pods that all run on one single node
+    correct: true
+  - text: Read-write on one node and read-only on all other nodes
+    explain: >-
+      No access mode combines the two. ReadOnlyMany lets many nodes mount the volume read-only;
+      a volume is mounted in one mode at a time.
+explanation: >-
+  Access modes describe how a volume may be mounted. ReadWriteOnce allows a read-write mount by a single
+  node, so several Pods can use the volume as long as they run on that node. ReadOnlyMany and
+  ReadWriteMany allow many nodes, read-only or read-write. ReadWriteOncePod is the mode that restricts
+  the volume to one Pod in the whole cluster.
+references:
+  - title: Persistent Volumes (Access Modes)
+    url: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes

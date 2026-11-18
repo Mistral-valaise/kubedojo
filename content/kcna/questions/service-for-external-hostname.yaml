@@ -1,0 +1,34 @@
+title: A Service name for a database outside the cluster
+domain: container-orchestration
+difficulty: medium
+tags: [networking, services, dns]
+stem: |-
+  An application reads its database address from the name `orders-db`. The database is a managed
+  service outside the cluster, reachable as `db.example.com`. The team wants the cluster DNS to answer
+  `orders-db` with a CNAME record for that hostname. No Pods are involved and nothing is proxied.
+
+  Which Service type does this?
+options:
+  - text: ClusterIP
+    explain: >-
+      The default type. It gives the Service a virtual IP that is reachable only inside the cluster and
+      forwards to Pods (or to endpoints you maintain); DNS answers with that IP, not with a CNAME.
+  - text: NodePort
+    explain: >-
+      NodePort opens the same static port on every node so that clients outside the cluster can reach
+      Pods inside it. That is the opposite direction.
+  - text: ExternalName
+    correct: true
+  - text: LoadBalancer
+    explain: >-
+      LoadBalancer asks an external load balancer, usually from the cloud provider, to send traffic
+      from outside to the Service. It publishes Pods; it does not point at an external hostname.
+explanation: >-
+  A Service of type ExternalName has no selector and no cluster IP. It maps the Service name to the
+  content of its `externalName` field by making the cluster DNS return a CNAME record, so the
+  application keeps using a cluster-internal name while the target lives elsewhere. The other three
+  types build on each other to expose Pods: ClusterIP inside the cluster, NodePort on every node,
+  LoadBalancer through an external load balancer.
+references:
+  - title: Service (Service type)
+    url: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types

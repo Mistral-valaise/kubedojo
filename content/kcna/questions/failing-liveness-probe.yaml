@@ -1,0 +1,34 @@
+title: What a failing liveness probe leads to
+domain: container-orchestration
+difficulty: medium
+tags: [troubleshooting, probes]
+stem: |-
+  A container has a liveness probe and a readiness probe. After some hours the application deadlocks:
+  the process is still there, but the liveness probe now fails on every attempt and exceeds its
+  failure threshold.
+
+  How does Kubernetes react to the failed liveness probe?
+options:
+  - text: The kubelet restarts the container
+    correct: true
+  - text: The Pod is removed from the endpoints of its Services
+    explain: >-
+      That is what a failing readiness probe causes: the container keeps running and receives no
+      traffic until the probe succeeds again. It does not repair a deadlock.
+  - text: The Pod is deleted and its ReplicaSet creates a new one
+    explain: >-
+      Probes act on containers, not on Pods. The Pod object stays, with the same name and IP, and its
+      restart counter goes up.
+  - text: The node is tainted so that no further Pods are placed on it
+    explain: >-
+      Node conditions and taints reflect the health of the node itself, for example memory pressure.
+      A probe of one container says nothing about the node.
+explanation: >-
+  A liveness probe decides when a container has to be restarted: if it fails more often than its
+  threshold allows, the kubelet kills the container and starts it again according to the Pod's restart
+  policy. A readiness probe decides whether the container gets traffic, and a startup probe holds the
+  other two back until a slow application has started. If the restarted container keeps failing, the
+  Pod shows CrashLoopBackOff, the growing delay between restarts.
+references:
+  - title: Pod Lifecycle (Container probes)
+    url: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#container-probes

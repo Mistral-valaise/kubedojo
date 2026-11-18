@@ -1,0 +1,33 @@
+title: Reading what a container printed before it crashed
+domain: cloud-native-application-delivery
+difficulty: medium
+tags: [debugging, logs]
+stem: |-
+  The single container of Pod `worker` runs for about a minute, crashes and is restarted by the
+  kubelet. Right after a restart `kubectl logs worker` shows only the first start-up lines of the new
+  instance.
+
+  Which command shows the output of the instance that crashed?
+options:
+  - text: "`kubectl logs worker --previous`"
+    correct: true
+  - text: "`kubectl logs worker --follow`"
+    explain: >-
+      `--follow` keeps streaming new lines of the instance that runs now. It does not go back to the
+      one before.
+  - text: "`kubectl describe pod worker`"
+    explain: >-
+      `describe` shows the last state of the container with its exit code and reason, and the events
+      of the Pod. Useful next to the logs, but it does not contain the application's output.
+  - text: "`kubectl get events --field-selector involvedObject.name=worker`"
+    explain: >-
+      Events are written by Kubernetes components such as the kubelet and the scheduler: pulled,
+      started, killed, back-off. The application's own output is not among them.
+explanation: >-
+  `kubectl logs` returns what the current instance of a container wrote to stdout and stderr. After a
+  restart that is the new instance, so the reason for the crash is one instance back: `--previous`
+  returns the log of the previous instance of the container. In a Pod with several containers `-c`
+  selects the container.
+references:
+  - title: Debug Running Pods (Examining pod logs)
+    url: https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/#examine-pod-logs

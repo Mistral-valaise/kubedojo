@@ -1,0 +1,36 @@
+title: Deleting the claim of a dynamically provisioned volume
+domain: container-orchestration
+difficulty: hard
+tags: [storage, storageclass, reclaim-policy]
+stem: |-
+  A StorageClass is defined with a provisioner and parameters only; `reclaimPolicy` is not set. A
+  PersistentVolumeClaim of this class was provisioned dynamically and used by a Pod. The Pod is gone,
+  and now the PersistentVolumeClaim is deleted as well.
+
+  What happens to the volume?
+options:
+  - text: The PersistentVolume and the storage behind it are both deleted
+    correct: true
+  - text: The PersistentVolume stays as "Released" and keeps its data
+    explain: >-
+      That is the reclaim policy Retain. An administrator has to clean up or delete such a volume by
+      hand; it is what you choose when data must survive the claim.
+  - text: The PersistentVolume is emptied and becomes available to new claims
+    explain: >-
+      That describes Recycle, a deprecated policy that only a few volume types ever supported. The
+      documentation recommends dynamic provisioning instead, and no StorageClass defaults to it.
+  - text: The PersistentVolume stays bound until an administrator deletes it
+    explain: >-
+      A binding needs both sides. Once the claim is gone, the reclaim policy of the volume decides
+      what happens to it.
+explanation: >-
+  A dynamically provisioned PersistentVolume inherits the reclaim policy of its StorageClass, and a
+  StorageClass created without `reclaimPolicy` defaults to Delete. With Delete, removing the claim
+  removes both the PersistentVolume object and the storage asset in the external infrastructure.
+  Retain keeps the volume and its data for manual reclamation. Set `reclaimPolicy: Retain` in the
+  class when the data must outlive the claim.
+references:
+  - title: Persistent Volumes (Reclaiming)
+    url: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#reclaiming
+  - title: Storage Classes (Reclaim policy)
+    url: https://kubernetes.io/docs/concepts/storage/storage-classes/#reclaim-policy
