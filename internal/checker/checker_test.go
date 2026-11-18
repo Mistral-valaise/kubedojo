@@ -147,6 +147,43 @@ func TestRetryUntilPass(t *testing.T) {
 	}
 }
 
+// The content proof looks once at checks it expects to fail: their retry must
+// not be waited out, while the other checks keep theirs.
+func TestRunOnceSkipsRetryOfSelectedChecks(t *testing.T) {
+	defer func(d time.Duration) { retryPause = d }(retryPause)
+	retryPause = time.Millisecond
+	expected := chk("expected-fail", &catalog.Expect{Equals: ptr("ready")})
+	expected.RetryD = time.Hour
+	converges := chk("converges", &catalog.Expect{Equals: ptr("ready")})
+	converges.RetryD = 2 * time.Second
+	q := &catalog.Question{ID: "q", Points: 2, Checks: []*catalog.Check{expected, converges}}
+	calls := 0
+	run := func(_ context.Context, _, script string) (sandbox.ExecResult, error) {
+		if script == "expected-fail\n" {
+			return sandbox.ExecResult{Stdout: "pending"}, nil
+		}
+		calls++
+		if calls < 3 {
+			return sandbox.ExecResult{Stdout: "pending"}, nil
+		}
+		return sandbox.ExecResult{Stdout: "ready"}, nil
+	}
+	start := time.Now()
+	res := RunOnce(context.Background(), q, run, func(c *catalog.Check) bool { return c.ID == "expected-fail" })
+	if res.Checks[0].Passed || res.Checks[0].Attempts != 1 {
+		t.Errorf("selected check: passed=%v attempts=%d, want false/1", res.Checks[0].Passed, res.Checks[0].Attempts)
+	}
+	if !res.Checks[1].Passed || res.Checks[1].Attempts != 3 {
+		t.Errorf("other check: passed=%v attempts=%d, want true/3", res.Checks[1].Passed, res.Checks[1].Attempts)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("took %v: the selected check's retry was waited out", d)
+	}
+	if expected.RetryD != time.Hour {
+		t.Error("RunOnce changed the check of the catalog")
+	}
+}
+
 // Exam grading re-runs failed checks only: a pass is final, and state that
 // converges within the window is graded once it has settled.
 func TestRecheckKeepsPasses(t *testing.T) {

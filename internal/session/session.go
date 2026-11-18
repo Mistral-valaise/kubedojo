@@ -716,6 +716,12 @@ func (m *Manager) healOthers(ctx context.Context, s *Session, t *catalog.Track, 
 
 // Check grades one question of a practice session (or of a finished exam).
 func (m *Manager) Check(ctx context.Context, id, qid string) (*checker.Result, error) {
+	return m.CheckOnce(ctx, id, qid, nil)
+}
+
+// CheckOnce grades like Check, without retries for the checks once selects.
+// See checker.RunOnce.
+func (m *Manager) CheckOnce(ctx context.Context, id, qid string, once func(*catalog.Check) bool) (*checker.Result, error) {
 	s, err := m.get(id)
 	if err != nil {
 		return nil, err
@@ -735,7 +741,7 @@ func (m *Manager) Check(ctx context.Context, id, qid string) (*checker.Result, e
 	if qs.Status != "ready" {
 		return nil, fmt.Errorf("%w: question is not ready", ErrConflict)
 	}
-	res := checker.Run(ctx, q, m.runner(s, q))
+	res := checker.RunOnce(ctx, q, m.runner(s, q), once)
 	m.update(s, func() { qs.Last = &res })
 	if mode == ModePractice {
 		_ = m.st.AddAttempt(store.Attempt{SessionID: s.ID, Mode: mode, Track: s.Track, Domain: q.Domain,

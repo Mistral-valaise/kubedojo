@@ -40,6 +40,7 @@ make images go                                          # once: sandbox images a
 | `--track`, `--question a,b` | limit the run |
 | `--repeat N` | prove each question N times, resetting in between (default 1) |
 | `--no-variants` | skip `variants/` |
+| `--quick` | look once at checks that are expected to fail instead of waiting out their `retry`; what CI uses on pull requests |
 | `--settle 150s` | how long checks may take to pass after the solution ran |
 | `--exam` | one exam session with every question of the track |
 | `--report file.json` | write the machine-readable report |
@@ -130,10 +131,33 @@ warnings into errors; CI uses it.
 
 | Job | When | What |
 |---|---|---|
-| `build` | every push and pull request | unit tests, `content lint --strict`, export, typecheck |
-| `content` (cka, cks) | pushes to `main`; pull requests that touch content, the grader, the session code or the sandbox, or carry the `content` label | `content test --track <t> --report`, report uploaded as an artifact |
-| `content-nightly` (cka, cks) | every night and on demand | `content test --repeat 2`, then `content test --exam` |
+| `build` | every push and pull request | unit tests, typecheck, browser tests of the terminal keyboard, `content lint --strict`, `helm lint` |
+| `cross-compile` | every push and pull request | the binary builds for macOS, Linux and Windows |
+| `content` | pull requests and pushes to `main` that change questions, the grader, the session code, the sandbox or the images | `content test --quick` for what changed, report uploaded as an artifact |
+| `content-nightly` | every night and on demand | every track: `content test --repeat 2`, then `content test --exam` |
 | `content-next` | on demand | the same proof against another Kubernetes version |
+
+**What a pull request proves, and what it leaves to the night.** The `content` job is scoped by
+`.github/content-matrix.sh`:
+
+- A change under `content/<track>/questions/<id>/` proves those questions only.
+- A change to `track.yaml` proves that track.
+- A change to the grader, the session code, the sandbox, the images or the pipeline proves every
+  track. So does the pull request label `content`.
+- Lessons and anything else prove nothing.
+
+It runs with `--quick`: a check that is expected to fail (every check before the solution, and the
+checks a variant declares as failing) is looked at once instead of being retried until its `retry`
+time is over. That is where most of the time went: a track whose checks carry 20 minutes of `retry`
+spent those 20 minutes waiting for failures it already had.
+
+Two things are therefore proven only by the nightly job, which runs everything without `--quick`:
+
+- a setup that "solves itself" after a while, so that a check passes on the untouched state only
+  after some retries;
+- questions that disturb unchanged questions of the same track (`--repeat 2`, `--exam`).
+
+Before a release, wait for a green nightly run, or start one: `gh workflow run ci.yaml`.
 
 Supported and tested: Kubernetes v1.37 (`kindest/node:v1.37.0`), kind v0.33.0, Docker 27+ on
 linux/amd64 (CI) and darwin/arm64 (development). One track needs about 8 GB of memory for Docker.

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -48,6 +49,7 @@ type testEnvironment struct {
 	OS                string `json:"os"`
 	Arch              string `json:"arch"`
 	Repeat            int    `json:"repeat"`
+	Quick             bool   `json:"quick,omitempty"`
 	SettleSeconds     int    `json:"settleSeconds"`
 }
 
@@ -95,6 +97,7 @@ type proofOptions struct {
 	settle   time.Duration
 	repeat   int
 	variants bool
+	quick    bool
 }
 
 // cmdTest proves each question end to end against a real sandbox:
@@ -116,6 +119,7 @@ func cmdTest(ctx context.Context, args []string) error {
 	exam := fl.Bool("exam", false, "run all questions of a track together as one exam (detects conflicts between questions)")
 	repeat := fl.Int("repeat", 1, "prove every question this many times, resetting it in between (detects flaky checks and leftovers)")
 	noVariants := fl.Bool("no-variants", false, "skip the scripts under variants/")
+	quick := fl.Bool("quick", false, "look only once at checks that are expected to fail instead of waiting out their retry (faster; misses a setup that solves itself after a while)")
 	reportPath := fl.String("report", "", "write a machine-readable JSON report to this file")
 	if err := fl.Parse(args); err != nil {
 		return err
@@ -155,7 +159,7 @@ func cmdTest(ctx context.Context, args []string) error {
 
 	rep := &testReport{GeneratedAt: time.Now().UTC(), Summary: map[string]int{}, Environment: testEnvironment{
 		Kubedojo: version, KubernetesVersion: c.k8sVersion, NodeImage: c.nodeImage, TerminalImage: c.termImage,
-		Driver: drv.Name(), OS: runtime.GOOS, Arch: runtime.GOARCH, Repeat: *repeat, SettleSeconds: int(settle.Seconds())}}
+		Driver: drv.Name(), OS: runtime.GOOS, Arch: runtime.GOARCH, Repeat: *repeat, Quick: *quick, SettleSeconds: int(settle.Seconds())}}
 	writeReport := func() error {
 		if *reportPath == "" {
 			return nil
@@ -194,7 +198,7 @@ func cmdTest(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
-	opts := proofOptions{settle: *settle, repeat: *repeat, variants: !*noVariants}
+	opts := proofOptions{settle: *settle, repeat: *repeat, variants: !*noVariants, quick: *quick}
 	failed, total := 0, 0
 	for _, t := range cat.List() {
 		if *track != "" && t.ID != *track {
@@ -292,7 +296,7 @@ func proveQuestion(ctx context.Context, mgr *session.Manager, sid string, q *cat
 	}
 	ok := true
 	for n := 1; n <= opts.repeat && ok; n++ {
-		ok = add(proveRun(ctx, mgr, sid, q, n, "solution.sh", q.SolutionSh, nil, opts.settle))
+		ok = add(proveRun(ctx, mgr, sid, q, n, "solution.sh", q.SolutionSh, nil, opts.settle, opts.quick))
 	}
 	if opts.variants {
 		for _, v := range q.Variants {
@@ -303,7 +307,7 @@ func proveQuestion(ctx context.Context, mgr *session.Manager, sid string, q *cat
 			if !v.Pass {
 				fails = v.Fails
 			}
-			ok = add(proveRun(ctx, mgr, sid, q, 1, "variants/"+v.Name+".sh", v.Script, fails, opts.settle))
+			ok = add(proveRun(ctx, mgr, sid, q, 1, "variants/"+v.Name+".sh", v.Script, fails, opts.settle, opts.quick))
 		}
 	}
 	qp.Seconds = time.Since(start).Seconds()
@@ -339,7 +343,7 @@ func waitReady(ctx context.Context, mgr *session.Manager, sid, qid string) error
 // proveRun resets the question, grades the untouched state, applies script
 // and grades again. mustFail lists the checks the script is expected to leave
 // failing (empty for a correct solution).
-func proveRun(ctx context.Context, mgr *session.Manager, sid string, q *catalog.Question, n int, name, script string, mustFail []string, settle time.Duration) *proofRun {
+func proveRun(ctx context.Context, mgr *session.Manager, sid string, q *catalog.Question, n int, name, script string, mustFail []string, settle time.Duration, quick bool) *proofRun {
 	r := &proofRun{Run: n, Script: name, Expect: "pass", Status: statusOK}
 	if len(mustFail) > 0 {
 		r.Expect = "fail " + strings.Join(mustFail, " ")
@@ -354,7 +358,14 @@ func proveRun(ctx context.Context, mgr *session.Manager, sid string, q *catalog.
 	if err := waitReady(ctx, mgr, sid, q.ID); err != nil {
 		return stop(statusSetupError, "%v", err)
 	}
-	before, err := mgr.Check(ctx, sid, q.ID)
+	// With quick, a check that is expected to fail gets one look: on the
+	// untouched state that is every check, afterwards those in mustFail.
+	var untouched, expectedFail func(*catalog.Check) bool
+	if quick {
+		untouched = func(*catalog.Check) bool { return true }
+		expectedFail = func(c *catalog.Check) bool { return slices.Contains(mustFail, c.ID) }
+	}
+	before, err := mgr.CheckOnce(ctx, sid, q.ID, untouched)
 	if err != nil {
 		return stop(statusSetupError, "grading the untouched state: %v", err)
 	}
@@ -374,7 +385,7 @@ func proveRun(ctx context.Context, mgr *session.Manager, sid string, q *catalog.
 	end := t0.Add(settle)
 	var after *checker.Result
 	for {
-		after, err = mgr.Check(ctx, sid, q.ID)
+		after, err = mgr.CheckOnce(ctx, sid, q.ID, expectedFail)
 		if err != nil {
 			return stop(statusSetupError, "grading: %v", err)
 		}
@@ -397,7 +408,7 @@ func proveRun(ctx context.Context, mgr *session.Manager, sid string, q *catalog.
 	// The same state must be graded the same way again.
 	for i := 0; i < 2; i++ {
 		time.Sleep(2 * time.Second)
-		again, err := mgr.Check(ctx, sid, q.ID)
+		again, err := mgr.CheckOnce(ctx, sid, q.ID, expectedFail)
 		if err != nil {
 			return stop(statusSetupError, "grading again: %v", err)
 		}
