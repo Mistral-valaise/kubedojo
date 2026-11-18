@@ -1,0 +1,33 @@
+title: Classifying a threat with STRIDE
+domain: compliance-and-security-frameworks
+difficulty: easy
+tags: [threat-modelling, stride]
+stem: |-
+  In a threat modelling session a team notes: "An operator with valid credentials deletes a
+  namespace and afterwards denies having done it. Audit logging is off, so nobody can prove who sent
+  the request."
+
+  Which STRIDE category does this threat belong to?
+options:
+  - text: Repudiation
+    correct: true
+  - text: Spoofing
+    explain: >-
+      Spoofing means illegitimately using someone else's identity, such as stolen credentials. Here
+      the operator acts under their own account.
+  - text: Tampering
+    explain: >-
+      Tampering is the malicious modification of data, in storage or in transit. The threat noted
+      here is not the deletion as such but that it cannot be attributed.
+  - text: Elevation of Privilege
+    explain: >-
+      Elevation of privilege means an unprivileged user gains privileged access. The operator
+      already had the right to delete the namespace.
+explanation: >-
+  STRIDE sorts threats into Spoofing, Tampering, Repudiation, Information Disclosure, Denial of
+  Service and Elevation of Privilege. Repudiation covers users who deny having performed an action
+  while the system has no way to prove otherwise, typically because operations are not traced. The
+  countermeasure is non-repudiation, which in Kubernetes is mainly what audit logging provides.
+references:
+  - title: Microsoft Threat Modeling Tool threats (STRIDE model)
+    url: https://learn.microsoft.com/en-us/azure/security/develop/threat-modeling-tool-threats

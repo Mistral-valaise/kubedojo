@@ -1,0 +1,36 @@
+title: Reaching a database from a compromised Pod
+domain: kubernetes-threat-model
+difficulty: easy
+tags: [network, lateral-movement]
+stem: |-
+  An attacker takes over a web Pod in the namespace `shop` and connects from it to a database Pod in
+  the namespace `billing`. The cluster's network plugin enforces NetworkPolicies, but nobody has
+  created one.
+
+  Why does the connection succeed?
+options:
+  - text: A Pod's ServiceAccount token authorizes its connections to Pods in other namespaces
+    explain: >-
+      The token authenticates the Pod to the Kubernetes API. It plays no role in connections between
+      Pods.
+  - text: kube-proxy opens a path between namespaces as soon as a Service exists for the database
+    explain: >-
+      kube-proxy only translates Service addresses to Pod addresses. Pod IPs are reachable directly,
+      with or without a Service.
+  - text: Namespaces separate Pod networks only when they carry a Pod Security label
+    explain: >-
+      Pod Security labels select which Pod specifications a namespace admits. They do not affect
+      traffic, and a namespace by itself is not a network boundary.
+  - text: Pods accept and send all traffic until a NetworkPolicy selects them
+    correct: true
+explanation: >-
+  By default a Pod is non-isolated for ingress and for egress: all connections are allowed, also
+  across namespaces. A Pod becomes isolated for a direction only when a NetworkPolicy selects it and
+  lists that direction in `policyTypes`. For an attacker on the Pod network this means free lateral
+  movement, which is why the security checklist asks for a default policy in each namespace that
+  selects all Pods and denies everything.
+references:
+  - title: Network Policies
+    url: https://kubernetes.io/docs/concepts/services-networking/network-policies/
+  - title: Security Checklist
+    url: https://kubernetes.io/docs/concepts/security/security-checklist/

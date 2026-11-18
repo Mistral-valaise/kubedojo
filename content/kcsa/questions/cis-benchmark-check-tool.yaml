@@ -1,0 +1,36 @@
+title: Checking a cluster against the CIS Kubernetes Benchmark
+domain: compliance-and-security-frameworks
+difficulty: easy
+tags: [tooling, cis-benchmark]
+stem: |-
+  Before an audit, a team wants to run an automated check on its control plane and worker nodes that
+  reports, recommendation by recommendation, where their configuration deviates from the CIS
+  Kubernetes Benchmark.
+
+  Which tool is built for this?
+options:
+  - text: Falco
+    explain: >-
+      Falco is a runtime security tool. It watches system calls and alerts on suspicious behaviour;
+      it does not assess configuration against a benchmark.
+  - text: Kyverno
+    explain: >-
+      Kyverno is a policy engine that validates, mutates or generates Kubernetes resources, mainly
+      as an admission controller. It works on API objects, not on the flags and files of nodes.
+  - text: kube-bench
+    correct: true
+  - text: Cosign
+    explain: >-
+      Cosign is the Sigstore client for signing software artifacts such as container images and
+      verifying those signatures.
+explanation: >-
+  The CIS Benchmarks are prescriptive configuration recommendations developed by consensus among
+  security experts; the one for Kubernetes covers the control plane components and the nodes.
+  kube-bench checks whether Kubernetes is deployed securely by running the checks documented in that
+  benchmark and reports the result of each. Its tests are defined in YAML files, so they can
+  follow new benchmark releases.
+references:
+  - title: kube-bench
+    url: https://github.com/aquasecurity/kube-bench
+  - title: CIS Benchmarks
+    url: https://www.cisecurity.org/cis-benchmarks

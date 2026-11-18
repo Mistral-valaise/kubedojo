@@ -1,0 +1,35 @@
+title: Encrypted service-to-service traffic with a mesh
+domain: platform-security
+difficulty: medium
+tags: [service-mesh, mtls]
+stem: |-
+  A team must make sure that traffic between its services is encrypted inside the cluster and that
+  each side proves who it is, without changing application code. It introduces a service mesh.
+
+  How does a mesh such as Istio provide this?
+options:
+  - text: It generates NetworkPolicies that admit traffic only from Pods with matching labels
+    explain: >-
+      A NetworkPolicy filters connections by Pod, namespace or IP block. It neither encrypts traffic
+      nor gives a workload a cryptographic identity.
+  - text: Its admission webhook adds a TLS library and a certificate to each application image
+    explain: >-
+      The mesh does not alter applications or images. Its webhook can add a proxy container to the
+      Pod, and that proxy handles TLS on the application's behalf.
+  - text: Its proxies encrypt traffic with one key shared by all workloads of a namespace
+    explain: >-
+      A shared key could not tell workloads apart. The mesh gives every workload its own X.509
+      certificate and rotates it automatically.
+  - text: Its proxies set up mutual TLS, each using a certificate issued to its own workload
+    correct: true
+explanation: >-
+  In a mesh, proxies in the data path intercept the traffic of the workloads. The control plane acts
+  as a certificate authority and provisions each workload with an X.509 certificate that carries its
+  identity; the client-side and server-side proxies then perform a mutual TLS handshake, so both ends
+  are authenticated and the connection is encrypted. The applications keep speaking plain text to
+  their local proxy, which is why no code changes.
+references:
+  - title: Istio security concepts
+    url: https://istio.io/latest/docs/concepts/security/
+  - title: Security Checklist
+    url: https://kubernetes.io/docs/concepts/security/security-checklist/
