@@ -16,12 +16,13 @@ RUN apt-get update \
       lsof strace acl bc file tree jq curl wget ca-certificates \
       dnsutils iproute2 iputils-ping netcat-openbsd procps psmisc \
       python3 cron nginx-light openssh-server openssh-client sudo \
-      man-db manpages \
+      man-db manpages shellcheck \
  && rm -rf /var/lib/apt/lists/* /etc/ssh/ssh_host_*
 
 # Fail the build, not an exercise, when something the questions rely on is gone.
 RUN man -w ls grep find tar awk sed vim ssh >/dev/null \
- && python3 -c 'import http.server'
+ && python3 -c 'import http.server' \
+ && shellcheck --version >/dev/null
 
 RUN useradd -m -s /bin/bash candidate \
  && echo 'candidate ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/candidate \

@@ -11,6 +11,9 @@ disclaimer: >-
   CNCF or the Linux Foundation. Kubestronaut is a program of the Cloud Native
   Computing Foundation; passing mock exams here earns no title or certificate.
 steps:
+  - track: linux
+    role: foundation
+    why: The shell and the editor every hands-on exam assumes.
   - track: kcna
     role: required
     why: The concepts and vocabulary of Kubernetes and cloud native.
