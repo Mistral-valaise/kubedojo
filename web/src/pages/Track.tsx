@@ -4,7 +4,7 @@ import { BookOpen, CheckCircle2, ChevronRight, Circle, CircleDot, Clock, Info, P
 import { api, type Progress, type QuestionMeta, type Track } from "../api";
 import { useLoad } from "../hooks";
 import { t } from "../i18n";
-import { quickRound, words } from "../track";
+import { quickRound, standing, words } from "../track";
 import { Badge, Bar, Button, Card, Difficulty, ErrorNote, Modal, Page, Ring, Spinner, cx } from "../components/ui";
 
 export function TrackPage() {
@@ -173,7 +173,7 @@ function DomainSection({ track, domainId, progress }: { track: Track; domainId: 
       </div>
       {qs.length === 0 && <div className="px-5 py-4 text-sm text-muted">{words(track).noQuestions}</div>}
       <ul className="divide-y">
-        {qs.map((q) => <QuestionRow key={q.id} track={track.id} q={q} best={progress?.questions[q.id]?.best} />)}
+        {qs.map((q) => <QuestionRow key={q.id} track={track.id} q={q} best={standing(progress, q)} />)}
       </ul>
     </Card>
   );
@@ -189,7 +189,8 @@ export function QuestionRow({ track, q, best, compact }: { track: string; q: Que
         <span className={cx("min-w-0 flex-1 text-sm", !compact && "truncate")}>{q.title}</span>
         {best !== undefined && best < 1 && <span className="text-xs tabular-nums text-warn">{Math.round(best * 100)}%</span>}
         <Difficulty level={q.difficulty} />
-        {!compact && <span className="hidden w-14 text-right text-xs tabular-nums text-muted sm:block">{q.minutes} min</span>}
+        {/* A choice question has no time budget of its own; the cell stays so the rows align. */}
+        {!compact && <span className="hidden w-14 text-right text-xs tabular-nums text-muted sm:block">{q.type === "choice" ? "" : `${q.minutes} min`}</span>}
         <ChevronRight className="size-4 text-muted transition group-hover:translate-x-0.5 group-hover:text-accent" />
       </Link>
     </li>

@@ -80,6 +80,9 @@ button:disabled { cursor: not-allowed; }
 
 /* Markdown ---------------------------------------------------------------- */
 .md { font-size: 0.95rem; line-height: 1.65; overflow-wrap: anywhere; }
+/* Sizes are variants here because .md is unlayered and so beats a text-* utility. */
+.md.md-sm { font-size: 0.85rem; line-height: 1.6; }
+.md.md-lg { font-size: 1.02rem; line-height: 1.7; }
 .md > *:first-child { margin-top: 0; }
 .md > *:last-child { margin-bottom: 0; }
 .md h1 { font-size: 1.7rem; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 0.6em; }

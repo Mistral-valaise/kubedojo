@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ArrowLeft, ChevronLeft, ChevronRight, Clock, PlayCircle, RotateCcw, Server } from "lucide-react";
 import { api, type Config, type QuestionView, type Result, type Session, type Track } from "../api";
-import { useInterval } from "../hooks";
+import { useInterval, useLoad } from "../hooks";
 import { t } from "../i18n";
-import { words } from "../track";
+import { practicable, words } from "../track";
 import { Help } from "../components/Help";
 import { Markdown } from "../components/Markdown";
 import { Provisioning } from "../components/Provisioning";
@@ -12,12 +12,22 @@ import { Rating } from "../components/Rating";
 import { Results } from "../components/Results";
 import { Split } from "../components/Split";
 import { TerminalTabs } from "../components/TerminalTabs";
-import { Badge, Brand, Button, Difficulty, ErrorNote, Modal, Spinner, ThemeToggle } from "../components/ui";
+import { Badge, Brand, Button, Difficulty, ErrorNote, Modal, Page, Spinner, ThemeToggle } from "../components/ui";
+import { QuizPractice } from "./QuizPractice";
 
+/** Practice of one question: a choice question is answered on the page, a task in the terminal. */
 export function PracticePage() {
   const { track: trackId = "", question: qid = "" } = useParams();
+  const track = useLoad(() => api.track(trackId), [trackId]);
+  if (track.error) return <Page docs={null}><ErrorNote>{track.error}</ErrorNote></Page>;
+  if (!track.data) return <Page docs={null}><Spinner /></Page>;
+  const choice = track.data.questions?.find((q) => q.id === qid)?.type === "choice";
+  return choice ? <QuizPractice track={track.data} qid={qid} /> : <TaskPractice track={track.data} qid={qid} />;
+}
+
+function TaskPractice({ track, qid }: { track: Track; qid: string }) {
+  const trackId = track.id;
   const nav = useNavigate();
-  const [track, setTrack] = useState<Track | null>(null);
   const [config, setConfig] = useState<Config | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [view, setView] = useState<QuestionView | null>(null);
@@ -32,9 +42,8 @@ export function PracticePage() {
   const status = state?.status ?? "pending";
 
   useEffect(() => {
-    api.track(trackId).then(setTrack).catch((e) => setError(e.message));
     api.config().then(setConfig).catch(() => undefined);
-  }, [trackId]);
+  }, []);
 
   // Open (or reuse) the practice session and prepare this question.
   useEffect(() => {
@@ -82,12 +91,12 @@ export function PracticePage() {
     catch (e) { setError((e as Error).message); }
   };
 
-  const list = (track?.questions ?? []).filter((q) => q.driver === "kind");
+  const list = (track.questions ?? []).filter(practicable);
   const meta = list.find((q) => q.id === qid);
   const sameDomain = list.filter((q) => q.domain === meta?.domain);
   const pos = sameDomain.findIndex((q) => q.id === qid);
   const prev = sameDomain[pos - 1], next = sameDomain[pos + 1];
-  const domain = track?.domains.find((d) => d.id === meta?.domain);
+  const domain = track.domains.find((d) => d.id === meta?.domain);
   const w = words(track);
 
   const left = (
@@ -142,8 +151,7 @@ export function PracticePage() {
 
   const right = session && termReady
     ? <TerminalTabs sessionId={session.id} />
-    // The note names the kind of sandbox, so it waits for the track.
-    : <Provisioning session={session} title={t("Creating your sandbox")} note={track ? w.provisioningNote : ""} />;
+    : <Provisioning session={session} title={t("Creating your sandbox")} note={w.provisioningNote} />;
 
   return (
     <div className="flex h-full flex-col">
@@ -151,13 +159,13 @@ export function PracticePage() {
         <Brand />
         <span className="text-line">/</span>
         <Link to={`/t/${trackId}`} className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-text">
-          <ArrowLeft className="size-3.5" />{track?.short ?? trackId} · {t("Practice")}
+          <ArrowLeft className="size-3.5" />{track.short} · {t("Practice")}
         </Link>
         <div className="ml-auto flex items-center gap-1">
           <Button size="sm" variant="ghost" disabled={!prev} onClick={() => prev && nav(`/t/${trackId}/q/${prev.id}`)} aria-label={w.previous}><ChevronLeft className="size-4" /></Button>
           <span className="px-1 text-xs tabular-nums text-muted">{pos >= 0 ? `${pos + 1} / ${sameDomain.length}` : ""}</span>
           <Button size="sm" variant="ghost" disabled={!next} onClick={() => next && nav(`/t/${trackId}/q/${next.id}`)} aria-label={w.next}><ChevronRight className="size-4" /></Button>
-          {track && w.docs && <a href={w.docs.url} target="_blank" rel="noreferrer" title={w.docs.title} className="px-2 text-sm text-muted hover:text-text">{t("Docs")}</a>}
+          {w.docs && <a href={w.docs.url} target="_blank" rel="noreferrer" title={w.docs.title} className="px-2 text-sm text-muted hover:text-text">{t("Docs")}</a>}
           <ThemeToggle />
         </div>
       </header>

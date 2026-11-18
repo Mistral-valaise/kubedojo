@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import { api } from "../api";
 import { useLoad } from "../hooks";
 import { t } from "../i18n";
-import { words } from "../track";
+import { standing, words } from "../track";
 import { Markdown } from "../components/Markdown";
 import { Button, Card, ErrorNote, Page, Spinner } from "../components/ui";
 import { QuestionRow } from "./Track";
@@ -38,7 +38,7 @@ export function LessonPage() {
               <div className="text-xs text-muted">{w.practiseDomain(qs.length)}</div>
             </div>
             <ul className="divide-y">
-              {qs.map((q) => <QuestionRow key={q.id} track={tr.id} q={q} best={progress.data?.questions[q.id]?.best} compact />)}
+              {qs.map((q) => <QuestionRow key={q.id} track={tr.id} q={q} best={standing(progress.data, q)} compact />)}
             </ul>
           </Card>
         </aside>

@@ -82,7 +82,8 @@ export function Help({ sid, q, result, tutor, track, initialHints = 0, confirmSo
   );
 }
 
-function TutorBox({ sid, qid, result, w }: { sid: string; qid: string; result?: Result | null; w: Words }) {
+/** The optional AI tutor on its own, for questions that have neither hints nor a separate solution. */
+export function TutorBox({ sid, qid, result, w }: { sid: string; qid: string; result?: Result | null; w: Words }) {
   const [ask, setAsk] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
