@@ -42,6 +42,7 @@ func TestShippedContentIsValid(t *testing.T) {
 
 const trackYAML = `
 title: T
+kubernetesVersion: v1.37
 exam: {durationMinutes: 10, passPercent: 50, questions: 1}
 domains: [{id: d, title: D, weight: 100}]
 environments: {base: {}}

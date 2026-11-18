@@ -10,18 +10,50 @@ import (
 	"github.com/Mistral-valaise/kubedojo/internal/dockerhost"
 )
 
-// EnvSpec describes one cluster a track needs.
+// Environment types.
+const (
+	EnvCluster   = "cluster"   // a kind cluster: control plane plus workers
+	EnvContainer = "container" // one plain Linux container, no Kubernetes
+)
+
+// EnvSpec describes one environment a track needs: a cluster, or a single
+// Linux host for tracks that teach the shell.
 type EnvSpec struct {
 	Name       string `yaml:"-" json:"name"`
+	Type       string `yaml:"type" json:"type"` // cluster (default) | container
 	Workers    int    `yaml:"workers" json:"workers"`
 	Desc       string `yaml:"description" json:"description"`
 	KindConfig string `yaml:"kindConfig" json:"-"` // optional raw kind config overriding the generated one
 }
 
+// Roles a script or check can run on.
+const (
+	RoleControlPlane = "control-plane"
+	RoleHost         = "host"
+	RoleTerminal     = "terminal"
+)
+
+// DefaultRole is the machine setup, solution and checks run on unless a check
+// says otherwise.
+func (e EnvSpec) DefaultRole() string {
+	if e.Type == EnvContainer {
+		return RoleHost
+	}
+	return RoleControlPlane
+}
+
+// Roles lists the machines of the environment a check may name with `on`.
+func (e EnvSpec) Roles() []string {
+	if e.Type == EnvContainer {
+		return []string{RoleHost, RoleTerminal}
+	}
+	return []string{RoleControlPlane, "worker", "worker2", RoleTerminal}
+}
+
 // Target addresses a machine inside the sandbox.
 type Target struct {
 	Alias string // cluster alias, e.g. cka3962; empty for the terminal
-	Role  string // control-plane | worker | worker2 | terminal
+	Role  string // control-plane | worker | worker2 | host | terminal
 }
 
 // ExecResult is the outcome of a non-interactive command.

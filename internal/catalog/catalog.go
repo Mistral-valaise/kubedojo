@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -18,20 +19,45 @@ import (
 
 type Catalog struct {
 	Tracks map[string]*Track
-	order  []string
+	// Path is the recommended order through the tracks, nil if the content has none.
+	Path  *Path
+	order []string
 }
+
+// Track kinds. They decide how a track is presented, never how it is graded.
+const (
+	KindCertification = "certification" // practice for a hands-on certification exam (default)
+	KindSkills        = "skills"        // hands-on skills without an exam behind them
+	KindTheory        = "theory"        // practice for a multiple-choice exam; needs no sandbox
+)
 
 type Track struct {
 	ID                string                      `yaml:"id" json:"id"`
 	Title             string                      `yaml:"title" json:"title"`
 	Short             string                      `yaml:"short" json:"short"`
 	Description       string                      `yaml:"description" json:"description"`
-	KubernetesVersion string                      `yaml:"kubernetesVersion" json:"kubernetesVersion"`
+	Kind              string                      `yaml:"kind" json:"kind"`
+	Docs              []Link                      `yaml:"docs" json:"docs,omitempty"`
+	KubernetesVersion string                      `yaml:"kubernetesVersion" json:"kubernetesVersion,omitempty"`
 	Exam              ExamSpec                    `yaml:"exam" json:"exam"`
 	Domains           []*Domain                   `yaml:"domains" json:"domains"`
 	Environments      map[string]*sandbox.EnvSpec `yaml:"environments" json:"environments"`
 	Questions         []*Question                 `yaml:"-" json:"-"`
 	byID              map[string]*Question
+}
+
+// Sandboxless reports whether the track's questions are answered without a
+// sandbox: no Docker, no cluster, nothing to provision.
+func (t *Track) Sandboxless() bool { return t.Kind == KindTheory }
+
+// NeedsCluster reports whether any environment of the track is a cluster.
+func (t *Track) NeedsCluster() bool {
+	for _, e := range t.Environments {
+		if e.Type != sandbox.EnvContainer {
+			return true
+		}
+	}
+	return false
 }
 
 type ExamSpec struct {
@@ -49,8 +75,11 @@ type Domain struct {
 }
 
 type Question struct {
-	ID          string   `yaml:"id" json:"id"`
-	Title       string   `yaml:"title" json:"title"`
+	ID    string `yaml:"id" json:"id"`
+	Title string `yaml:"title" json:"title"`
+	// Type is task (a directory with scripts and checks) or choice (one YAML
+	// file with options). The shape on disk decides, not a field.
+	Type        string   `yaml:"-" json:"type"`
 	Domain      string   `yaml:"domain" json:"domain"`
 	Difficulty  string   `yaml:"difficulty" json:"difficulty"`
 	Minutes     int      `yaml:"minutes" json:"minutes"`
@@ -79,7 +108,14 @@ type Question struct {
 	Variants []*Variant `yaml:"-" json:"-"`
 	// Warnings are lint findings that do not make the content invalid.
 	Warnings []string `yaml:"-" json:"-"`
+	// Choice is set for multiple-choice questions and never serialised: it
+	// holds the correct answer.
+	Choice *Choice `yaml:"-" json:"-"`
 }
+
+// RunsOn reports whether the question can be offered by a server with the
+// given sandbox driver. Choice questions need no sandbox at all.
+func (q *Question) RunsOn(driver string) bool { return q.Type == TypeChoice || q.Driver == driver }
 
 // Variant is a scripted answer with a declared grading outcome. The first
 // lines of the script carry it: "# expect: pass" or "# expect: fail <check ids>".
@@ -98,7 +134,7 @@ type Check struct {
 	Title   string `yaml:"title" json:"title"`
 	Points  int    `yaml:"points" json:"points"`
 	Type    string `yaml:"type" json:"type"` // resource | file | exec
-	On      string `yaml:"on" json:"on"`     // control-plane (default) | worker | worker2 | terminal
+	On      string `yaml:"on" json:"on"`     // cluster: control-plane (default) | worker | worker2 | terminal; container: host (default) | terminal
 	Explain string `yaml:"explain" json:"explain"`
 
 	// resource
@@ -179,6 +215,26 @@ func Load(fsys fs.FS) (*Catalog, error) {
 	if len(c.Tracks) == 0 && len(errs) == 0 {
 		errs = append(errs, errors.New("no tracks found"))
 	}
+	p, perrs := loadPath(fsys, c.Tracks)
+	errs = append(errs, perrs...)
+	c.Path = p
+	if p != nil {
+		// Tracks of the path come first, in its order; the rest stay alphabetical.
+		var ordered []string
+		on := map[string]bool{}
+		for _, s := range p.Steps {
+			if c.Tracks[s.Track] != nil && !on[s.Track] {
+				ordered = append(ordered, s.Track)
+				on[s.Track] = true
+			}
+		}
+		for _, id := range c.order {
+			if !on[id] {
+				ordered = append(ordered, id)
+			}
+		}
+		c.order = ordered
+	}
 	return c, errors.Join(errs...)
 }
 
@@ -238,21 +294,74 @@ func loadTrack(fsys fs.FS, dir string) (*Track, []error) {
 	if total != 100 {
 		fail("domain weights sum to %d, want 100", total)
 	}
+	switch t.Kind {
+	case "":
+		t.Kind = KindCertification
+	case KindCertification, KindSkills, KindTheory:
+	default:
+		fail("kind must be %s, %s or %s", KindCertification, KindSkills, KindTheory)
+	}
+	if t.Kind == KindCertification && t.KubernetesVersion == "" {
+		fail("kubernetesVersion is required for a certification track")
+	}
+	for _, d := range t.Docs {
+		if d.Title == "" || !strings.HasPrefix(d.URL, "https://") {
+			fail("docs: title and an https url are required")
+		}
+	}
+	types := map[string]bool{}
 	for name, e := range t.Environments {
 		e.Name = name
+		switch e.Type {
+		case "":
+			e.Type = sandbox.EnvCluster
+		case sandbox.EnvCluster:
+		case sandbox.EnvContainer:
+			if e.Workers != 0 || e.KindConfig != "" {
+				fail("environment %q: a container has no workers and no kindConfig", name)
+			}
+		default:
+			fail("environment %q: type must be %s or %s", name, sandbox.EnvCluster, sandbox.EnvContainer)
+		}
+		types[e.Type] = true
+	}
+	if len(types) > 1 {
+		// One session has one terminal on one network; mixing would need both.
+		fail("environments mix clusters and containers; a track uses one type")
+	}
+	if t.Kind == KindTheory && len(t.Environments) > 0 {
+		fail("a theory track has no environments: its questions need no sandbox")
 	}
 
-	qdirs, _ := fs.ReadDir(fsys, path.Join(dir, "questions"))
-	for _, qd := range qdirs {
-		if !qd.IsDir() {
+	entries, _ := fs.ReadDir(fsys, path.Join(dir, "questions"))
+	for _, e := range entries {
+		qp := path.Join(dir, "questions", e.Name())
+		var q *Question
+		var qerrs []error
+		switch {
+		case e.IsDir():
+			if t.Kind == KindTheory {
+				errs = append(errs, fmt.Errorf("%s: a theory track has choice questions only (one .yaml file each)", qp))
+				continue
+			}
+			q, qerrs = loadQuestion(fsys, qp, e.Name(), t)
+		case strings.HasSuffix(e.Name(), ".yaml"):
+			if t.Kind != KindTheory {
+				errs = append(errs, fmt.Errorf("%s: choice questions belong to a track with kind: %s", qp, KindTheory))
+				continue
+			}
+			q, qerrs = loadChoice(fsys, qp, strings.TrimSuffix(e.Name(), ".yaml"), t)
+		default:
 			continue
 		}
-		qp := path.Join(dir, "questions", qd.Name())
-		q, qerrs := loadQuestion(fsys, qp, qd.Name(), t)
 		for _, e := range qerrs {
 			errs = append(errs, fmt.Errorf("%s: %w", qp, e))
 		}
 		if q != nil {
+			if t.byID[q.ID] != nil {
+				errs = append(errs, fmt.Errorf("%s: duplicate question id %q", qp, q.ID))
+				continue
+			}
 			t.Questions = append(t.Questions, q)
 			t.byID[q.ID] = q
 		}
@@ -268,7 +377,7 @@ func loadQuestion(fsys fs.FS, dir, name string, t *Track) (*Question, []error) {
 	if err != nil {
 		return nil, []error{err}
 	}
-	q := &Question{}
+	q := &Question{Type: TypeTask}
 	dec := yaml.NewDecoder(strings.NewReader(string(raw)))
 	dec.KnownFields(true)
 	if err := dec.Decode(q); err != nil {
@@ -290,8 +399,10 @@ func loadQuestion(fsys fs.FS, dir, name string, t *Track) (*Question, []error) {
 	if q.Environment == "" {
 		q.Environment = "base"
 	}
-	if _, ok := t.Environments[q.Environment]; !ok {
+	env, ok := t.Environments[q.Environment]
+	if !ok {
 		fail("unknown environment %q", q.Environment)
+		env = &sandbox.EnvSpec{Type: sandbox.EnvCluster}
 	}
 	if q.Driver == "" {
 		q.Driver = "kind"
@@ -341,10 +452,20 @@ func loadQuestion(fsys fs.FS, dir, name string, t *Track) (*Question, []error) {
 		if c.Explain == "" {
 			fail("check %s: explain is required (tell the learner why this matters)", c.ID)
 		}
+		// An empty `on` means the environment's main machine. Spelling it out
+		// here keeps the grader free of environment knowledge.
+		if c.On == "" {
+			c.On = env.DefaultRole()
+		} else if !slices.Contains(env.Roles(), c.On) {
+			fail("check %s: on must be one of %s in a %s environment, got %q", c.ID, strings.Join(env.Roles(), ", "), env.Type, c.On)
+		}
 		switch c.Type {
 		case "resource":
 			if c.Resource == "" {
 				fail("check %s: resource is required", c.ID)
+			}
+			if env.Type == sandbox.EnvContainer {
+				fail("check %s: a resource check needs a cluster; use file or exec in a container environment", c.ID)
 			}
 		case "file":
 			if c.Path == "" {
