@@ -1,0 +1,34 @@
+title: How the kubelet talks to the container runtime
+domain: kubernetes-fundamentals
+difficulty: easy
+tags: [containers, runtime]
+stem: |-
+  One cluster uses containerd on its nodes, another one CRI-O. The kubelet is the same binary in both
+  clusters.
+
+  Which interface does the kubelet use to tell either runtime to pull images and start containers?
+options:
+  - text: Container Network Interface (CNI)
+    explain: >-
+      CNI is the plugin interface for Pod networking: giving a Pod its network interface and IP
+      address. Network plugins implement it.
+  - text: Container Storage Interface (CSI)
+    explain: >-
+      CSI is the interface to storage systems. CSI drivers provision volumes and attach and mount them
+      for Pods.
+  - text: Container Runtime Interface (CRI)
+    correct: true
+  - text: Open Container Initiative (OCI)
+    explain: >-
+      The OCI is the body that standardizes the image format, the low-level runtime and registry
+      distribution. Its specifications describe containers and images, not the kubelet's API.
+explanation: >-
+  The CRI is a plugin interface that lets the kubelet use different container runtimes without being
+  recompiled. It defines the gRPC protocol between the kubelet, which is the client, and the container
+  runtime on the node. Kubernetes requires a runtime that conforms to the CRI; containerd and CRI-O are
+  the usual ones.
+references:
+  - title: Container Runtime Interface (CRI)
+    url: https://kubernetes.io/docs/concepts/architecture/cri/
+  - title: Container Runtimes
+    url: https://kubernetes.io/docs/setup/production-environment/container-runtimes/

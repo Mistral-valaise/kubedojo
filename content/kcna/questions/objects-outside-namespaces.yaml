@@ -1,0 +1,30 @@
+title: Objects that belong to no namespace
+domain: kubernetes-fundamentals
+difficulty: medium
+tags: [namespaces, api]
+stem: |-
+  A cluster is shared by several teams, each working in its own namespace.
+
+  Which of these kinds of object is cluster-scoped, which means it does not live in any team's
+  namespace?
+options:
+  - text: PersistentVolume
+    correct: true
+  - text: PersistentVolumeClaim
+    explain: >-
+      A claim is a request for storage made by a workload, and it lives in the namespace of the Pods
+      that use it. The volume it is bound to is the cluster-scoped part.
+  - text: ServiceAccount
+    explain: >-
+      ServiceAccounts are namespaced; every namespace has its own `default` ServiceAccount.
+  - text: ConfigMap
+    explain: >-
+      A ConfigMap is namespaced and can only be used by Pods in the same namespace.
+explanation: >-
+  Most resources (Pods, Services, Deployments, ConfigMaps, Secrets and others) are in a namespace.
+  Low-level resources such as Nodes and PersistentVolumes are not in any namespace, and neither are
+  Namespace objects themselves. `kubectl api-resources --namespaced=false` lists the cluster-scoped
+  kinds.
+references:
+  - title: Namespaces
+    url: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/

@@ -1,0 +1,39 @@
+title: Which Pods a Service selects
+domain: kubernetes-fundamentals
+difficulty: medium
+tags: [services, labels]
+stem: |-
+  A Service has this selector:
+
+  ```yaml
+  selector:
+    app: shop
+    tier: frontend
+  ```
+
+  Which of the ready Pods in the Service's namespace become its endpoints?
+options:
+  - text: Every Pod that carries at least one of the two labels
+    explain: >-
+      Label selectors have no OR. A Pod with only `app: shop`, for example a backend Pod of the same
+      application, is not selected.
+  - text: Every Pod created by the Deployment that has the name of the Service
+    explain: >-
+      A Service knows nothing about Deployments and names do not connect the two. Only the labels on
+      the Pods count, whoever created them.
+  - text: Every Pod that carries the two labels, whatever else it is labelled with
+    correct: true
+  - text: Every Pod whose containers declare the port the Service forwards to
+    explain: >-
+      Ports decide where traffic is sent on a selected Pod. They play no part in selecting Pods, and a
+      declared `containerPort` is informational.
+explanation: >-
+  The set of Pods behind a Service is determined by its label selector. Several requirements in a
+  selector are combined with a logical AND, so a Pod must carry all of them; additional labels do not
+  matter. The control plane keeps looking for matching Pods and updates the Service's EndpointSlices,
+  so Pods of different Deployments end up behind the same Service if their labels match.
+references:
+  - title: Service
+    url: https://kubernetes.io/docs/concepts/services-networking/service/
+  - title: Labels and Selectors
+    url: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/

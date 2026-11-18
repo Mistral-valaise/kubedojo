@@ -1,0 +1,33 @@
+title: Tolerating Pods end up on untainted nodes
+domain: kubernetes-fundamentals
+difficulty: hard
+tags: [scheduling, taints]
+stem: |-
+  A team taints its GPU nodes with `gpu=true:NoSchedule` and adds a matching toleration to its GPU
+  workloads. Ordinary Pods now stay away from the GPU nodes, as intended. But some of the GPU Pods are
+  scheduled onto ordinary nodes, although the GPU nodes have room.
+
+  Why?
+options:
+  - text: A toleration must name the nodes it is meant for; without names it matches any node
+    explain: >-
+      A toleration matches taints by key, value and effect and never names nodes. Pointing a Pod at
+      nodes is done with `nodeSelector` or node affinity.
+  - text: A toleration only permits the tainted nodes; it does not draw Pods towards them
+    correct: true
+  - text: A toleration needs the effect `NoExecute`; `NoSchedule` is only a preference
+    explain: >-
+      `NoSchedule` is a hard rule for new Pods. The soft variant is `PreferNoSchedule`, and
+      `NoExecute` additionally evicts running Pods that do not tolerate the taint.
+  - text: A toleration is checked by the kubelet, after the scheduler has chosen the node
+    explain: >-
+      The scheduler evaluates taints and tolerations when it filters nodes. Otherwise the ordinary Pods
+      would not have stayed away from the GPU nodes.
+explanation: >-
+  Taints let a node repel Pods; a toleration lets the scheduler place a Pod on a node with a matching
+  taint. Tolerations allow scheduling but do not guarantee it: untainted nodes remain just as eligible.
+  Attracting Pods is the job of node affinity or `nodeSelector`, so dedicated nodes need a taint (keep
+  others out) together with a node label and affinity on the workloads (bring the right ones in).
+references:
+  - title: Taints and Tolerations
+    url: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
