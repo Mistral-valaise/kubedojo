@@ -404,12 +404,13 @@ var (
 	sleepRe    = regexp.MustCompile(`(^|[;&|\n]\s*)sleep\s+\d`)
 	loopRe     = regexp.MustCompile(`\b(for|while|until)\b`)
 	guardedRe  = regexp.MustCompile(`\bexit\s+[1-9]`)
+	probePodRe = regexp.MustCompile(`\bkubectl\b[^\n|;&]*\srun\s[^\n|;&]*--rm\b`)
 	cannotFail = regexp.MustCompile(`(\|\s*wc\s+-l(\s*\|\s*xargs)?|\|\|\s*true)\s*$`)
 )
 
 // fragile reports patterns in an exec check that have produced wrong grades:
-// windows over log files, fixed sleeps and counters that read 0 when the
-// command in front of them did not run at all.
+// windows over log files, fixed sleeps, counters that read 0 when the
+// command in front of them did not run at all, and throwaway probe Pods.
 func fragile(c *Check) []string {
 	if c.Type != "exec" {
 		return nil
@@ -424,6 +425,9 @@ func fragile(c *Check) []string {
 	}
 	if c.Expect != nil && c.Expect.Equals != nil && strings.TrimSpace(*c.Expect.Equals) == "0" && cannotFail.MatchString(run) && !guardedRe.MatchString(run) {
 		out = append(out, `expects "0" from a pipeline that also prints 0 when the command fails; assert that the object exists first`)
+	}
+	if probePodRe.MatchString(run) {
+		out = append(out, "starts a throwaway Pod with kubectl run --rm; its output is lost when the Pod finishes before kubectl attaches — exec into a Pod the setup created, or probe from the node")
 	}
 	return out
 }

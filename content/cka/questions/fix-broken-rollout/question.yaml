@@ -51,10 +51,10 @@ checks:
     title: The Service answers HTTP requests
     type: exec
     run: >-
-      kubectl -n team-lynx run probe-$RANDOM --rm -i --restart=Never --quiet --image=busybox:1.36
-      -- wget -qO- -T 5 http://web.team-lynx.svc.cluster.local 2>/dev/null | grep -q 'Welcome to nginx' && echo reachable
+      curl -s -m 4 "http://$(kubectl -n team-lynx get svc web -o jsonpath='{.spec.clusterIP}')"
+      | grep -q 'Welcome to nginx' && echo reachable
     expect: {equals: reachable}
-    timeout: 120s
+    retry: 10s
     explain: >-
       Even with endpoints, the Service must send traffic to the port the container actually listens on (targetPort 80 for nginx).
   - id: not-recreated

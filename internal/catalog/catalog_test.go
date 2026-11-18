@@ -136,6 +136,20 @@ checks:
     run: |-
       kubectl get nodes; sleep 3; tail -n 400 /var/log/kubernetes/audit/audit.log | jq -r .requestURI | wc -l | xargs
     expect: {equals: "0"}
+  - id: probe
+    title: P
+    type: exec
+    explain: e
+    run: |-
+      kubectl -n x run probe-$RANDOM --rm -i --restart=Never --image=busybox:1.36 -- wget -qO- http://web | grep -q ok && echo reachable
+    expect: {equals: reachable}
+  - id: exec-probe
+    title: E
+    type: exec
+    explain: e
+    run: |-
+      kubectl -n x exec deploy/client -- wget -qO- http://web | grep -q ok && echo reachable
+    expect: {equals: reachable}
   - id: fine
     title: F
     type: exec
@@ -149,12 +163,12 @@ checks:
 		t.Fatal(err)
 	}
 	w := strings.Join(cat.Tracks["t"].Question("q").Warnings, "\n")
-	for _, want := range []string{"check window: reads the tail of a log file", "check window: uses a fixed sleep", `check window: expects "0"`} {
+	for _, want := range []string{"check window: reads the tail of a log file", "check window: uses a fixed sleep", `check window: expects "0"`, "check probe: starts a throwaway Pod"} {
 		if !strings.Contains(w, want) {
 			t.Errorf("missing warning %q in:\n%s", want, w)
 		}
 	}
-	if strings.Count(w, "\n") != 2 {
-		t.Errorf("want exactly 3 warnings, got:\n%s", w)
+	if strings.Count(w, "\n") != 3 {
+		t.Errorf("want exactly 4 warnings, got:\n%s", w)
 	}
 }

@@ -17,7 +17,7 @@ task: |
 hints:
   - "`kubectl -n team-magpie get pod batch-worker` shows READY 2/3. `describe pod` lists the State and Last State of every container."
   - "The exit code is in `Last State: Terminated` (or in jsonpath `.status.containerStatuses[*].lastState.terminated.exitCode`)."
-  - "Logs of a specific container: `kubectl -n team-magpie logs batch-worker -c <name>`. Add `--previous` to read the run that crashed."
+  - "Logs of a specific container: `kubectl -n team-magpie logs batch-worker -c <name>`. While the container waits in CrashLoopBackOff this prints its last run; while it is running again, add `--previous` to read the run that crashed."
 checks:
   - id: container
     title: The failing container is named correctly
@@ -39,4 +39,4 @@ checks:
     path: /opt/course/magpie/reason
     expect: {contains: ["FATAL: unsupported schema version 7"]}
     explain: >-
-      The application explains itself in its own log. With several containers you must name one with -c, and --previous shows the run that crashed instead of the current one.
+      The application explains itself in its own log. With several containers you must name one with -c. While the container waits to be restarted, logs shows its last run; once it runs again, --previous shows the run that crashed.
