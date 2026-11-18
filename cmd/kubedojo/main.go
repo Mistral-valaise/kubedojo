@@ -1,4 +1,4 @@
-// kubedojo — hands-on Kubernetes exam training (CKA, CKAD, CKS).
+// kubedojo — hands-on training for the Kubernetes certifications and the Linux skills they assume.
 package main
 
 import (
@@ -33,7 +33,8 @@ import (
 
 var version = "dev"
 
-const usage = `kubedojo — hands-on Kubernetes exam training (CKA, CKAD, CKS)
+const usage = `kubedojo — hands-on training for the Kubernetes certifications (KCNA, CKAD, CKA, KCSA, CKS)
+and the Linux skills they assume
 
 Usage:
   kubedojo up        Start kubedojo locally and open it in your browser
