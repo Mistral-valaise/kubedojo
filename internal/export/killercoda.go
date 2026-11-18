@@ -99,6 +99,8 @@ const verifyHead = `#!/bin/bash
 export KUBECONFIG=${KUBECONFIG:-/etc/kubernetes/admin.conf}
 fail() { echo "FAILED: $1" >&2; exit 1; }
 same_set() { [ "$(printf '%s\n' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' | sort)" = "$(printf '%s\n' "$2" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' | sort)" ]; }
+# try <seconds> <function>: repeat a check until it passes or the time is over.
+try() { local end=$((SECONDS + $1)); until "$2"; do [ $SECONDS -ge $end ] && return 1; sleep 2; done; }
 trim() { printf '%s' "$1" | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 `
 
@@ -107,15 +109,21 @@ trim() { printf '%s' "$1" | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/^[[:space:]]*/
 func verify(q *catalog.Question) string {
 	var b strings.Builder
 	b.WriteString(verifyHead)
-	for _, c := range q.Checks {
+	for i, c := range q.Checks {
 		cmd := script(checker.Command(c))
 		if c.On == "worker" {
 			cmd = "ssh -o StrictHostKeyChecking=no node01 " + shq(cmd)
 		}
 		title := shq(c.Title)
-		fmt.Fprintf(&b, "\n# %s\nout=$( { %s\n} 2>/tmp/kd-stderr ); code=$?; out=$(trim \"$out\")\n", c.Title, cmd)
+		// Each check is a function that returns 1 at the first matcher that
+		// does not hold, so that checks with retry can be run again.
+		fmt.Fprintf(&b, "\n# %s\ncheck_%d() {\nlocal out code\nout=$( { %s\n} 2>/tmp/kd-stderr ); code=$?; out=$(trim \"$out\")\n", c.Title, i+1, cmd)
+		end := func() {
+			fmt.Fprintf(&b, "return 0\n}\ntry %d check_%d || fail %s\n", int(c.RetryD.Seconds()), i+1, title)
+		}
 		if c.Type == "resource" && c.Absent {
-			fmt.Fprintf(&b, "[ $code -ne 0 ] && grep -q NotFound /tmp/kd-stderr || fail %s\n", title)
+			b.WriteString("[ $code -ne 0 ] && grep -q NotFound /tmp/kd-stderr || return 1\n")
+			end()
 			continue
 		}
 		want := 0
@@ -123,43 +131,45 @@ func verify(q *catalog.Question) string {
 		if e != nil && e.ExitCode != nil {
 			want = *e.ExitCode
 		}
-		fmt.Fprintf(&b, "[ $code -eq %d ] || fail %s\n", want, title)
+		fmt.Fprintf(&b, "[ $code -eq %d ] || return 1\n", want)
 		if e == nil {
+			end()
 			continue
 		}
 		if e.Equals != nil {
-			fmt.Fprintf(&b, "[ \"$out\" = %s ] || fail %s\n", shq(strings.TrimSpace(*e.Equals)), title)
+			fmt.Fprintf(&b, "[ \"$out\" = %s ] || return 1\n", shq(strings.TrimSpace(*e.Equals)))
 		}
 		if e.NotEquals != nil {
-			fmt.Fprintf(&b, "[ \"$out\" != %s ] || fail %s\n", shq(strings.TrimSpace(*e.NotEquals)), title)
+			fmt.Fprintf(&b, "[ \"$out\" != %s ] || return 1\n", shq(strings.TrimSpace(*e.NotEquals)))
 		}
 		for _, s := range e.Contains {
-			fmt.Fprintf(&b, "printf '%%s' \"$out\" | grep -qF -- %s || fail %s\n", shq(s), title)
+			fmt.Fprintf(&b, "printf '%%s' \"$out\" | grep -qF -- %s || return 1\n", shq(s))
 		}
 		for _, s := range e.NotContains {
-			fmt.Fprintf(&b, "printf '%%s' \"$out\" | grep -qF -- %s && fail %s\n", shq(s), title)
+			fmt.Fprintf(&b, "printf '%%s' \"$out\" | grep -qF -- %s && return 1\n", shq(s))
 		}
 		if e.Matches != "" {
-			fmt.Fprintf(&b, "printf '%%s' \"$out\" | grep -qE -- %s || fail %s\n", shq(ere(e.Matches)), title)
+			fmt.Fprintf(&b, "printf '%%s' \"$out\" | grep -qE -- %s || return 1\n", shq(ere(e.Matches)))
 		}
 		if len(e.OneOf) > 0 {
-			fmt.Fprintf(&b, "printf '%%s\\n' %s | grep -qxF -- \"$out\" || fail %s\n", shq(strings.Join(e.OneOf, "\n")), title)
+			fmt.Fprintf(&b, "printf '%%s\\n' %s | grep -qxF -- \"$out\" || return 1\n", shq(strings.Join(e.OneOf, "\n")))
 		}
 		if len(e.SameLines) > 0 {
-			fmt.Fprintf(&b, "same_set \"$out\" %s || fail %s\n", shq(strings.Join(e.SameLines, "\n")), title)
+			fmt.Fprintf(&b, "same_set \"$out\" %s || return 1\n", shq(strings.Join(e.SameLines, "\n")))
 		}
 		if len(e.SameItems) > 0 {
-			fmt.Fprintf(&b, "same_set \"$(printf '%%s' \"$out\" | tr -s '[:space:]' '\\n')\" %s || fail %s\n", shq(strings.Join(e.SameItems, "\n")), title)
+			fmt.Fprintf(&b, "same_set \"$(printf '%%s' \"$out\" | tr -s '[:space:]' '\\n')\" %s || return 1\n", shq(strings.Join(e.SameItems, "\n")))
 		}
 		if e.Gte != nil {
-			fmt.Fprintf(&b, "awk -v v=\"$out\" 'BEGIN{exit !(v+0 >= %v && v ~ /^-?[0-9.]+$/)}' || fail %s\n", *e.Gte, title)
+			fmt.Fprintf(&b, "awk -v v=\"$out\" 'BEGIN{exit !(v+0 >= %v && v ~ /^-?[0-9.]+$/)}' || return 1\n", *e.Gte)
 		}
 		if e.Lte != nil {
-			fmt.Fprintf(&b, "awk -v v=\"$out\" 'BEGIN{exit !(v+0 <= %v && v ~ /^-?[0-9.]+$/)}' || fail %s\n", *e.Lte, title)
+			fmt.Fprintf(&b, "awk -v v=\"$out\" 'BEGIN{exit !(v+0 <= %v && v ~ /^-?[0-9.]+$/)}' || return 1\n", *e.Lte)
 		}
 		if e.NotEmpty {
-			fmt.Fprintf(&b, "[ -n \"$out\" ] || fail %s\n", title)
+			fmt.Fprintf(&b, "[ -n \"$out\" ] || return 1\n")
 		}
+		end()
 	}
 	b.WriteString("\nexit 0\n")
 	return b.String()

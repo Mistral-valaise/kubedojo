@@ -49,6 +49,7 @@ checks:
       Always verify on the node that the process really ended.
   - id: others
     title: The other Deployments are untouched
+    guard: true
     type: exec
     run: |-
       kubectl -n sec-tern get deploy frontend order-worker -o jsonpath='{range .items[*]}{.spec.replicas}{" "}{end}' | xargs

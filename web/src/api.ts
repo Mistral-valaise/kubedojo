@@ -15,6 +15,8 @@ export interface Track {
 export interface CheckResult {
   id: string; title: string; points: number; passed: boolean;
   expected: string; observed: string; explain: string; command: string;
+  // Debug data of the last run. Optional: results stored by older versions lack it.
+  on?: string; exitCode?: number; stderr?: string; durationMs?: number; attempts?: number; timedOut?: boolean;
 }
 export interface Result { questionId: string; score: number; max: number; passed: boolean; checks: CheckResult[]; at: string }
 export interface QState {

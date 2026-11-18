@@ -7,8 +7,9 @@ Thank you for helping people pass their exams. The most valuable contributions a
 
 - **Original content only.** Do not submit questions copied or paraphrased from commercial exam
   simulators, courses or the real exams. Base them on the public CNCF curriculum and your own experience.
-- A question is only accepted when `kubedojo content test` proves it: the checks fail on the starting
-  state and pass after the reference solution.
+- A question is only accepted when `kubedojo content test` proves it: every check fails on the starting
+  state, passes after the reference solution and keeps passing when the question is reset and solved
+  again. See [docs/verification.md](docs/verification.md).
 - English is the project language for code, content and discussions.
 
 ## Set up
@@ -33,12 +34,15 @@ cd web && npm run dev         # UI on :5173 with hot reload
 Read [docs/writing-questions.md](docs/writing-questions.md), then:
 
 ```bash
-./bin/kubedojo content lint
-./bin/kubedojo content test --question <id>          # add --keep to inspect the sandbox
-./bin/kubedojo content test --exam --track <track>   # when the question shares a cluster with others
+./bin/kubedojo content lint --strict
+./bin/kubedojo content test --question <id> --repeat 2   # add --keep to inspect the sandbox
+./bin/kubedojo content test --exam --track <track>       # when the question shares a cluster with others
 ```
 
-Add the `content` label to your pull request so CI runs the full content proof.
+CI runs the full content proof on pull requests that touch `content/`, the grader or the sandbox, and
+uploads a JSON report per track. For other pull requests, add the `content` label to run it. When a
+question fails, [docs/verification.md](docs/verification.md) explains the statuses and how to
+reproduce the failing check by hand.
 
 ## Changing code
 

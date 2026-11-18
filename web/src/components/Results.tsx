@@ -49,6 +49,25 @@ function CheckRow({ check, defaultOpen }: { check: Result["checks"][number]; def
           <details className="text-xs text-muted">
             <summary className="cursor-pointer select-none hover:text-text">{t("How this was checked")}</summary>
             <pre className="mt-1.5 overflow-x-auto rounded-lg border bg-code px-3 py-2 font-mono text-[11.5px] whitespace-pre-wrap">{check.command}</pre>
+            {check.attempts !== undefined && (
+              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                <dt>{t("Ran on")}</dt>
+                <dd className="font-mono">{check.on}</dd>
+                <dt>{t("Exit code")}</dt>
+                <dd className="font-mono">{check.timedOut ? t("none (timed out)") : check.exitCode}</dd>
+                <dt>{t("Duration")}</dt>
+                <dd className="font-mono tabular-nums">
+                  {((check.durationMs ?? 0) / 1000).toFixed(1)}s
+                  {(check.attempts ?? 1) > 1 && ` · ${t("{n} attempts", { n: check.attempts ?? 1 })}`}
+                </dd>
+                {check.stderr && (
+                  <>
+                    <dt>{t("Error output")}</dt>
+                    <dd className="font-mono break-words whitespace-pre-wrap">{check.stderr}</dd>
+                  </>
+                )}
+              </dl>
+            )}
           </details>
         </div>
       )}

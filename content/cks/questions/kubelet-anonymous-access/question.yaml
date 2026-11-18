@@ -43,6 +43,7 @@ checks:
       Webhook authorization makes the kubelet ask the API server (SubjectAccessReview) whether a caller may access a node sub-resource, so normal RBAC applies.
   - id: ready
     title: The kubelet runs and the node is Ready
+    guard: true
     type: exec
     run: |-
       kubectl get node ${KD_HOST}-worker -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'

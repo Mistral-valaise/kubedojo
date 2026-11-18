@@ -34,6 +34,7 @@ checks:
     title: No credential is baked into the image
     type: exec
     run: |-
+      [ -s /opt/course/docker/Dockerfile ] || { echo "/opt/course/docker/Dockerfile is missing or empty" >&2; exit 1; }
       grep -c -E 'API_TOKEN|tok_live' /opt/course/docker/Dockerfile || true
     expect: {equals: "0"}
     explain: >-
@@ -48,6 +49,7 @@ checks:
       A process running as root inside a container is root on the node if it escapes. The last USER instruction wins.
   - id: intact
     title: The rest of the build is intact
+    guard: true
     type: exec
     run: |-
       grep -c -E '^(RUN useradd|COPY |RUN pip install|CMD )' /opt/course/docker/Dockerfile

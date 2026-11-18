@@ -43,6 +43,7 @@ checks:
       ConfigMaps are in the core API group (apiGroups [""]).
   - id: cannot-delete
     title: The ServiceAccount cannot delete Deployments
+    guard: true
     type: exec
     run: |-
       kubectl -n team-orca auth can-i delete deployments.apps --as system:serviceaccount:team-orca:pipeline
@@ -51,6 +52,7 @@ checks:
       Least privilege — only the verbs create and list were requested. Wildcards or extra verbs fail this check.
   - id: cannot-secrets
     title: The ServiceAccount cannot list Secrets
+    guard: true
     type: exec
     run: |-
       kubectl -n team-orca auth can-i list secrets --as system:serviceaccount:team-orca:pipeline
@@ -59,6 +61,7 @@ checks:
       Only deployments and configmaps were requested. Binding a broad ClusterRole such as edit would expose Secrets.
   - id: namespaced
     title: Access is limited to team-orca
+    guard: true
     type: exec
     run: |-
       kubectl -n default auth can-i list configmaps --as system:serviceaccount:team-orca:pipeline

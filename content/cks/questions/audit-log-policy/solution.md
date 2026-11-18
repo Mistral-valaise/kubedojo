@@ -68,3 +68,14 @@ container says `open /etc/kubernetes/audit/policy.yaml: no such file or director
 
 **Reading the log:** one JSON object per line and stage. Useful fields: `level`, `stage`, `verb`,
 `user.username`, `sourceIPs`, `objectRef.{resource,namespace,name}`, `responseStatus.code`.
+
+**Changing the policy later:** the API server reads the policy file only when it starts. After editing
+`policy.yaml`, restart the static Pod — move the manifest out of `/etc/kubernetes/manifests`, wait until
+`crictl ps` no longer shows the container, and move it back:
+
+```bash
+mv /etc/kubernetes/manifests/kube-apiserver.yaml /root/ && sleep 10 && mv /root/kube-apiserver.yaml /etc/kubernetes/manifests/
+```
+
+Lines written under the old policy stay in the log. The grader ignores them: it only looks at requests
+made after you click *Check*.

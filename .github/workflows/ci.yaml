@@ -3,6 +3,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Nightly: every question twice (with a reset in between) and as a full exam.
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -21,7 +25,7 @@ jobs:
       - run: test -z "$(gofmt -l cmd internal content images deploy)"
       - run: go vet ./...
       - run: make test
-      - run: ./bin/kubedojo content lint
+      - run: ./bin/kubedojo content lint --strict
       - uses: azure/setup-helm@v5
       - run: helm lint deploy/helm/kubedojo
       - name: Cross-compile
@@ -30,13 +34,37 @@ jobs:
             GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null ./cmd/kubedojo
           done
 
-  # Proves every question against real clusters. Slow, so it runs on main and on
-  # pull requests that touch content or the sandbox.
+  # Which parts of the content proof does this change need?
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      content: ${{ steps.filter.outputs.content }}
+    steps:
+      - uses: actions/checkout@v7
+        with: {fetch-depth: 0}
+      - id: filter
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git diff --name-only "$BASE"...HEAD | grep -qE '^(content/|images/|internal/(checker|catalog|session|sandbox)/|cmd/kubedojo/test\.go$|\.github/workflows/ci\.yaml$)'; then
+            echo "content=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "content=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Proves every question against real clusters: unsolved fails, the reference
+  # solution passes, the grade is stable, variants get the declared grade.
+  # Slow, so it runs on main and on pull requests that touch content, the
+  # grader or the sandbox (or carry the "content" label). See docs/verification.md.
   content:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
-    needs: build
-    if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'content')
+    timeout-minutes: 90
+    needs: [build, changes]
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+        (needs.changes.outputs.content == 'true' || contains(github.event.pull_request.labels.*.name, 'content')))
     strategy:
       fail-fast: false
       matrix:
@@ -50,4 +78,38 @@ jobs:
       # Several kind clusters need more inotify instances than the runner allows.
       - run: sudo sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_user_watches=1048576
       - run: make images go
-      - run: ./bin/kubedojo content test --track ${{ matrix.track }}
+      - run: ./bin/kubedojo content test --track ${{ matrix.track }} --report content-${{ matrix.track }}.json
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: content-report-${{ matrix.track }}
+          path: content-${{ matrix.track }}.json
+          if-no-files-found: warn
+
+  # The expensive proofs: every question twice with a reset in between (flaky
+  # checks, leftovers), and all questions of a track together graded as an exam.
+  content-nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [cka, cks]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: {go-version-file: go.mod}
+      - uses: helm/kind-action@v1
+        with: {install_only: true, version: v0.33.0}
+      - run: sudo sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_user_watches=1048576
+      - run: make images go
+      - run: ./bin/kubedojo content test --track ${{ matrix.track }} --repeat 2 --report repeat-${{ matrix.track }}.json
+      - run: ./bin/kubedojo content test --track ${{ matrix.track }} --exam --report exam-${{ matrix.track }}.json
+        if: always()
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: content-nightly-${{ matrix.track }}
+          path: "*-${{ matrix.track }}.json"
+          if-no-files-found: warn

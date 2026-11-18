@@ -43,7 +43,10 @@ checks:
     title: The running Pod has no token mounted
     type: exec
     run: |-
-      kubectl -n sec-ibis rollout status deploy static-site --timeout=60s >/dev/null 2>&1; kubectl -n sec-ibis exec deploy/static-site -- cat /var/run/secrets/kubernetes.io/serviceaccount/token >/dev/null 2>&1 && echo token-present || echo no-token
+      kubectl -n sec-ibis rollout status deploy static-site --timeout=60s >/dev/null 2>&1
+      kubectl -n sec-ibis exec deploy/static-site -- true >/dev/null || { echo "cannot run a command in deploy/static-site" >&2; exit 1; }
+      kubectl -n sec-ibis exec deploy/static-site -- cat /var/run/secrets/kubernetes.io/serviceaccount/token >/dev/null 2>&1 && echo token-present || echo no-token
     expect: {equals: no-token}
+    timeout: 120s
     explain: >-
       A token inside a container is a credential an attacker gets for free after a remote code execution. If the Pod spec sets automountServiceAccountToken: true it overrides the ServiceAccount.

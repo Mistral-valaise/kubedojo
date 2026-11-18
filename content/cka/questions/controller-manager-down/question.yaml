@@ -22,8 +22,10 @@ checks:
     title: kube-controller-manager is running and ready
     type: exec
     run: |-
-      kubectl -n kube-system get pod -l component=kube-controller-manager -o jsonpath='{.items[0].status.containerStatuses[0].ready}'
-    expect: {equals: "true"}
+      [ -n "$(crictl ps --name kube-controller-manager -q 2>/dev/null)" ] || { echo "no running kube-controller-manager container on this node"; exit 0; }
+      curl -sk -m 5 https://127.0.0.1:10257/healthz
+    expect: {equals: ok}
+    retry: 30s
     explain: >-
       The controller manager runs the control loops that turn desired state into objects, e.g. Deployment → ReplicaSet → Pods. Without it, the API accepts objects but nothing acts on them.
   - id: replicaset
@@ -36,6 +38,7 @@ checks:
       As soon as the deployment controller runs again it reconciles all existing Deployments. Nothing needs to be recreated.
   - id: original
     title: The Deployment was not recreated
+    guard: true
     type: resource
     resource: deployment/ghost
     namespace: team-stork

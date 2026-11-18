@@ -279,6 +279,7 @@ func cmdLint(args []string) error {
 	fl := flag.NewFlagSet("content lint", flag.ContinueOnError)
 	var c common
 	c.register(fl)
+	strict := fl.Bool("strict", false, "treat warnings about fragile checks as errors")
 	if err := fl.Parse(args); err != nil {
 		return err
 	}
@@ -295,6 +296,18 @@ func cmdLint(args []string) error {
 	}
 	if err != nil {
 		return fmt.Errorf("content is invalid:\n%w", err)
+	}
+	warnings := 0
+	for _, t := range cat.List() {
+		for _, q := range t.Questions {
+			for _, w := range q.Warnings {
+				warnings++
+				fmt.Printf("warning: %s/%s: %s\n", t.ID, q.ID, w)
+			}
+		}
+	}
+	if warnings > 0 && *strict {
+		return fmt.Errorf("%d warning(s) with --strict", warnings)
 	}
 	fmt.Println("content is valid")
 	return nil

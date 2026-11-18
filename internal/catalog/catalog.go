@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 	"gopkg.in/yaml.v3"
@@ -72,6 +73,21 @@ type Question struct {
 	SolutionMd       string   `yaml:"-" json:"-"`
 	Track            string   `yaml:"-" json:"track"`
 	Points           int      `yaml:"-" json:"points"`
+	// Variants are alternative scripts under variants/*.sh that `content test`
+	// runs instead of solution.sh: other valid solutions that must pass, and
+	// plausible wrong ones that must fail specific checks.
+	Variants []*Variant `yaml:"-" json:"-"`
+	// Warnings are lint findings that do not make the content invalid.
+	Warnings []string `yaml:"-" json:"-"`
+}
+
+// Variant is a scripted answer with a declared grading outcome. The first
+// lines of the script carry it: "# expect: pass" or "# expect: fail <check ids>".
+type Variant struct {
+	Name   string
+	Script string
+	Pass   bool
+	Fails  []string // check ids that must fail; every other check must pass
 }
 
 // Check is one graded assertion. Every type boils down to "run something on a
@@ -96,7 +112,28 @@ type Check struct {
 	Run string `yaml:"run" json:"run,omitempty"`
 
 	Expect *Expect `yaml:"expect" json:"expect,omitempty"`
+
+	// Timeout bounds one run of the check (default 60s). Raise it for checks
+	// that start a probe Pod or wait for a rollout.
+	Timeout string `yaml:"timeout" json:"timeout,omitempty"`
+	// Retry re-runs a failing check until it passes or this much time went by.
+	// Use it for state that converges on its own (logs, endpoints, rollouts).
+	Retry string `yaml:"retry" json:"retry,omitempty"`
+	// Guard marks a check that protects against a destructive shortcut and
+	// therefore legitimately passes on the untouched environment ("the API
+	// server is healthy", "the base was not edited"). Every other check must
+	// fail before the question is solved.
+	Guard bool `yaml:"guard" json:"guard,omitempty"`
+
+	TimeoutD time.Duration `yaml:"-" json:"-"`
+	RetryD   time.Duration `yaml:"-" json:"-"`
 }
+
+const (
+	DefaultCheckTimeout = 60 * time.Second
+	MaxCheckTimeout     = 5 * time.Minute
+	MaxCheckRetry       = 3 * time.Minute
+)
 
 // Expect is a set of matchers; all given matchers must hold.
 type Expect struct {
@@ -325,6 +362,108 @@ func loadQuestion(fsys fs.FS, dir, name string, t *Track) (*Question, []error) {
 				fail("check %s: bad regex: %v", c.ID, err)
 			}
 		}
+		c.TimeoutD = DefaultCheckTimeout
+		if c.Timeout != "" {
+			d, err := time.ParseDuration(c.Timeout)
+			if err != nil || d <= 0 || d > MaxCheckTimeout {
+				fail("check %s: timeout must be a duration up to %s (e.g. 90s)", c.ID, MaxCheckTimeout)
+			} else {
+				c.TimeoutD = d
+			}
+		}
+		if c.Retry != "" {
+			d, err := time.ParseDuration(c.Retry)
+			if err != nil || d <= 0 || d > MaxCheckRetry {
+				fail("check %s: retry must be a duration up to %s (e.g. 30s)", c.ID, MaxCheckRetry)
+			} else {
+				c.RetryD = d
+			}
+		}
+		for _, w := range fragile(c) {
+			q.Warnings = append(q.Warnings, fmt.Sprintf("check %s: %s", c.ID, w))
+		}
 	}
+	guards := 0
+	for _, c := range q.Checks {
+		if c.Guard {
+			guards++
+		}
+	}
+	if len(q.Checks) > 0 && guards == len(q.Checks) {
+		fail("every check is a guard: nothing would fail on the untouched environment")
+	}
+	vs, verrs := loadVariants(fsys, path.Join(dir, "variants"), seen)
+	q.Variants = vs
+	errs = append(errs, verrs...)
 	return q, errs
+}
+
+var (
+	expectRe   = regexp.MustCompile(`(?m)^#\s*expect:\s*(pass|fail)\b(.*)$`)
+	tailLogRe  = regexp.MustCompile(`\btail\s+(-n\s*)?-?\d+\s+/var/log/`)
+	sleepRe    = regexp.MustCompile(`(^|[;&|\n]\s*)sleep\s+\d`)
+	loopRe     = regexp.MustCompile(`\b(for|while|until)\b`)
+	guardedRe  = regexp.MustCompile(`\bexit\s+[1-9]`)
+	cannotFail = regexp.MustCompile(`(\|\s*wc\s+-l(\s*\|\s*xargs)?|\|\|\s*true)\s*$`)
+)
+
+// fragile reports patterns in an exec check that have produced wrong grades:
+// windows over log files, fixed sleeps and counters that read 0 when the
+// command in front of them did not run at all.
+func fragile(c *Check) []string {
+	if c.Type != "exec" {
+		return nil
+	}
+	var out []string
+	run := strings.TrimSpace(c.Run)
+	if tailLogRe.MatchString(run) {
+		out = append(out, "reads the tail of a log file; old lines decide the grade — compare against a baseline taken inside the check")
+	}
+	if sleepRe.MatchString(run) && c.RetryD == 0 && !loopRe.MatchString(run) {
+		out = append(out, "uses a fixed sleep; poll for the expected state or set retry")
+	}
+	if c.Expect != nil && c.Expect.Equals != nil && strings.TrimSpace(*c.Expect.Equals) == "0" && cannotFail.MatchString(run) && !guardedRe.MatchString(run) {
+		out = append(out, `expects "0" from a pipeline that also prints 0 when the command fails; assert that the object exists first`)
+	}
+	return out
+}
+
+func loadVariants(fsys fs.FS, dir string, checks map[string]bool) ([]*Variant, []error) {
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		return nil, nil
+	}
+	var out []*Variant
+	var errs []error
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sh") {
+			continue
+		}
+		name := strings.TrimSuffix(e.Name(), ".sh")
+		raw := readOpt(fsys, path.Join(dir, e.Name()))
+		m := expectRe.FindStringSubmatch(raw)
+		if m == nil {
+			errs = append(errs, fmt.Errorf("variants/%s: needs a header \"# expect: pass\" or \"# expect: fail <check ids>\"", e.Name()))
+			continue
+		}
+		v := &Variant{Name: name, Script: raw, Pass: m[1] == "pass"}
+		ids := strings.FieldsFunc(m[2], func(r rune) bool { return r == ' ' || r == ',' || r == '\t' })
+		if v.Pass && len(ids) > 0 {
+			errs = append(errs, fmt.Errorf("variants/%s: \"expect: pass\" takes no check ids", e.Name()))
+		}
+		if !v.Pass {
+			if len(ids) == 0 {
+				errs = append(errs, fmt.Errorf("variants/%s: \"expect: fail\" needs the ids of the checks that must fail", e.Name()))
+			}
+			for _, id := range ids {
+				if !checks[id] {
+					errs = append(errs, fmt.Errorf("variants/%s: unknown check id %q", e.Name(), id))
+				}
+			}
+			v.Fails = ids
+		}
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, errs
 }

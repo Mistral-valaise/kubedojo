@@ -24,6 +24,7 @@ hints:
 checks:
   - id: api-allowed
     title: api Pods can connect to the database
+    guard: true
     type: exec
     run: |-
       kubectl -n team-ibex exec deploy/api -- nc -z -w 3 db 5432 && echo open || echo blocked
@@ -32,6 +33,7 @@ checks:
       A podSelector without namespaceSelector matches Pods in the policy's own Namespace.
   - id: monitoring-allowed
     title: Pods in team-ibex-monitoring can connect
+    guard: true
     type: exec
     run: |-
       kubectl -n team-ibex-monitoring exec deploy/probe -- nc -z -w 3 db.team-ibex 5432 && echo open || echo blocked
@@ -42,6 +44,7 @@ checks:
     title: Other Pods in team-ibex are blocked
     type: exec
     run: |-
+      kubectl -n team-ibex exec deploy/web -- true >/dev/null || { echo "cannot run a command in deploy/web: the probe needs this Pod" >&2; exit 1; }
       kubectl -n team-ibex exec deploy/web -- nc -z -w 3 db 5432 && echo open || echo blocked
     expect: {equals: blocked}
     explain: >-

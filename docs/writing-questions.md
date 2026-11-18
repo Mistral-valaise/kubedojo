@@ -66,6 +66,16 @@ root with `KUBECONFIG` set; `$KD_HOST` holds the cluster's ssh name.
 `matches: <regex>`, `oneOf: [..]`, `sameLines: [..]`, `sameItems: [..]`, `gte`, `lte`, `notEmpty`,
 `exitCode`. Without `expect`, a check passes when the command exits 0.
 
+Optional per check:
+
+- `timeout: 120s` — how long one run may take (default 60s, at most 5m). Needed when the check starts a
+  probe Pod or waits for a rollout.
+- `retry: 20s` — run the check again until it passes or this time is over. For state that arrives on
+  its own shortly after the action: a log line, an endpoint.
+- `guard: true` — the check protects against a destructive shortcut ("the API server is healthy", "the
+  base was not edited") and therefore passes on the untouched environment. `content test` requires
+  every other check to fail before the task is solved.
+
 Guidelines:
 
 - **Check outcomes, not methods.** `kubectl auth can-i` beats inspecting a Role's YAML; a request that
@@ -74,6 +84,14 @@ Guidelines:
   passes.
 - **No free points.** No check may pass on the untouched starting state unless it guards something the
   learner could break — and then pair it with a condition that needs work.
+- **A command that fails must not pass.** The exit code of a pipeline is that of its last command, so
+  `kubectl ... | wc -l` prints `0` and exits 0 when `kubectl` failed. When the expected answer is a
+  negative ("0", "blocked", "denied"), assert the precondition first and `exit 1`: the Namespace exists,
+  the probe Pod can run a command, the file is there. Write the reason to stderr; it is shown to the
+  learner.
+- **Never grade history.** Do not `tail` a log and do not `sleep`. Note where the log ends, cause the
+  events, wait in a loop for a marker to appear, then look only at the new lines
+  (`cks/audit-log-policy` shows the pattern).
 - **`explain` teaches.** Say why the thing matters and what typically goes wrong, in two sentences.
 - Use `run: |-` and `explain: >-` block scalars; YAML mangles `: ` and `#` in plain strings.
 
@@ -96,13 +114,18 @@ Guidelines:
 
 ```bash
 kubedojo content lint
-kubedojo content test --question my-new-question        # add --keep to inspect the sandbox afterwards
+kubedojo content test --question my-new-question --repeat 2   # add --keep to inspect the sandbox afterwards
 kubedojo content test --exam --track cka                # all questions together, as in an exam
 ```
 
-`content test` runs `setup.sh`, requires the checks to **fail**, runs `solution.sh`, and requires every
-check to **pass**. `--exam` sets up all questions of a track in one session, applies every solution and
-expects a perfect score, which catches questions that disturb each other.
+`content test` runs `setup.sh`, requires every check that is not a guard to **fail**, runs `solution.sh`,
+requires every check to **pass** and to pass again when graded twice more. `--repeat 2` resets the
+question and does it all again. `--exam` sets up all questions of a track in one session, applies every
+solution and expects a perfect score, which catches questions that disturb each other.
+
+Add scripts under `variants/` for other valid solutions (`# expect: pass`) and for tempting wrong ones
+(`# expect: fail <check ids>`); each must produce exactly the declared grade. Details, the JSON report
+and how to diagnose a failure: [verification.md](verification.md).
 
 ## Lessons
 

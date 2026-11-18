@@ -32,7 +32,8 @@ checks:
     title: The password is no longer in the Deployment
     type: exec
     run: |-
-      kubectl -n sec-quail get deploy payments -o yaml | grep -c -E 'hunter2-quail|DB_PASSWORD' || true
+      y=$(kubectl -n sec-quail get deploy payments -o yaml) || exit 1
+      echo "$y" | grep -c -E 'hunter2-quail|DB_PASSWORD' || true
     expect: {equals: "0"}
     explain: >-
       Everyone who may read Deployments or Pods could read the password. Secrets have their own RBAC resource and can be encrypted at rest.
@@ -42,6 +43,7 @@ checks:
     run: |-
       kubectl -n sec-quail rollout status deploy payments --timeout=60s >/dev/null 2>&1; kubectl -n sec-quail exec deploy/payments -- cat /etc/payments/password
     expect: {equals: "hunter2-quail"}
+    timeout: 120s
     explain: >-
       Files from a Secret volume live in memory (tmpfs), are updated when the Secret changes and do not leak into `env`, crash dumps or child processes.
   - id: mode

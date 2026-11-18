@@ -46,6 +46,7 @@ checks:
       Nested values are addressed with dots (service.type). `helm show values` and `helm get values <release>` show what exists and what is set.
   - id: chart-untouched
     title: The chart defaults are unchanged
+    guard: true
     type: exec
     run: "grep -c '^replicaCount: 1$' /opt/course/helm/webcache/values.yaml"
     expect: {equals: "1"}

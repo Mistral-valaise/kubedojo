@@ -34,18 +34,30 @@ checks:
     explain: >-
       The policy decides what is recorded, the log flags where it goes and how long it is kept. Both paths are paths inside the API server container and need hostPath mounts.
   - id: secrets
-    title: Secret access is logged at level Metadata
+    title: Secret and ConfigMap access is logged at level Metadata
     type: exec
     run: |-
-      kubectl -n kube-system get secrets >/dev/null 2>&1; sleep 3; tail -n 400 /var/log/kubernetes/audit/audit.log | jq -r 'select(.objectRef.resource=="secrets") | .level' | sort -u | xargs
-    expect: {equals: Metadata}
+      log=/var/log/kubernetes/audit/audit.log
+      [ -s "$log" ] || { echo "there is no audit log at $log" >&2; exit 1; }
+      base=$(wc -l < "$log")
+      kubectl -n kube-system get secrets >/dev/null 2>&1; kubectl -n kube-system get configmaps >/dev/null 2>&1
+      new() { [ "$(wc -l < "$log")" -lt "$base" ] && base=0; tail -n +$((base + 1)) "$log" | jq -Rr 'fromjson? | select(.objectRef.resource == "secrets" or .objectRef.resource == "configmaps") | "\(.objectRef.resource)=\(.level)"' | sort -u | xargs; }
+      for i in $(seq 1 20); do case "$(new)" in *configmaps=*secrets=*) break ;; esac; sleep 1; done
+      new
+    expect: {equals: "configmaps=Metadata secrets=Metadata"}
     explain: >-
-      Metadata records who did what and when, without bodies. Secrets must never be logged at Request or RequestResponse level — the log would contain their values.
+      Metadata records who did what and when, without bodies. Secrets must never be logged at Request or RequestResponse level — the log would contain their values. Only requests made after the check started are looked at, so lines written by an earlier policy do not count.
   - id: pods
     title: Pod access is logged at level RequestResponse
     type: exec
     run: |-
-      kubectl -n default get pods >/dev/null 2>&1; sleep 3; tail -n 400 /var/log/kubernetes/audit/audit.log | jq -r 'select(.objectRef.resource=="pods") | .level' | sort -u | xargs
+      log=/var/log/kubernetes/audit/audit.log
+      [ -s "$log" ] || { echo "there is no audit log at $log" >&2; exit 1; }
+      base=$(wc -l < "$log")
+      kubectl -n default get pods >/dev/null 2>&1
+      new() { [ "$(wc -l < "$log")" -lt "$base" ] && base=0; tail -n +$((base + 1)) "$log" | jq -Rr 'fromjson? | select(.objectRef.resource == "pods" and (.objectRef.subresource // "") == "") | .level' | sort -u | xargs; }
+      for i in $(seq 1 20); do [ -n "$(new)" ] && break; sleep 1; done
+      new
     expect: {equals: RequestResponse}
     explain: >-
       RequestResponse additionally records the request and response objects. Rules are matched top to bottom; a broader rule placed first would win.
@@ -53,7 +65,16 @@ checks:
     title: Nothing else is logged
     type: exec
     run: |-
-      kubectl get nodes >/dev/null 2>&1; kubectl get namespaces >/dev/null 2>&1; sleep 3; tail -n 400 /var/log/kubernetes/audit/audit.log | jq -r 'select((.objectRef.resource // "non-resource") as $r | ["pods","secrets","configmaps"] | index($r) | not) | .requestURI' | wc -l | xargs
+      log=/var/log/kubernetes/audit/audit.log
+      [ -s "$log" ] || { echo "there is no audit log at $log" >&2; exit 1; }
+      base=$(wc -l < "$log"); probe=kd-probe-$RANDOM$RANDOM
+      kubectl get nodes >/dev/null 2>&1; kubectl get namespaces >/dev/null 2>&1; kubectl get --raw /version >/dev/null 2>&1
+      kubectl -n default get configmap "$probe" >/dev/null 2>&1
+      new() { [ "$(wc -l < "$log")" -lt "$base" ] && base=0; tail -n +$((base + 1)) "$log"; }
+      for i in $(seq 1 20); do new | grep -q "$probe" && break; sleep 1; done
+      other=$(new | jq -Rr 'fromjson? | select((.objectRef.resource // "non-resource") as $r | ["pods","secrets","configmaps"] | index($r) | not) | "\(.verb) \(.objectRef.resource // .requestURI)"')
+      [ -z "$other" ] && { echo 0; exit 0; }
+      echo "$(echo "$other" | wc -l | xargs) other events since this check started, for example: $(echo "$other" | sort | uniq -c | sort -rn | head -n 3 | awk '{print $2" "$3}' | paste -sd, -)"
     expect: {equals: "0"}
     explain: >-
-      Without a final catch-all rule with level None, requests that match no rule are simply not logged either — but being explicit protects against a later rule change accidentally logging everything. If other resources show up, an earlier rule is too broad.
+      The check notes where the log ends, sends requests for Nodes, Namespaces and /version, waits until a marker request shows up in the log and then looks only at the lines written in between: none of them may be about anything but Pods, Secrets and ConfigMaps. Lines an earlier policy wrote are ignored. If other resources show up, a rule is too broad — and remember that the API server reads the policy only when it starts.

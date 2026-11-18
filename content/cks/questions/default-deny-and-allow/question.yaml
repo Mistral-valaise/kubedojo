@@ -33,6 +33,7 @@ checks:
       An empty podSelector matches every Pod of the Namespace. Listing a policy type without any rule for it means "allow nothing" in that direction.
   - id: client-vault
     title: client can connect to the vault Pod on port 8200
+    guard: true
     type: exec
     run: |-
       kubectl -n sec-vault exec deploy/client -- nc -z -w 4 "$(kubectl -n sec-vault get pod -l app=vault -o jsonpath='{.items[0].status.podIP}')" 8200 && echo open || echo blocked
@@ -41,6 +42,7 @@ checks:
       With deny in both directions this needs two permissions: egress from client to the vault Pods and ingress on vault from client. If one is missing the connection times out.
   - id: client-dns
     title: client can resolve DNS names
+    guard: true
     type: exec
     run: |-
       kubectl -n sec-vault exec deploy/client -- nslookup -timeout=3 vault.sec-vault.svc.cluster.local >/dev/null 2>&1 && echo resolves || echo fails
@@ -51,7 +53,9 @@ checks:
     title: Other Pods cannot connect to vault
     type: exec
     run: |-
-      kubectl -n sec-vault exec deploy/batch -- nc -z -w 3 "$(kubectl -n sec-vault get pod -l app=vault -o jsonpath='{.items[0].status.podIP}')" 8200 && echo open || echo blocked
+      ip=$(kubectl -n sec-vault get pod -l app=vault -o jsonpath='{.items[0].status.podIP}'); [ -n "$ip" ] || { echo "no running vault Pod to probe" >&2; exit 1; }
+      kubectl -n sec-vault exec deploy/batch -- true >/dev/null || { echo "cannot run a command in deploy/batch: the probe needs this Pod" >&2; exit 1; }
+      kubectl -n sec-vault exec deploy/batch -- nc -z -w 3 "$ip" 8200 && echo open || echo blocked
     expect: {equals: blocked}
     explain: >-
       Only app=client was to be allowed. A rule with an empty podSelector under `from` would allow the whole Namespace.
@@ -59,6 +63,7 @@ checks:
     title: client cannot reach the Kubernetes API
     type: exec
     run: |-
+      kubectl -n sec-vault exec deploy/client -- true >/dev/null || { echo "cannot run a command in deploy/client: the probe needs this Pod" >&2; exit 1; }
       kubectl -n sec-vault exec deploy/client -- nc -z -w 3 "$(kubectl get svc kubernetes -o jsonpath='{.spec.clusterIP}')" 443 && echo open || echo blocked
     expect: {equals: blocked}
     explain: >-

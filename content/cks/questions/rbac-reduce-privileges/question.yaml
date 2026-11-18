@@ -21,6 +21,7 @@ hints:
 checks:
   - id: needed
     title: The ServiceAccount can list Pods and get ConfigMaps in sec-heron
+    guard: true
     type: exec
     run: |-
       a=$(kubectl -n sec-heron auth can-i list pods --as system:serviceaccount:sec-heron:report-reader); b=$(kubectl -n sec-heron auth can-i get configmaps --as system:serviceaccount:sec-heron:report-reader); echo "$a $b"
@@ -53,6 +54,7 @@ checks:
       Only the verbs get and list are needed.
   - id: admin-intact
     title: ClusterRole cluster-admin still exists
+    guard: true
     type: resource
     resource: clusterrole/cluster-admin
     explain: >-

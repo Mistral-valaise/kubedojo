@@ -31,14 +31,17 @@ checks:
       The policy's podSelector under `from` must match the labels of the calling Pods, and `ports` must list the port the destination Pods listen on.
   - id: intruder-blocked
     title: Other Pods are still blocked
+    guard: true
     type: exec
     run: |-
+      kubectl -n team-crane exec deploy/intruder -- true >/dev/null || { echo "cannot run a command in deploy/intruder: the probe needs this Pod" >&2; exit 1; }
       kubectl -n team-crane exec deploy/intruder -- wget -qO- -T 4 http://backend >/dev/null 2>&1 && echo reachable || echo blocked
     expect: {equals: blocked}
     explain: >-
       Deleting the policy, or allowing an empty podSelector, would open the backend to every Pod. The fix must stay as narrow as intended.
   - id: policy-kept
     title: NetworkPolicy backend-allow still protects app=backend
+    guard: true
     type: resource
     resource: networkpolicy/backend-allow
     namespace: team-crane

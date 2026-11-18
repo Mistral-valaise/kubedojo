@@ -38,6 +38,7 @@ checks:
       The digest is the part after the @, including the sha256: prefix.
   - id: running
     title: All replicas run the pinned image
+    guard: true
     type: resource
     resource: deployment/edge
     namespace: sec-swift

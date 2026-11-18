@@ -33,12 +33,15 @@ checks:
     title: legacy-db.corp.internal resolves to 10.20.30.40
     type: exec
     run: |-
-      dig +short +time=2 +tries=1 @$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}') legacy-db.corp.internal
+      ips=$(kubectl -n kube-system get pod -l k8s-app=kube-dns -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.status.podIP}{"\n"}{end}'); [ -n "$ips" ] || { echo "no running CoreDNS Pod" >&2; exit 1; }
+      for ip in $ips; do a=$(dig +short +time=2 +tries=1 @$ip legacy-db.corp.internal | tail -n 1); echo "${a:-no-answer}"; done | sort -u | xargs
     expect: {equals: 10.20.30.40}
+    retry: 90s
     explain: >-
       The hosts plugin answers static records from inside CoreDNS, so every Pod sees them without changes to the Pods.
   - id: cluster
     title: Cluster-internal names still resolve
+    guard: true
     type: exec
     run: |-
       dig +short +time=2 +tries=1 @$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}') kubernetes.default.svc.cluster.local

@@ -40,6 +40,7 @@ checks:
       The scheduler places Pods by requests. A request larger than any node's allocatable CPU can never be satisfied ("Insufficient cpu").
   - id: selector-kept
     title: The nodeSelector disk=ssd is still in place
+    guard: true
     type: resource
     resource: deployment/indexer
     namespace: team-finch

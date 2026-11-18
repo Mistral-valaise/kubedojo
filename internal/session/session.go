@@ -150,6 +150,7 @@ type Manager struct {
 	mu     sync.Mutex
 	byID   map[string]*Session
 	stopCh chan struct{}
+	settle time.Duration
 }
 
 type Config struct {
@@ -161,7 +162,11 @@ type Config struct {
 	MaxSessions int
 	// IdleTTL removes sandboxes nobody looked at for this long (0 = never).
 	IdleTTL time.Duration
-	Hooks   Hooks
+	// GradeSettle is how long exam grading keeps re-running failed checks so
+	// that state which is still converging (rollouts, endpoints) is graded
+	// once it has settled. Zero means the default of 20s; negative disables it.
+	GradeSettle time.Duration
+	Hooks       Hooks
 }
 
 func NewManager(c Config) (*Manager, error) {
@@ -175,6 +180,10 @@ func NewManager(c Config) (*Manager, error) {
 	}
 	if m.max == 0 {
 		m.max = 3
+	}
+	m.settle = c.GradeSettle
+	if m.settle == 0 {
+		m.settle = 20 * time.Second
 	}
 	raws, err := c.Store.LoadSessions()
 	if err != nil {
@@ -785,11 +794,44 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 		for _, d := range t.Domains {
 			dom[d.ID] = &DomainScore{ID: d.ID, Title: d.Title, Weight: d.Weight}
 		}
+		results := make([]checker.Result, len(s.Questions))
 		for i, qs := range s.Questions {
 			q := t.Question(qs.ID)
 			logf("Grading question %d of %d ...", i+1, len(s.Questions))
-			res := checker.Run(ctx, q, m.runner(s, q))
+			results[i] = checker.Run(ctx, q, m.runner(s, q))
+			res := results[i]
 			m.update(s, func() { qs.Last = &res })
+		}
+		// One shared window for everything that failed: answers given just
+		// before the deadline may still be converging. The window is shared so
+		// an unanswered exam is not graded for minutes.
+		end := time.Now().Add(m.settle)
+		for round := 1; m.settle > 0 && time.Now().Before(end); round++ {
+			open := 0
+			for i, qs := range s.Questions {
+				if results[i].Passed || !time.Now().Before(end) {
+					continue
+				}
+				if open == 0 {
+					logf("Re-checking answers that were still settling (round %d) ...", round)
+				}
+				open++
+				q := t.Question(qs.ID)
+				results[i] = checker.Recheck(ctx, q, m.runner(s, q), results[i])
+				res := results[i]
+				m.update(s, func() { qs.Last = &res })
+			}
+			if open == 0 {
+				break
+			}
+			select {
+			case <-time.After(3 * time.Second):
+			case <-ctx.Done():
+			}
+		}
+		for i, qs := range s.Questions {
+			q := t.Question(qs.ID)
+			res := results[i]
 			rep.Score += res.Score
 			rep.Max += res.Max
 			dom[q.Domain].Score += res.Score
