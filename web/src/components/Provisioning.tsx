@@ -4,7 +4,8 @@ import { t } from "../i18n";
 import { Spinner } from "./ui";
 
 /** Shown in place of the terminal while the sandbox is being created. */
-export function Provisioning({ session, title, note }: { session: Session | null; title: string; note?: string }) {
+/** The note says what is being set up; it is empty when the track is not known yet or has no sandbox. */
+export function Provisioning({ session, title, note }: { session: Session | null; title: string; note: string }) {
   const end = useRef<HTMLDivElement>(null);
   const log = session?.log ?? [];
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [log.length]);
@@ -15,7 +16,7 @@ export function Provisioning({ session, title, note }: { session: Session | null
           <Spinner className="text-[#5b9dff]" />
           <h2 className="text-lg font-semibold">{title}</h2>
         </div>
-        <p className="mb-5 pl-8 text-sm text-[#8d99b3]">{note ?? t("A real Kubernetes cluster is being created for you. This takes about a minute.")}</p>
+        <p className="mb-5 min-h-5 pl-8 text-sm text-[#8d99b3]">{note}</p>
         <div className="h-56 overflow-y-auto rounded-xl border border-white/10 bg-black/30 p-4 font-mono text-[12.5px] leading-6">
           {log.length === 0 && <div className="text-[#5a6784]">{t("Waiting for the sandbox ...")}</div>}
           {log.map((l, i) => (

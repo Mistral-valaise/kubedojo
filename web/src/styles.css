@@ -113,4 +113,8 @@ button:disabled { cursor: not-allowed; }
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .pulse { animation: pulse-dot 1.4s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .spin, .pulse { animation: none; } }
+.ring-arc { transition: stroke-dashoffset .6s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .spin, .pulse { animation: none; }
+  .ring-arc { transition: none; }
+}

@@ -6,12 +6,20 @@ export interface QuestionMeta {
   minutes: number; environment: string; driver: string; tags: string[] | null;
   track: string; points: number; hints: number;
 }
+export interface Link { title: string; url: string }
 export interface Track {
-  id: string; title: string; short: string; description: string; kubernetesVersion: string;
+  id: string; title: string; short: string; description: string;
+  // How the track is presented; see words() in track.ts.
+  kind: "certification" | "skills" | "theory";
+  docs?: Link[]; kubernetesVersion?: string;
   exam: { durationMinutes: number; passPercent: number; questions: number };
   domains: Domain[]; questions: QuestionMeta[] | null;
-  environments: Record<string, { name: string; workers: number; description: string }>;
+  // Null for a track without a sandbox. An empty type means cluster.
+  environments: Record<string, { name: string; type: "" | "cluster" | "container"; workers: number; description: string }> | null;
 }
+export interface PathStep { track: string; role: "foundation" | "required"; why: string }
+/** The recommended order through the tracks. It never locks a track. */
+export interface Path { id: string; title: string; summary: string; url: string; disclaimer: string; steps: PathStep[] | null }
 export interface CheckResult {
   id: string; title: string; points: number; passed: boolean;
   expected: string; observed: string; explain: string; command: string;
@@ -68,6 +76,11 @@ export const api = {
   config: () => call<Config>("GET", "/config"),
   tracks: () => call<Track[]>("GET", "/tracks"),
   track: (id: string) => call<Track>("GET", `/tracks/${id}`),
+  // Content without a path answers 404, which is not an error for the UI.
+  path: () => call<Path>("GET", "/path").catch((e) => {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }),
   lesson: (track: string, domain: string) => call<{ domain: Domain; markdown: string }>("GET", `/tracks/${track}/lessons/${domain}`),
   progress: (track: string) => call<Progress>("GET", `/tracks/${track}/progress`),
   sessions: () => call<Session[]>("GET", "/sessions"),

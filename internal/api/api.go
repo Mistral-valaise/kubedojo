@@ -49,6 +49,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	mux.HandleFunc("GET /api/config", s.config)
+	mux.HandleFunc("GET /api/path", s.path)
 	mux.HandleFunc("GET /api/tracks", s.tracks)
 	mux.HandleFunc("GET /api/tracks/{track}", s.track)
 	mux.HandleFunc("GET /api/tracks/{track}/lessons/{domain}", s.lesson)

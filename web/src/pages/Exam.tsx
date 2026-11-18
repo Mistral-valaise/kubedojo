@@ -7,6 +7,7 @@ import {
 import { api, type Config, type QuestionView, type Session, type Track } from "../api";
 import { fmtDuration, useInterval } from "../hooks";
 import { t } from "../i18n";
+import { words } from "../track";
 import { Help } from "../components/Help";
 import { Markdown } from "../components/Markdown";
 import { Provisioning } from "../components/Provisioning";
@@ -34,25 +35,26 @@ export function ExamPage() {
   useInterval(() => void refresh(), fast ? 1500 : 10000, !!session && session.status !== "finished" && session.status !== "error");
 
   if (error && !session) return <Page><ErrorNote>{t("This session no longer exists.")} <Link className="underline" to="/">{t("Back to start")}</Link></ErrorNote></Page>;
-  if (!session || !track) return <Page><Spinner /></Page>;
+  if (!session || !track) return <Page docs={null}><Spinner /></Page>;
+  const w = words(track);
 
   switch (session.status) {
     case "provisioning":
-      return <Stage><div className="h-full"><Provisioning session={session} title={t("Preparing your exam")}
-        note={t("Fresh clusters are created and every task is set up. The timer has not started.")} /></div></Stage>;
+      return <Stage><div className="h-full"><Provisioning session={session} title={w.preparingTitle}
+        note={w.assessmentProvisioningNote} /></div></Stage>;
     case "error":
-      return <Page crumbs={[{ label: track.short, to: `/t/${track.id}` }, { label: t("Exam simulation") }]}>
+      return <Page docs={w.docs} crumbs={[{ label: track.short, to: `/t/${track.id}` }, { label: w.assessment }]}>
         <ErrorNote>
-          <div className="mb-1 font-semibold">{t("The exam environment could not be created.")}</div>
+          <div className="mb-1 font-semibold">{w.environmentFailed}</div>
           <div className="mb-3 font-mono text-xs break-words">{session.error}</div>
-          <EndButton sid={session.id} to={`/t/${track.id}`} label={t("Remove sandbox and go back")} />
+          <EndButton sid={session.id} to={`/t/${track.id}`} label={w.leaveAfterFailure} />
         </ErrorNote>
       </Page>;
     case "ready":
       return <Briefing session={session} track={track} onStart={async () => setSession(await api.start(session.id))} />;
     case "grading":
-      return <Stage><div className="h-full"><Provisioning session={session} title={t("Grading your exam")}
-        note={t("Every task is checked against the live clusters.")} /></div></Stage>;
+      return <Stage><div className="h-full"><Provisioning session={session} title={w.gradingTitle}
+        note={w.gradingNote} /></div></Stage>;
     case "finished":
       return <ReportView session={session} track={track} tutor={!!config?.tutor} />;
     default:
@@ -83,27 +85,25 @@ function EndButton({ sid, to, label }: { sid: string; to: string; label: string 
 function Briefing({ session, track, onStart }: { session: Session; track: Track; onStart: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const n = session.questions?.length ?? 0;
-  const hosts = Object.values(session.envs);
+  const hosts = Object.values(session.envs ?? {});
+  const w = words(track);
   return (
-    <Page crumbs={[{ label: track.short, to: `/t/${track.id}` }, { label: t("Exam simulation") }]}>
+    <Page docs={w.assessmentDocs} crumbs={[{ label: track.short, to: `/t/${track.id}` }, { label: w.assessment }]}>
       <Card className="mx-auto max-w-2xl p-8">
-        <Badge tone="ok"><CheckCircle2 className="size-3" />{t("Environment ready")}</Badge>
+        <Badge tone="ok"><CheckCircle2 className="size-3" />{w.environmentReady}</Badge>
         <h1 className="mt-3 text-2xl font-bold tracking-tight">{track.title}</h1>
-        <p className="mt-1 text-muted">{t("{n} tasks · {m} minutes · pass mark {p}%", { n, m: session.durationMinutes, p: track.exam.passPercent })}</p>
+        <p className="mt-1 text-muted">{w.briefingSummary(n, session.durationMinutes, track.exam.passPercent)}</p>
         <ul className="mt-6 space-y-3 text-sm leading-relaxed">
-          {[
-            t("Each task names the host to solve it on. Connect with ssh from the terminal, and return with exit before connecting to another host."),
-            t("Tasks are independent. Skip what blocks you, flag it, and come back later."),
-            t("There is no feedback during the exam. Everything is graded when you finish or when the time is up."),
-            t("You may use the official Kubernetes documentation, like in the real exam."),
-          ].map((x, i) => (
+          {w.briefing.map((x, i) => (
             <li key={i} className="flex gap-3"><span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[11px] font-bold text-accent">{i + 1}</span><span className="text-muted">{x}</span></li>
           ))}
         </ul>
-        <div className="mt-6 flex flex-wrap items-center gap-2 rounded-xl bg-panel2 px-4 py-3 text-sm">
-          <Server className="size-4 text-muted" /><span className="text-muted">{t("Your hosts")}</span>
-          {hosts.map((h) => <code key={h} className="rounded-md border bg-panel px-1.5 py-0.5 font-mono text-xs">{h}</code>)}
-        </div>
+        {hosts.length > 0 && (
+          <div className="mt-6 flex flex-wrap items-center gap-2 rounded-xl bg-panel2 px-4 py-3 text-sm">
+            <Server className="size-4 text-muted" /><span className="text-muted">{t("Your hosts")}</span>
+            {hosts.map((h) => <code key={h} className="rounded-md border bg-panel px-1.5 py-0.5 font-mono text-xs">{h}</code>)}
+          </div>
+        )}
         <div className="mt-7 flex items-center gap-3">
           <Button variant="primary" size="lg" loading={busy} icon={<Flame className="size-4" />}
             onClick={async () => { setBusy(true); try { await onStart(); } finally { setBusy(false); } }}>
@@ -129,6 +129,7 @@ function Workspace({ session, track, onSession, refresh }: {
   const [notes, setNotes] = useState<Record<string, string>>(() => Object.fromEntries(qs.map((q) => [q.id, q.note])));
   const [flags, setFlags] = useState<Record<string, boolean>>(() => Object.fromEntries(qs.map((q) => [q.id, q.flagged])));
   const cur = qs[idx];
+  const w = words(track);
   const scroller = useRef<HTMLDivElement>(null);
 
   // Local countdown, anchored to the server clock.
@@ -197,7 +198,7 @@ function Workspace({ session, track, onSession, refresh }: {
           <div>
             <label htmlFor="note" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted">{t("Notes")}</label>
             <textarea id="note" value={notes[cur.id] ?? ""} onChange={(e) => setNote(e.target.value)} rows={3}
-              placeholder={t("Private notes for this task ...")}
+              placeholder={w.notePlaceholder}
               className="w-full resize-y rounded-xl border bg-panel2/50 px-3 py-2 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted focus:border-accent" />
           </div>
         </div>
@@ -218,24 +219,26 @@ function Workspace({ session, track, onSession, refresh }: {
       <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-bg px-4">
         <Brand />
         <span className="text-line">/</span>
-        <span className="text-sm text-muted">{track.short} · {t("Exam simulation")}</span>
+        <span className="text-sm text-muted">{track.short} · {w.assessment}</span>
         <div className={cx("ml-auto flex items-center gap-2 rounded-lg border px-3 py-1 font-mono text-sm font-semibold tabular-nums",
           critical ? "border-bad/50 bg-bad-soft text-bad" : low ? "border-warn/50 bg-warn-soft text-warn" : "bg-panel2")}
           role="timer" aria-label={t("Time remaining")}>
           {critical && <AlertTriangle className="size-3.5" />}{fmtDuration(left)}
         </div>
-        <a href="https://kubernetes.io/docs/" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-1 text-sm text-muted hover:text-text">
-          <BookOpen className="size-3.5" />{t("Docs")}
-        </a>
+        {w.assessmentDocs && (
+          <a href={w.assessmentDocs.url} target="_blank" rel="noreferrer" title={w.assessmentDocs.title} className="inline-flex items-center gap-1.5 px-1 text-sm text-muted hover:text-text">
+            <BookOpen className="size-3.5" />{t("Docs")}
+          </a>
+        )}
         <ThemeToggle />
-        <Button size="sm" variant="primary" onClick={() => setConfirm(true)}>{t("Finish exam")}</Button>
+        <Button size="sm" variant="primary" onClick={() => setConfirm(true)}>{w.finishAssessment}</Button>
       </header>
       <Split left={leftPane} right={<TerminalTabs sessionId={session.id} />} storageKey="kubedojo.split.exam" />
       {confirm && (
-        <Modal title={t("Finish the exam?")} onClose={() => !busy && setConfirm(false)}
+        <Modal title={w.finishTitle} onClose={() => !busy && setConfirm(false)}
           footer={<><Button disabled={busy} onClick={() => setConfirm(false)}>{t("Keep working")}</Button><Button variant="primary" loading={busy} onClick={finish}>{t("Finish and grade")}</Button></>}>
           <p>{t("You still have {time} left. After finishing you cannot change your answers.", { time: fmtDuration(left) })}</p>
-          {flagged > 0 && <p className="mt-2 text-warn">{t("{n} task(s) are still flagged for review.", { n: flagged })}</p>}
+          {flagged > 0 && <p className="mt-2 text-warn">{w.flagged(flagged)}</p>}
         </Modal>
       )}
     </div>
@@ -247,10 +250,11 @@ function ReportView({ session, track, tutor }: { session: Session; track: Track;
   const [term, setTerm] = useState(false);
   const qs = session.questions ?? [];
   const solved = qs.filter((q) => q.last?.passed).length;
+  const w = words(track);
   return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <Page crumbs={[{ label: track.short, to: `/t/${track.id}` }, { label: t("Exam report") }]}>
+        <Page docs={w.docs} crumbs={[{ label: track.short, to: `/t/${track.id}` }, { label: w.assessmentReport }]}>
           <Card className={cx("mb-6 flex flex-wrap items-center gap-7 p-7", r.passed ? "border-ok/40" : "border-bad/40")}>
             <Ring value={r.percent} size={140} stroke={12} tone={r.passed ? "ok" : "bad"}>
               <span className="text-3xl font-bold tabular-nums">{r.percent}%</span>
@@ -262,10 +266,10 @@ function ReportView({ session, track, tutor }: { session: Session; track: Track;
                 {r.passed ? t("Passed") : t("Not passed")}
               </div>
               <h1 className="text-2xl font-bold tracking-tight">
-                {r.passed ? t("You would have passed this exam.") : t("{n} percentage points short of the pass mark.", { n: Math.max(0.1, Math.round((r.passPercent - r.percent) * 10) / 10) })}
+                {r.passed ? w.passedHeadline : t("{n} percentage points short of the pass mark.", { n: Math.max(0.1, Math.round((r.passPercent - r.percent) * 10) / 10) })}
               </h1>
               <p className="mt-1.5 text-muted">
-                {t("Pass mark {p}% · {s} of {n} tasks fully solved · time used {time}", { p: r.passPercent, s: solved, n: qs.length, time: fmtDuration(r.usedSeconds) })}
+                {w.reportSummary(r.passPercent, solved, qs.length, fmtDuration(r.usedSeconds))}
               </p>
             </div>
           </Card>
@@ -289,17 +293,19 @@ function ReportView({ session, track, tutor }: { session: Session; track: Track;
                   })}
                 </ul>
               </Card>
-              <Card className="space-y-3 p-5 text-sm">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">{t("Sandbox")}</h2>
-                <p className="leading-relaxed text-muted">{t("The clusters are still running, so you can inspect what you built and retry tasks using the solutions.")}</p>
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" icon={<SquareTerminal className="size-3.5" />} onClick={() => setTerm(!term)}>{term ? t("Hide terminal") : t("Open terminal")}</Button>
-                  <EndButton sid={session.id} to={`/t/${track.id}`} label={t("Remove sandbox")} />
-                </div>
-              </Card>
+              {w.sandbox && (
+                <Card className="space-y-3 p-5 text-sm">
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">{t("Sandbox")}</h2>
+                  <p className="leading-relaxed text-muted">{w.reportSandbox}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" icon={<SquareTerminal className="size-3.5" />} onClick={() => setTerm(!term)}>{term ? t("Hide terminal") : t("Open terminal")}</Button>
+                    <EndButton sid={session.id} to={`/t/${track.id}`} label={t("Remove sandbox")} />
+                  </div>
+                </Card>
+              )}
             </div>
             <div>
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">{t("Task by task")}</h2>
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">{w.reportList}</h2>
               <div className="space-y-3">
                 {qs.map((q, i) => <ReportQuestion key={q.id} n={i + 1} session={session} track={track} qid={q.id} tutor={tutor} />)}
               </div>
@@ -344,7 +350,7 @@ function ReportQuestion({ n, session, track, qid, tutor }: { n: number; session:
             </div>
           )}
           {res && <Results result={res} />}
-          {full && <Help sid={session.id} q={full} result={res} tutor={tutor} confirmSolution={false} />}
+          {full && <Help sid={session.id} q={full} result={res} tutor={tutor} track={track} confirmSolution={false} />}
           <Rating track={track.id} question={qid} />
         </div>
       )}

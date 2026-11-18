@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { BookOpen, CheckCircle2, ChevronRight, Circle, CircleDot, Clock, Play, Sparkles, Timer, Trophy } from "lucide-react";
+import { BookOpen, CheckCircle2, ChevronRight, Circle, CircleDot, Clock, Info, Play, Sparkles, Timer, Trophy } from "lucide-react";
 import { api, type Progress, type QuestionMeta, type Track } from "../api";
 import { useLoad } from "../hooks";
 import { t } from "../i18n";
+import { quickRound, words } from "../track";
 import { Badge, Bar, Button, Card, Difficulty, ErrorNote, Modal, Page, Ring, Spinner, cx } from "../components/ui";
 
 export function TrackPage() {
@@ -11,27 +12,30 @@ export function TrackPage() {
   const track = useLoad(() => api.track(id), [id]);
   const progress = useLoad(() => api.progress(id), [id]);
 
-  if (track.error) return <Page><ErrorNote>{track.error}</ErrorNote></Page>;
-  if (!track.data) return <Page><Spinner /></Page>;
-  const tr = track.data, pr = progress.data;
+  if (track.error) return <Page docs={null}><ErrorNote>{track.error}</ErrorNote></Page>;
+  if (!track.data) return <Page docs={null}><Spinner /></Page>;
+  const tr = track.data, pr = progress.data, w = words(tr);
 
   return (
-    <Page crumbs={[{ label: tr.short }]}>
+    <Page docs={w.docs} crumbs={[{ label: tr.short }]}>
       <div className="mb-8 flex flex-wrap items-center gap-6">
         <Ring value={pr?.readiness ?? 0} tone={pr && pr.readiness >= tr.exam.passPercent ? "ok" : "accent"}>
           <span className="text-2xl font-bold tabular-nums">{Math.round(pr?.readiness ?? 0)}%</span>
           <span className="text-[10px] uppercase tracking-wider text-muted">{t("ready")}</span>
         </Ring>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-64">
           <h1 className="text-3xl font-bold tracking-tight">{tr.title}</h1>
           <p className="mt-1.5 max-w-2xl text-muted">{tr.description}</p>
-          <p className="mt-2 text-sm text-muted">
-            {t("Readiness is your best result per question, weighted like the real exam. Pass mark: {p}%.", { p: tr.exam.passPercent })}
-          </p>
+          <p className="mt-2 text-sm text-muted">{w.readinessNote(tr.exam.passPercent)}</p>
+          {w.kindNote && (
+            <p className="mt-3 flex max-w-2xl items-start gap-2 rounded-xl border bg-panel2/50 px-3.5 py-2.5 text-sm text-muted">
+              <Info className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden /><span>{w.kindNote}</span>
+            </p>
+          )}
         </div>
       </div>
 
-      <div className="mb-10 grid gap-5 lg:grid-cols-[1fr_340px]">
+      <div className="mb-10 grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <Recommendations track={tr} progress={pr} />
         <ExamCard track={tr} progress={pr} />
       </div>
@@ -53,7 +57,7 @@ function Recommendations({ track, progress }: { track: Track; progress: Progress
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><Sparkles className="size-4 text-accent" />{t("What to practise next")}</div>
       {!progress && <Spinner />}
       {progress && recs.length === 0 && (
-        <p className="text-sm text-muted">{t("Every question is solved. Run an exam simulation to prove it under time pressure.")}</p>
+        <p className="text-sm text-muted">{words(track).allSolved}</p>
       )}
       <ul className="space-y-2">
         {recs.map((r, i) => (
@@ -82,6 +86,7 @@ function ExamCard({ track, progress }: { track: Track; progress: Progress | null
   const available = track.questions?.length ?? 0;
   const full = Math.min(track.exam.questions, available);
   const last = progress?.exams.at(-1);
+  const w = words(track), quick = quickRound(track);
 
   const start = async (minutes: number, questions: number) => {
     setBusy(true);
@@ -97,9 +102,9 @@ function ExamCard({ track, progress }: { track: Track; progress: Progress | null
 
   return (
     <Card className="flex flex-col p-5">
-      <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><Timer className="size-4 text-accent" />{t("Exam simulation")}</div>
+      <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><Timer className="size-4 text-accent" />{w.assessment}</div>
       <p className="mb-4 text-sm leading-relaxed text-muted">
-        {t("{q} tasks in {m} minutes, weighted like the real exam. No hints. Graded when you finish.", { q: full, m: track.exam.durationMinutes })}
+        {w.assessmentSummary(full, track.exam.durationMinutes)}
       </p>
       {last && (
         <div className="mb-4 flex items-center gap-2 rounded-lg bg-panel2 px-3 py-2 text-sm">
@@ -110,28 +115,28 @@ function ExamCard({ track, progress }: { track: Track; progress: Progress | null
         </div>
       )}
       <Button variant="primary" className="mt-auto" icon={<Play className="size-4" />} disabled={available === 0} onClick={() => setOpen(true)}>
-        {t("Start exam simulation")}
+        {w.startAssessment}
       </Button>
       {open && (
-        <Modal title={t("Start exam simulation")} onClose={() => !busy && setOpen(false)}>
-          <p className="mb-4">{t("Fresh clusters are created for the exam, which takes one to two minutes. The timer starts only when you say so.")}</p>
+        <Modal title={w.startAssessment} onClose={() => !busy && setOpen(false)}>
+          <p className="mb-4">{w.startNote}</p>
           {error && <div className="mb-3"><ErrorNote>{error}</ErrorNote></div>}
           <div className="space-y-2">
             <button disabled={busy} onClick={() => start(track.exam.durationMinutes, full)}
               className="flex w-full items-center gap-3 rounded-xl border bg-panel2/60 p-3.5 text-left transition hover:border-accent disabled:opacity-50">
               <Timer className="size-5 text-accent" />
               <span className="flex-1">
-                <span className="block font-medium text-text">{t("Full exam")}</span>
-                <span className="text-xs">{t("{q} tasks · {m} minutes", { q: full, m: track.exam.durationMinutes })}</span>
+                <span className="block font-medium text-text">{w.fullAssessment}</span>
+                <span className="text-xs">{w.assessmentOption(full, track.exam.durationMinutes)}</span>
               </span>
               {busy ? <Spinner /> : <ChevronRight className="size-4" />}
             </button>
-            <button disabled={busy} onClick={() => start(35, Math.min(5, available))}
+            <button disabled={busy} onClick={() => start(quick.minutes, quick.questions)}
               className="flex w-full items-center gap-3 rounded-xl border bg-panel2/60 p-3.5 text-left transition hover:border-accent disabled:opacity-50">
               <Clock className="size-5 text-accent" />
               <span className="flex-1">
                 <span className="block font-medium text-text">{t("Quick round")}</span>
-                <span className="text-xs">{t("{q} tasks · {m} minutes", { q: Math.min(5, available), m: 35 })}</span>
+                <span className="text-xs">{w.assessmentOption(quick.questions, quick.minutes)}</span>
               </span>
               <ChevronRight className="size-4" />
             </button>
@@ -152,7 +157,7 @@ function DomainSection({ track, domainId, progress }: { track: Track; domainId: 
         <div className="flex size-11 shrink-0 flex-col items-center justify-center rounded-xl bg-accent-soft text-accent">
           <span className="text-sm font-bold leading-none tabular-nums">{d.weight}%</span>
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-[60%] sm:basis-0">
           <h3 className="font-semibold tracking-tight">{d.title}</h3>
           <p className="truncate text-sm text-muted">{d.summary}</p>
         </div>
@@ -166,7 +171,7 @@ function DomainSection({ track, domainId, progress }: { track: Track; domainId: 
           <Button size="sm" icon={<BookOpen className="size-3.5" />}>{t("Lesson")}</Button>
         </Link>
       </div>
-      {qs.length === 0 && <div className="px-5 py-4 text-sm text-muted">{t("No questions yet.")}</div>}
+      {qs.length === 0 && <div className="px-5 py-4 text-sm text-muted">{words(track).noQuestions}</div>}
       <ul className="divide-y">
         {qs.map((q) => <QuestionRow key={q.id} track={track.id} q={q} best={progress?.questions[q.id]?.best} />)}
       </ul>
