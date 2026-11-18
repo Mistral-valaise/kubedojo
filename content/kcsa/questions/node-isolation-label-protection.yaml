@@ -1,0 +1,36 @@
+title: Node labels that a kubelet cannot forge
+domain: kubernetes-security-fundamentals
+difficulty: hard
+tags: [isolation, node, admission]
+stem: |-
+  Payment workloads select their nodes with the label
+  `example.com.node-restriction.kubernetes.io/pci-dss=true`. An attacker takes over the kubelet of
+  another node and tries to add this label to that node's own Node object to attract those Pods.
+
+  Which feature of the control plane rejects this change?
+options:
+  - text: The Node authorizer
+    explain: >-
+      The Node authorizer is what allows a kubelet to write Node objects in the first place. It does
+      not look at which node or which labels a request changes.
+  - text: The NodeRestriction admission plugin
+    correct: true
+  - text: The PodNodeSelector admission plugin
+    explain: >-
+      PodNodeSelector controls which node selectors the Pods of a namespace may use. It acts on
+      Pods and does not protect the labels of Node objects.
+  - text: The TaintNodesByCondition admission plugin
+    explain: >-
+      It taints newly created Nodes as not ready and unschedulable, so that no Pods land on them
+      before they report their conditions. It does not look at labels.
+explanation: >-
+  The NodeRestriction admission plugin limits a kubelet to modifying its own Node object and the
+  Pods bound to it, and it prevents kubelets from setting or modifying labels with the
+  `node-restriction.kubernetes.io/` prefix. Labels with that prefix can therefore be used for node
+  isolation: a compromised node cannot put them on itself to make the scheduler send it sensitive
+  workloads. The plugin works together with the Node authorizer, which must be enabled as well.
+references:
+  - title: Assigning Pods to Nodes - Node isolation/restriction
+    url: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-isolation-restriction
+  - title: Using Node Authorization
+    url: https://kubernetes.io/docs/reference/access-authn-authz/node/

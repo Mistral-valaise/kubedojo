@@ -1,0 +1,34 @@
+title: Lifecycle phases of cloud native security
+domain: overview-of-cloud-native-security
+difficulty: easy
+tags: [frameworks, supply-chain]
+stem: |-
+  The CNCF cloud native security white paper groups security controls by lifecycle phase: Develop,
+  Distribute, Deploy and Runtime.
+
+  To which phase does the Kubernetes documentation assign scanning container images for known
+  vulnerabilities and keeping them in a private registry?
+options:
+  - text: Develop
+    explain: >-
+      Develop is about the integrity of development environments and about design: threat models,
+      code review, architectures such as zero trust.
+  - text: Deploy
+    explain: >-
+      Deploy restricts what may be deployed, by whom and where. It can enforce results of the
+      earlier phase, for example by verifying image signatures at admission.
+  - text: Runtime
+    explain: >-
+      Runtime covers access, compute and storage of the running cluster: API access control, Pod
+      Security Standards, encryption at rest.
+  - text: Distribute
+    correct: true
+explanation: >-
+  The Distribute phase is about the supply chain of everything you execute: scanning images and
+  other artifacts, encryption in transit with a chain of trust for the software source, timely
+  dependency updates, and restricting access to artifacts with a private registry. The Deploy phase
+  then enforces these results, for instance by checking the cryptographic identity of an image before
+  it is admitted.
+references:
+  - title: Cloud Native Security and Kubernetes
+    url: https://kubernetes.io/docs/concepts/security/cloud-native-security/

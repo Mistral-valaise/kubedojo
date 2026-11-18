@@ -1,0 +1,33 @@
+title: Identity from an X.509 client certificate
+domain: kubernetes-security-fundamentals
+difficulty: easy
+tags: [authentication, certificates]
+stem: |-
+  A user presents a client certificate with the subject `CN=jane, O=dev, O=qa`. The certificate is
+  signed by the CA that the API server uses to verify client certificates.
+
+  Which identity does the API server derive from it?
+options:
+  - text: User `dev` with the groups `jane` and `qa`
+    explain: >-
+      The fields are the other way round: the common name gives the user name and the organization
+      fields give the groups.
+  - text: User `jane` with the groups listed in the User object `jane`
+    explain: >-
+      Kubernetes has no objects that represent normal users. There is nothing to look up; the
+      identity is whatever the authenticator derives from the credential.
+  - text: User `jane` with the groups `dev` and `qa`
+    correct: true
+  - text: User `jane` with the groups of the RoleBindings that name her
+    explain: >-
+      RoleBindings grant permissions to users and groups. They are read during authorization and do
+      not define who belongs to a group.
+explanation: >-
+  When a client certificate is presented and verified, the common name of the subject is used as the
+  user name of the request, and the organization fields give the group memberships; several
+  organization fields mean several groups (every authenticated user is also a member of
+  `system:authenticated`). Kubernetes keeps no user database: normal users are
+  managed outside the cluster and cannot be added through an API call.
+references:
+  - title: Authenticating - X.509 client certificates
+    url: https://kubernetes.io/docs/reference/access-authn-authz/authentication/#x509-client-certificates

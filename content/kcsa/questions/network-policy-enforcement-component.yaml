@@ -1,0 +1,32 @@
+title: Who enforces a NetworkPolicy
+domain: kubernetes-cluster-component-security
+difficulty: easy
+tags: [container-networking, kube-proxy]
+stem: |-
+  An administrator creates a NetworkPolicy that should block all ingress traffic to the Pods of a
+  namespace. The API server accepts the object, but the Pods can still be reached from everywhere.
+
+  Which component is responsible for enforcing NetworkPolicies?
+options:
+  - text: kube-proxy
+    explain: >-
+      kube-proxy programs the forwarding rules that make Services work on each node. It does not
+      read NetworkPolicy objects.
+  - text: kubelet
+    explain: >-
+      The kubelet starts and watches the containers of its node and asks the network plugin to set
+      up Pod networking. It does not filter traffic.
+  - text: The network plugin
+    correct: true
+  - text: kube-apiserver
+    explain: >-
+      The API server validates and stores the NetworkPolicy object, which is why creating it works
+      on every cluster. Storing a policy does not enforce it.
+explanation: >-
+  Network policies are implemented by the network plugin. A NetworkPolicy created in a cluster whose
+  networking solution does not support them is stored and has no effect, without any error. Whether
+  policies are enforced, and whether traffic between nodes is encrypted, are therefore properties of
+  the network plugin you choose.
+references:
+  - title: Network Policies - Prerequisites
+    url: https://kubernetes.io/docs/concepts/services-networking/network-policies/#prerequisites

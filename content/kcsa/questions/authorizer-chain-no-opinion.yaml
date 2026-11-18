@@ -1,0 +1,32 @@
+title: Several authorization modes in a row
+domain: kubernetes-security-fundamentals
+difficulty: hard
+tags: [authorization, api-server]
+stem: |-
+  A kube-apiserver runs with `--authorization-mode=Node,RBAC`. An authenticated user sends a request
+  on which neither the Node authorizer nor RBAC has an opinion: no rule covers it.
+
+  What does the API server do with the request?
+options:
+  - text: It allows the request, because no authorizer has denied it
+    explain: >-
+      Authorization does not default to allow. A request needs an explicit approval from one of the
+      configured authorizers.
+  - text: It passes the request on to the admission controllers, which decide
+    explain: >-
+      Admission control runs only after a request has been authorized, and it can only restrict
+      further. It never grants what authorization did not.
+  - text: It rejects the request with 403 Forbidden
+    correct: true
+  - text: It rejects the request with 401 Unauthorized
+    explain: >-
+      401 is the answer to failed authentication. This user is authenticated; what is missing is
+      permission.
+explanation: >-
+  Authorization modules are checked in the order in which they are configured. As soon as one of them
+  approves or denies the request, that decision is returned and no further module is asked. If all of
+  them have no opinion, the request is denied, and the API server answers with HTTP 403. RBAC itself
+  has no deny rules: it either allows a request or has no opinion.
+references:
+  - title: Authorization
+    url: https://kubernetes.io/docs/reference/access-authn-authz/authorization/
