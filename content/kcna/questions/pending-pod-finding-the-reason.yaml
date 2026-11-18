@@ -1,0 +1,31 @@
+title: Finding out why a Pod stays Pending
+domain: container-orchestration
+difficulty: easy
+tags: [troubleshooting, scheduling]
+stem: |-
+  A Pod has been in phase `Pending` for ten minutes. `kubectl get pod web -o wide` shows `<none>` in
+  the NODE column.
+
+  Which command shows why the Pod has not been placed on a node?
+options:
+  - text: "`kubectl logs web`"
+    explain: >-
+      Logs are what a container writes to stdout and stderr. This Pod has no node, so no container has
+      been started and there is nothing to read.
+  - text: "`kubectl exec web -- ps`"
+    explain: >-
+      `exec` runs a command inside a running container. There is none yet.
+  - text: "`kubectl top pod web`"
+    explain: >-
+      `top` shows the current CPU and memory use of running Pods. It has nothing to report for a Pod
+      that does not run.
+  - text: "`kubectl describe pod web`"
+    correct: true
+explanation: >-
+  A Pod that stays Pending without a node could not be scheduled. The scheduler records the reason as
+  an event on the Pod, for example insufficient CPU or memory on all nodes, and `kubectl describe pod`
+  prints the Pod's state together with its recent events. That makes it the first command for any Pod
+  that does not start; logs and `exec` become useful only once a container runs.
+references:
+  - title: Debug Pods
+    url: https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/

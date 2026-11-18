@@ -1,0 +1,36 @@
+title: Trying a new version on a small share of traffic
+domain: cloud-native-application-delivery
+difficulty: easy
+tags: [rollout, delivery]
+stem: |-
+  Version 2 of a web application is started next to version 1. At first it receives 5% of the live
+  requests. The team compares the error rates of both versions, then raises the share step by step
+  until version 2 serves everything; at any step it can send all traffic back to version 1.
+
+  Which rollout strategy is this?
+options:
+  - text: Canary deployment
+    correct: true
+  - text: Blue-green deployment
+    explain: >-
+      Blue-green keeps two complete environments and switches all production traffic from one to the
+      other at once, after the idle one has been tested. There is no phase with a small share.
+  - text: Rolling update
+    explain: >-
+      A rolling update replaces Pods of the old version by new ones in steps, limited by `maxSurge`
+      and `maxUnavailable`. It runs through on its own and does not hold a traffic share for
+      observation.
+  - text: Recreate deployment
+    explain: >-
+      Recreate stops all Pods of the old version before it starts the new ones. It causes downtime and
+      never runs both versions together.
+explanation: >-
+  A canary deployment sends a small part of the live traffic to the new version and moves the rest
+  gradually, so problems show up under real conditions while few users are affected and the way back
+  is short. In Kubernetes the simple form is two Deployments behind one Service, with the replica
+  counts setting the ratio; service meshes and Gateway API can weight traffic precisely.
+references:
+  - title: CNCF Glossary - Canary Deployment
+    url: https://glossary.cncf.io/canary-deployment/
+  - title: Managing Workloads (Canary deployments)
+    url: https://kubernetes.io/docs/concepts/workloads/management/#canary-deployments

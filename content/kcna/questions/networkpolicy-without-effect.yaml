@@ -1,0 +1,33 @@
+title: A NetworkPolicy that changes nothing
+domain: container-orchestration
+difficulty: medium
+tags: [networking, networkpolicy, cni]
+stem: |-
+  A team applies a NetworkPolicy that selects all Pods of Namespace `shop`, lists `Ingress` in
+  `policyTypes` and contains no ingress rule. `kubectl describe networkpolicy` shows the policy as
+  written, yet Pods from other Namespaces still connect to the Pods in `shop`.
+
+  What is the most likely reason?
+options:
+  - text: A policy isolates Pods only once it contains at least one allow rule
+    explain: >-
+      A policy without rules is the usual "default deny": Pods it selects for a direction are isolated
+      for that direction, and nothing is allowed until rules are added.
+  - text: A policy applies only to Pods that are created after the policy
+    explain: >-
+      A policy selects Pods by label, whenever they were created. Existing Pods are covered as soon as
+      the policy exists.
+  - text: The network plugin of the cluster does not implement NetworkPolicy
+    correct: true
+  - text: The kube-proxy on each node has to be restarted to load the policy
+    explain: >-
+      kube-proxy implements Services, not NetworkPolicies, and neither needs a restart to pick up new
+      objects.
+explanation: >-
+  The API server stores a NetworkPolicy, but it does not enforce it. Enforcement is the job of the
+  network plugin, and creating a NetworkPolicy in a cluster whose networking solution does not support
+  it has no effect and produces no error. Where it is enforced, a policy that selects Pods for ingress
+  and allows nothing isolates them: only connections that some policy explicitly allows get through.
+references:
+  - title: Network Policies
+    url: https://kubernetes.io/docs/concepts/services-networking/network-policies/

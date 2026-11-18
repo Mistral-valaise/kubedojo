@@ -1,0 +1,35 @@
+title: Capacity for Pods that an autoscaler added
+domain: cloud-native-architecture
+difficulty: medium
+tags: [autoscaling, nodes]
+stem: |-
+  Under load a HorizontalPodAutoscaler raises a Deployment from 8 to 20 replicas. Six of the new Pods
+  stay Pending; their events say that no node has enough free CPU. The requests of the Pods are sized
+  correctly.
+
+  Which component resolves this situation automatically?
+options:
+  - text: HorizontalPodAutoscaler
+    explain: >-
+      It changes the number of replicas of a workload, which it has already done. It cannot create the
+      nodes those replicas need.
+  - text: VerticalPodAutoscaler
+    explain: >-
+      It adjusts the CPU and memory requests of Pods. Smaller requests could make Pods fit, but the
+      stem says the requests are right; it does not add capacity.
+  - text: Cluster Autoscaler
+    correct: true
+  - text: Kubernetes Event-driven Autoscaler (KEDA)
+    explain: >-
+      KEDA scales workloads by events, such as the length of a queue. Like the HPA it produces Pods,
+      not nodes.
+explanation: >-
+  Autoscaling works on two levels. Workload autoscalers change Pods: horizontally in number (HPA, KEDA)
+  or vertically in requested resources (VPA). Node autoscalers such as Cluster Autoscaler or Karpenter
+  change the cluster: they provision new nodes when Pods cannot be scheduled on the existing ones and
+  consolidate nodes that are no longer needed. The two are meant to be combined, as here.
+references:
+  - title: Node Autoscaling
+    url: https://kubernetes.io/docs/concepts/cluster-administration/node-autoscaling/
+  - title: Autoscaling Workloads
+    url: https://kubernetes.io/docs/concepts/workloads/autoscaling/

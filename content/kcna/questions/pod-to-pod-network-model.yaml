@@ -1,0 +1,32 @@
+title: Pods talking across nodes
+domain: container-orchestration
+difficulty: easy
+tags: [networking, pods]
+stem: |-
+  Pod `a` runs on node 1 and Pod `b` runs on node 2 of the same cluster. No NetworkPolicy exists.
+  Pod `a` opens a connection to Pod `b`.
+
+  How does the Kubernetes network model let the two Pods communicate?
+options:
+  - text: Only through a Service, because a Pod IP is valid on its own node only
+    explain: >-
+      A Pod IP is unique in the whole cluster and reachable from every node. Services add a stable
+      name and load balancing in front of changing Pods; they are not needed for reachability.
+  - text: Directly, using the Pod IP of `b`, without address translation
+    correct: true
+  - text: Through the IP of node 2, on a port that the node maps to Pod `b`
+    explain: >-
+      That describes port mapping as a single container host does it. In Kubernetes every Pod has its
+      own IP address, so Pods do not share the port range of their node.
+  - text: Only after a NetworkPolicy allows traffic between node 1 and node 2
+    explain: >-
+      It is the other way round. Without a NetworkPolicy that selects them, Pods accept all
+      connections. Policies restrict traffic; they are not needed to enable it.
+explanation: >-
+  The Kubernetes network model gives every Pod its own cluster-wide unique IP address, and all Pods can
+  reach all other Pods, on the same node or on another, without proxies or network address translation
+  (NAT). Kubernetes only defines this model; a pod network implementation, usually called a CNI plugin,
+  provides it. Containers inside one Pod share a network namespace and reach each other on `localhost`.
+references:
+  - title: Services, Load Balancing, and Networking (the Kubernetes network model)
+    url: https://kubernetes.io/docs/concepts/services-networking/

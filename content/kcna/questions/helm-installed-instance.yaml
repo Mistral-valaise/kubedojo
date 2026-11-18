@@ -1,0 +1,34 @@
+title: Helm's name for an installed instance
+domain: cloud-native-application-delivery
+difficulty: easy
+tags: [helm, delivery]
+stem: |-
+  A team needs two independent databases in one cluster. It runs `helm install` twice with the same
+  database package, each time with a different name and different values.
+
+  What does Helm call each of the two results that now run in the cluster?
+options:
+  - text: A chart
+    explain: >-
+      The chart is the package: the templates and default values needed to run an application. Both
+      installations here come from the same chart.
+  - text: A repository
+    explain: >-
+      A repository is the place where charts are collected and shared, comparable to a package
+      archive.
+  - text: A revision
+    explain: >-
+      A revision is one version in the history of a single installation: it starts at 1 and goes up
+      with every upgrade or rollback.
+  - text: A release
+    correct: true
+explanation: >-
+  Helm works with three concepts. A chart is a Helm package, a repository is where charts are collected
+  and shared, and a release is an instance of a chart running in a cluster. One chart can be installed
+  many times; each installation merges the chart with its own values and is tracked as a separate
+  release under its own name, which is also what `helm upgrade` and `helm rollback` act on.
+references:
+  - title: Helm - Introduction to Helm (Concepts)
+    url: https://helm.sh/docs/intro/introduction/
+  - title: Helm - Using Helm
+    url: https://helm.sh/docs/intro/using_helm/

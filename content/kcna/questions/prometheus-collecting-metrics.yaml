@@ -1,0 +1,32 @@
+title: How Prometheus gets metrics from an application
+domain: cloud-native-architecture
+difficulty: easy
+tags: [observability, prometheus]
+stem: |-
+  A long-running web service is instrumented with a Prometheus client library and should be monitored
+  by a Prometheus server in the usual way.
+
+  How do the service's metrics reach the Prometheus server?
+options:
+  - text: The service pushes each sample to the server as it is recorded
+    explain: >-
+      Push is how many other monitoring systems work. Prometheus is built around the opposite
+      direction: the server decides when it collects from which target.
+  - text: The server scrapes an HTTP endpoint of the service at intervals
+    correct: true
+  - text: The service sends its samples to a Pushgateway next to the server
+    explain: >-
+      The Pushgateway exists for short-lived jobs that may end before they are scraped. Prometheus
+      then scrapes the gateway; it is not the path for a long-running service.
+  - text: The server reads the service's log output and counts matching lines
+    explain: >-
+      Deriving numbers from log lines is the work of log pipelines. Prometheus stores numeric time
+      series that targets expose themselves.
+explanation: >-
+  Prometheus collects time series with a pull model over HTTP: the server scrapes the metrics endpoint
+  that each instrumented target exposes, stores the samples locally with a timestamp and labels, and
+  evaluates queries and alert rules on them with PromQL. Only short-lived jobs go through the
+  Pushgateway, and alerts are handed to the Alertmanager.
+references:
+  - title: Prometheus - Overview
+    url: https://prometheus.io/docs/introduction/overview/
