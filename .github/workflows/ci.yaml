@@ -79,7 +79,7 @@ jobs:
       - run: sudo sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_user_watches=1048576
       - run: make images go
       - run: ./bin/kubedojo content test --track ${{ matrix.track }} --report content-${{ matrix.track }}.json
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: content-report-${{ matrix.track }}
@@ -107,7 +107,7 @@ jobs:
       - run: ./bin/kubedojo content test --track ${{ matrix.track }} --repeat 2 --report repeat-${{ matrix.track }}.json
       - run: ./bin/kubedojo content test --track ${{ matrix.track }} --exam --report exam-${{ matrix.track }}.json
         if: always()
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: content-nightly-${{ matrix.track }}
