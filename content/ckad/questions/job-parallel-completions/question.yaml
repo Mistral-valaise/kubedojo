@@ -1,0 +1,64 @@
+title: Job with parallel completions
+domain: application-design-build
+difficulty: easy
+minutes: 5
+environment: base
+tags: [job]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A batch of thumbnails has to be rendered. Create a Job named `thumbnailer` in Namespace `app-bobcat`:
+
+  - one container named `render`, image `busybox:1.36`, command
+    `sh -c 'sleep 2; echo "rendered by $HOSTNAME"'`
+  - the Job is done after `6` Pods have succeeded
+  - `3` Pods run at the same time
+  - the Job gives up after `2` failed retries
+
+  Wait until the Job has completed, then write the names of the Pods it ran to
+  `/opt/course/bobcat/pods`, one name per line.
+hints:
+  - "`kubectl create job --help`: the generator gives you the Job with its command; three fields are missing and all three sit directly under `spec`."
+  - "`completions`, `parallelism` and `backoffLimit`. A Job labels its Pods with `job-name=<job>`."
+  - "`kubectl -n app-bobcat get pods -l job-name=thumbnailer -o custom-columns=:metadata.name --no-headers > /opt/course/bobcat/pods`"
+checks:
+  - id: spec
+    title: Job thumbnailer asks for 6 completions, 3 in parallel, backoffLimit 2
+    type: resource
+    resource: job/thumbnailer
+    namespace: app-bobcat
+    jsonpath: "{.spec.completions} {.spec.parallelism} {.spec.backoffLimit}"
+    expect: {equals: "6 3 2"}
+    explain: >-
+      completions is how many Pods must succeed, parallelism how many may run at once, backoffLimit how many failures the Job tolerates before it is marked Failed (default 6). The Pod template of a Job is immutable, so fixing a typo there means deleting and recreating the Job.
+  - id: completed
+    title: The Job has completed with 6 succeeded Pods
+    type: exec
+    run: |-
+      kubectl -n app-bobcat get job thumbnailer -o jsonpath='{.status.succeeded} {.status.conditions[?(@.type=="Complete")].status}'
+    expect: {equals: "6 True"}
+    retry: 30s
+    explain: >-
+      A Job is finished when its Complete condition is True; `kubectl wait --for=condition=complete job/<name>` blocks until then. Pods of a Job need restartPolicy Never or OnFailure.
+  - id: output
+    title: Every Pod ran the given command in container render
+    type: exec
+    run: |-
+      kubectl -n app-bobcat logs -l job-name=thumbnailer -c render --tail=-1 --max-log-requests 20 | grep -c -E '^rendered by thumbnailer-'
+    expect: {equals: "6"}
+    retry: 30s
+    explain: >-
+      `$HOSTNAME` is expanded by the shell inside the container, where it is the Pod name. In YAML the command needs `sh -c` with the whole script as one argument.
+  - id: file
+    title: /opt/course/bobcat/pods lists the Job's Pods
+    type: exec
+    run: |-
+      f=/opt/course/bobcat/pods
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      want=$(kubectl -n app-bobcat get pods -l job-name=thumbnailer -o name | sed 's|^pod/||' | sort)
+      [ -n "$want" ] || { echo "Job thumbnailer has no Pods" >&2; exit 1; }
+      got=$(sed -e 's|^pod/||' -e 's/[[:space:]]//g' "$f" | grep -v '^$' | sort)
+      [ "$want" = "$got" ] && echo match || { echo "expected the Pods: $(echo $want), found in the file: $(echo $got)" >&2; exit 1; }
+    expect: {equals: match}
+    explain: >-
+      The Job controller labels its Pods with `job-name=<job>`, which is the selector to find them, their logs and their state.

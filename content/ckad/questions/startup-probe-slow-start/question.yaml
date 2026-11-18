@@ -1,0 +1,61 @@
+title: Slow starter is killed before it is up
+domain: application-observability-maintenance
+difficulty: medium
+minutes: 7
+environment: base
+tags: [probes, startup, liveness, crashloop]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `ledger` in Namespace `app-lemur` restarts forever and never becomes ready. The
+  application replays a journal when it starts, which takes up to 30 seconds, and only then answers
+  on `GET /healthz` on port `8080`. The liveness probe kills the container before that.
+
+  The liveness probe is tuned the way the team wants it for a **running** application and must stay
+  exactly as it is. Give the application time to start instead:
+
+  - add a **startup probe** to container `ledger` that uses the same HTTP endpoint as the liveness probe
+  - it must allow the application at least `60` seconds to start
+
+  Afterwards both replicas must be ready and must not restart any more. Do not change the image,
+  the command or the other probes.
+hints:
+  - "`kubectl -n app-lemur describe pod -l app=ledger` shows `Liveness probe failed` and `Killing` in the Events. Compare how long the liveness probe waits (period × failureThreshold) with how long the app needs."
+  - "While a `startupProbe` has not succeeded, liveness and readiness probes do not run. Its budget is `failureThreshold × periodSeconds`."
+  - "`startupProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5, failureThreshold: 12}` next to the other probes, then `kubectl -n app-lemur rollout status deploy ledger`."
+checks:
+  - id: startup-endpoint
+    title: The startup probe asks GET /healthz on port 8080
+    type: resource
+    resource: deployment/ledger
+    namespace: app-lemur
+    jsonpath: "{.spec.template.spec.containers[0].startupProbe.httpGet.path} {.spec.template.spec.containers[0].startupProbe.httpGet.port}"
+    expect: {matches: "^/healthz (8080|http)$"}
+    explain: >-
+      The startup probe usually reuses the liveness endpoint: "is the app up at all?" is the same question, asked with more patience. The port may be given as number or as the port's name.
+  - id: startup-budget
+    title: The startup probe allows at least 60 seconds
+    type: exec
+    run: |-
+      kubectl -n app-lemur get deployment ledger -o json | jq -r '.spec.template.spec.containers[0].startupProbe | if . == null then "no startupProbe" else ((.failureThreshold // 3) * (.periodSeconds // 10)) as $b | if $b >= 60 then "enough" else "only \($b)s" end end'
+    expect: {equals: enough}
+    explain: >-
+      The app may take failureThreshold × periodSeconds to start (defaults 3 × 10s = 30s, too tight here). It is not a delay: as soon as the probe succeeds once, the startup phase is over and the liveness probe takes over.
+  - id: liveness-kept
+    title: The liveness probe is unchanged
+    guard: true
+    type: exec
+    run: |-
+      kubectl -n app-lemur get deployment ledger -o json | jq -r '.spec.template.spec.containers[0].livenessProbe | "\(.httpGet.path) \(.httpGet.port) delay=\(.initialDelaySeconds // 0) period=\(.periodSeconds) failures=\(.failureThreshold)"'
+    expect: {equals: "/healthz http delay=0 period=5 failures=3"}
+    explain: >-
+      Raising initialDelaySeconds or failureThreshold of the liveness probe also stops the restarts, but it makes the probe slow for the whole life of the container: a hung app would then be detected much later. The startup probe separates "slow to start" from "slow to notice a failure".
+  - id: stable
+    title: Both Pods are Ready and have not restarted
+    type: exec
+    retry: 60s
+    run: |-
+      kubectl -n app-lemur get pod -l app=ledger -o json | jq -r '[.items[] | select(.metadata.deletionTimestamp == null)] | "\(length) pods, \([.[] | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))] | length) ready, \([.[].status.containerStatuses[]?.restartCount] | add // 0) restarts"'
+    expect: {equals: "2 pods, 2 ready, 0 restarts"}
+    explain: >-
+      The restart count belongs to a Pod. A changed Pod template rolls out new Pods that start at 0, so any restart you still see happened with your new probes: the startup budget is too small or the probe asks the wrong endpoint.

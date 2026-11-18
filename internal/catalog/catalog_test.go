@@ -17,7 +17,7 @@ func TestShippedContentIsValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("content is invalid:\n%v", err)
 	}
-	for _, id := range []string{"cka", "cks"} {
+	for _, id := range []string{"cka", "ckad", "cks"} {
 		tr := cat.Tracks[id]
 		if tr == nil {
 			t.Fatalf("track %s is missing", id)

@@ -1,0 +1,71 @@
+title: Expose two container ports by name
+domain: services-networking
+difficulty: medium
+minutes: 7
+environment: base
+tags: [service, named-ports, nodeport]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `telemetry` in Namespace `app-weasel` serves two container ports, named `http` and
+  `metrics`. The team will change the port numbers in a later image version, so no Service may contain
+  them: every `targetPort` must refer to the container port by its **name**.
+
+  1. Create a Service named `telemetry` of type `ClusterIP` with two ports:
+     - a port named `web`: Service port `80`, forwarding to container port `http`
+     - a port named `metrics`: Service port `9090`, forwarding to container port `metrics`
+  2. Create a second Service named `telemetry-ext` of type `NodePort` with one port named `web`:
+     Service port `80`, forwarding to container port `http`, reachable on every node on port `31743`.
+
+  Do not change the Deployment.
+hints:
+  - "The container port names are in the Pod template: `kubectl -n app-weasel get deploy telemetry -o yaml`. A Service with more than one port must give each port a `name`."
+  - "`kubectl expose` cannot set port names, named target ports or a fixed nodePort. Generate a skeleton with `kubectl -n app-weasel expose deploy telemetry --port 80 $do`, then edit `spec.ports`."
+  - "Each port entry looks like `{name: web, port: 80, targetPort: http}`: targetPort takes the container port's name as a string. For the second Service add `type: NodePort` and `nodePort: 31743` to its port entry."
+checks:
+  - id: ports
+    title: Service telemetry maps web 80 and metrics 9090 to the named container ports
+    type: exec
+    run: |-
+      kubectl -n app-weasel get service telemetry -o jsonpath='{.spec.type}{"\n"}{range .spec.ports[*]}{.name}|{.protocol}|{.port}|{.targetPort}{"\n"}{end}'
+    expect: {sameLines: ["ClusterIP", "web|TCP|80|http", "metrics|TCP|9090|metrics"]}
+    explain: >-
+      port is what clients of the Service use, targetPort where the Pod listens. A targetPort given as a name is looked up in each Pod's containerPort names, so the container port number can change without touching the Service. Multi-port Services need a name per port.
+  - id: web-reachable
+    title: The web port answers on the ClusterIP, port 80
+    type: exec
+    run: |-
+      ip=$(kubectl -n app-weasel get service telemetry -o jsonpath='{.spec.clusterIP}') || exit 1
+      curl -s -m 4 "http://$ip:80/"
+    expect: {equals: telemetry web ok}
+    retry: 20s
+    explain: >-
+      The Service needs a selector matching the Pod labels (app=telemetry) and a targetPort that exists in the Pods. A misspelled port name gives a Service whose endpoints have no usable port: `kubectl get endpointslices` shows it.
+  - id: metrics-reachable
+    title: The metrics port answers on the ClusterIP, port 9090
+    type: exec
+    run: |-
+      ip=$(kubectl -n app-weasel get service telemetry -o jsonpath='{.spec.clusterIP}') || exit 1
+      curl -s -m 4 "http://$ip:9090/"
+    expect: {equals: telemetry_up 1}
+    retry: 20s
+    explain: >-
+      Each Service port is forwarded on its own. If 9090 returns the web answer, both ports point at the same targetPort.
+  - id: nodeport
+    title: Service telemetry-ext is a NodePort Service for web on node port 31743
+    type: exec
+    run: |-
+      kubectl -n app-weasel get service telemetry-ext -o jsonpath='{.spec.type}{"\n"}{range .spec.ports[*]}{.name}|{.protocol}|{.port}|{.targetPort}|{.nodePort}{"\n"}{end}'
+    expect: {sameLines: ["NodePort", "web|TCP|80|http|31743"]}
+    explain: >-
+      A NodePort Service is a ClusterIP Service plus a port opened on every node. Without an explicit nodePort Kubernetes picks a random one from 30000-32767; `kubectl expose` and `kubectl create service nodeport` do not produce a named targetPort, so the YAML has to be edited.
+  - id: nodeport-reachable
+    title: The web port answers on a node's port 31743
+    type: exec
+    run: |-
+      node=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}') || exit 1
+      curl -s -m 4 "http://$node:31743/"
+    expect: {equals: telemetry web ok}
+    retry: 20s
+    explain: >-
+      kube-proxy opens the node port on every node, including nodes that run none of the Pods, and forwards to the same endpoints as the ClusterIP.

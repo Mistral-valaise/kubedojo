@@ -1,0 +1,68 @@
+title: Init container prepares the content
+domain: application-design-build
+difficulty: medium
+minutes: 7
+environment: base
+tags: [init-container, emptydir, deployment]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `docs` in Namespace `app-cougar` serves the nginx default page through Service `docs`.
+  It should serve a page that is generated when a Pod starts.
+
+  Extend the Deployment:
+
+  - Add an init container named `fetch-content`, image `busybox:1.36`, that runs
+    `sh -c 'echo "cougar docs build 7 on $(hostname)" > /site/index.html'`.
+  - The init container writes into a volume that lives as long as the Pod, mounted at `/site`.
+  - Container `web` mounts the same volume at `/usr/share/nginx/html`.
+
+  Keep the name, image and replica count of the Deployment. When you are done,
+  `curl http://<ClusterIP of Service docs>` from `{{host}}` returns the generated line.
+hints:
+  - "Init containers run to completion before the app containers start. What one container writes, another only sees through a shared volume."
+  - "`kubectl -n app-cougar edit deploy docs`: add `volumes` with an `emptyDir`, `initContainers` next to `containers`, and a `volumeMounts` entry in both containers."
+  - "`initContainers: [{name: fetch-content, image: busybox:1.36, command: [sh, -c, 'echo \"cougar docs build 7 on $(hostname)\" > /site/index.html'], volumeMounts: [{name: site, mountPath: /site}]}]`"
+checks:
+  - id: init
+    title: Deployment docs has the init container fetch-content
+    type: exec
+    run: |-
+      kubectl -n app-cougar get deploy docs -o json | jq -r '.spec.template.spec.initContainers[]? | select(.name=="fetch-content") | "\(.image) \(.restartPolicy // "init")"'
+    expect: {equals: "busybox:1.36 init"}
+    explain: >-
+      Init containers are listed under `initContainers` in the Pod template and must exit before the app containers start. With `restartPolicy: Always` it would be a sidecar that never finishes its one-off job.
+  - id: volume
+    title: fetch-content and web share an emptyDir at the right paths
+    type: exec
+    run: |-
+      kubectl -n app-cougar get deploy docs -o json | jq -r '.spec.template.spec as $s | [$s.volumes[]? | select(.emptyDir != null) | .name] as $v | [($s.initContainers[]? | select(.name=="fetch-content") | .volumeMounts[]? | select(.mountPath=="/site") | .name), "+", ($s.containers[] | select(.name=="web") | .volumeMounts[]? | select(.mountPath=="/usr/share/nginx/html") | .name)] | if length == 3 and .[0] == .[2] and ($v | index(.[0])) != null then "shared emptyDir" else "not shared: \(join(" "))" end'
+    expect: {equals: shared emptyDir}
+    explain: >-
+      Containers of a Pod have separate filesystems. The same emptyDir mounted into both, at whatever path each of them needs, is how an init container hands files to the application.
+  - id: served
+    title: Every Pod behind Service docs serves the generated page
+    type: exec
+    run: |-
+      ns=app-cougar
+      [ "$(kubectl -n $ns get deploy docs -o jsonpath='{.status.updatedReplicas}/{.status.readyReplicas}/{.status.replicas}')" = 2/2/2 ] || { echo "the rollout of Deployment docs is not complete" >&2; exit 1; }
+      ips="$(kubectl -n $ns get svc docs -o jsonpath='{.spec.clusterIP}') $(kubectl -n $ns get endpointslices -l kubernetes.io/service-name=docs -o jsonpath='{.items[*].endpoints[*].addresses[0]}')"
+      [ "$(echo $ips | wc -w)" = 3 ] || { echo "expected Service docs with 2 endpoints, got: $ips" >&2; exit 1; }
+      for ip in $ips; do
+        page=$(curl -s -m 4 "http://$ip/") || { echo "no answer from $ip" >&2; exit 1; }
+        echo "$page" | grep -qE '^cougar docs build 7 on docs-[a-z0-9]+-[a-z0-9]+$' || { echo "$ip serves: $(echo "$page" | head -c 80)" >&2; exit 1; }
+      done
+      echo generated
+    expect: {equals: generated}
+    retry: 30s
+    explain: >-
+      The emptyDir hides the image's own `/usr/share/nginx/html`, so nginx serves exactly what the init container wrote. `$(hostname)` proves that the file was produced inside each Pod at start, not baked into the image.
+  - id: intact
+    title: Deployment and Service are otherwise unchanged
+    guard: true
+    type: exec
+    run: |-
+      echo "$(kubectl -n app-cougar get deploy docs -o jsonpath='{.spec.replicas} {.spec.template.spec.containers[?(@.name=="web")].image}') $(kubectl -n app-cougar get svc docs -o jsonpath='{.spec.selector.app} {.spec.ports[0].port}')"
+    expect: {equals: "2 nginx:1.27-alpine docs 80"}
+    explain: >-
+      The pattern adds a preparation step in front of an unchanged application container.

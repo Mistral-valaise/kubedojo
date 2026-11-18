@@ -1,0 +1,64 @@
+title: Scratch space and persistent data for a read-only container
+domain: application-design-build
+difficulty: hard
+minutes: 10
+environment: base
+tags: [volumes, emptydir, persistentvolumeclaim, deployment]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `ledger` in Namespace `app-coyote` does not come up. Its container runs with a read-only
+  root filesystem, which the security team requires, but it needs two writable directories:
+
+  - `/var/lib/ledger` holds the journal. It must survive a restart of the Pod. Create a
+    PersistentVolumeClaim named `ledger-data` that requests `200Mi` with access mode `ReadWriteOnce`
+    from the cluster's default StorageClass, and mount it there.
+  - `/var/cache/ledger` is scratch space that may be lost with the Pod. Provide it from memory, not
+    from the node's disk, limited to `64Mi`.
+
+  Do not change the image, the command or the securityContext of the container. In the end the
+  Deployment is available and the claim is bound.
+hints:
+  - "`kubectl -n app-coyote logs deploy/ledger` shows which paths the process cannot write. A read-only root filesystem is fine as long as every writable path is a volume."
+  - "Scratch space is an `emptyDir` with `medium: Memory` and `sizeLimit`. The default StorageClass binds on first use: the claim stays `Pending` until a Pod mounts it, that is not an error."
+  - "`volumes: [{name: data, persistentVolumeClaim: {claimName: ledger-data}}, {name: scratch, emptyDir: {medium: Memory, sizeLimit: 64Mi}}]` plus two `volumeMounts` in the container."
+checks:
+  - id: claim
+    title: PersistentVolumeClaim ledger-data is bound
+    type: resource
+    resource: persistentvolumeclaim/ledger-data
+    namespace: app-coyote
+    jsonpath: "{.status.phase} {.spec.storageClassName} {.spec.accessModes[*]} {.spec.resources.requests.storage}"
+    expect: {equals: "Bound standard ReadWriteOnce 200Mi"}
+    retry: 30s
+    explain: >-
+      A claim without storageClassName gets the default class. With volumeBindingMode WaitForFirstConsumer it is provisioned and bound only when a Pod that uses it is scheduled.
+  - id: volumes
+    title: The Deployment mounts the claim and a memory-backed emptyDir at the given paths
+    type: exec
+    run: |-
+      kubectl -n app-coyote get deploy ledger -o json | jq -r '.spec.template.spec as $s | def vol($p): ($s.containers[0].volumeMounts // [] | map(select(.mountPath == $p and (.readOnly != true))) | first | .name) as $n | ($s.volumes // [] | map(select(.name == $n)) | first); "data=\(vol("/var/lib/ledger").persistentVolumeClaim.claimName) scratch=\(vol("/var/cache/ledger").emptyDir | "\(.medium)/\(.sizeLimit)")"'
+    expect: {equals: "data=ledger-data scratch=Memory/64Mi"}
+    explain: >-
+      `volumes` says where the storage comes from, `volumeMounts` where the container sees it; the name connects the two. `medium: Memory` makes the emptyDir a tmpfs, and sizeLimit caps it (the kubelet evicts a Pod that exceeds it).
+  - id: writes
+    title: The Pod is ready and writes the journal to the claim and the heartbeat to memory
+    type: exec
+    run: |-
+      ns=app-coyote
+      [ "$(kubectl -n $ns get deploy ledger -o jsonpath='{.status.updatedReplicas}/{.status.readyReplicas}/{.status.replicas}')" = 1/1/1 ] || { echo "Deployment ledger is not rolled out and ready" >&2; exit 1; }
+      pod=$(kubectl -n $ns get pod -l app=ledger --field-selector status.phase=Running -o jsonpath='{.items[0].metadata.name}') || exit 1
+      kubectl -n $ns exec "$pod" -- sh -c 'test -s /var/lib/ledger/journal.log && test -s /var/cache/ledger/heartbeat || { echo "journal or heartbeat is not written" >&2; exit 1; }; for p in /var/lib/ledger /var/cache/ledger; do while read -r dev mp fs rest; do [ "$mp" = "$p" ] && { [ "$fs" = tmpfs ] && echo "memory $mp" || echo "disk $mp"; }; done < /proc/mounts; done' | xargs
+    expect: {equals: "disk /var/lib/ledger memory /var/cache/ledger"}
+    retry: 30s
+    explain: >-
+      Inside the container `mount` (or /proc/mounts) shows which filesystem backs a path. The journal sits on the volume behind the claim and outlives the Pod; the heartbeat sits on a tmpfs that is gone when the Pod is.
+  - id: hardening-kept
+    title: Image, command and securityContext are unchanged
+    guard: true
+    type: exec
+    run: |-
+      kubectl -n app-coyote get deploy ledger -o json | jq -r '.spec.template.spec.containers[0] | "\(.image) \(.securityContext.readOnlyRootFilesystem) \(.securityContext.runAsUser) \(.command | join(" ") | (contains("> /var/cache/ledger/heartbeat") and contains(">> /var/lib/ledger/journal.log")))"'
+    expect: {equals: "busybox:1.36 true 10001 true"}
+    explain: >-
+      Dropping readOnlyRootFilesystem would also make the Pod start, and the journal would be lost with every restart. Volumes for the paths that need writing keep the hardening in place.

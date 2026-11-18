@@ -1,0 +1,85 @@
+title: Blue/green switch of a Service
+domain: application-deployment
+difficulty: easy
+minutes: 6
+environment: base
+tags: [deployment, blue-green, service]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  In Namespace `app-gecko` the Service `api` sends its traffic to the Pods of Deployment `api-blue`
+  (image `httpd:2.4-alpine`). The next release of the API is built on nginx and has to go live with a
+  blue/green deployment:
+
+  1. Create a Deployment `api-green` with `3` replicas of image `nginx:1.27-alpine`. Its Pods carry
+     the labels `app=api` and `color=green`.
+  2. Once all green Pods are ready, switch the Service `api` so that it sends **all** traffic to the
+     green Pods and none to the blue ones.
+  3. Leave `api-blue` running with its 3 replicas, the team wants to be able to switch back.
+
+  Do not delete and recreate the Service: clients have its ClusterIP configured.
+
+  `curl -sI <ClusterIP>` shows in the `Server` header which version answers.
+hints:
+  - "Compare the Service selector with the Pod labels: `kubectl -n app-gecko get svc api -o wide` and `kubectl -n app-gecko get pod --show-labels`. The selector decides which Deployment gets the traffic."
+  - "Generate the Deployment with `kubectl create deploy ... --dry-run=client -o yaml`, set selector and Pod labels to `app: api, color: green`, apply it and wait with `kubectl rollout status`. Then change only the `color` value of the Service selector."
+  - "`kubectl -n app-gecko patch svc api -p '{\"spec\":{\"selector\":{\"color\":\"green\"}}}'` (or `kubectl -n app-gecko set selector svc api app=api,color=green`)."
+checks:
+  - id: green
+    title: api-green runs 3 ready replicas of nginx 1.27
+    type: resource
+    resource: deployment/api-green
+    namespace: app-gecko
+    jsonpath: "{.spec.template.spec.containers[0].image} {.spec.replicas}/{.status.readyReplicas}"
+    expect: {matches: "^(docker\\.io/(library/)?)?nginx:1\\.27(\\.\\d+)?-alpine 3/3$"}
+    retry: 30s
+    explain: >-
+      Green is a complete second Deployment with its own selector. It must be fully ready before the switch, because the Service moves all traffic at once.
+  - id: only-green
+    title: The endpoints of Service api are exactly the green Pods
+    type: exec
+    run: |-
+      ns=app-gecko
+      eps=$(kubectl -n $ns get endpointslices -l kubernetes.io/service-name=api -o json | jq -r '.items[].endpoints[]? | select(.conditions.ready != false) | .addresses[0]')
+      rs=$(kubectl -n $ns get rs -o json | jq -r '.items[] | select(any(.metadata.ownerReferences[]?; .kind == "Deployment" and .name == "api-green")) | .metadata.name')
+      [ -n "$rs" ] || { echo "Deployment api-green has no ReplicaSet" >&2; exit 1; }
+      pods=$(kubectl -n $ns get pods -o json | jq -r --arg rs "$rs" '.items[] | select(.metadata.deletionTimestamp == null) | select(any(.metadata.ownerReferences[]?; .kind == "ReplicaSet" and (.name as $n | $rs | split("\n") | index($n)))) | .status.podIP // empty')
+      green=0
+      for ip in $eps; do echo "$pods" | grep -qxF "$ip" && green=$((green+1)); done
+      total=$(echo "$eps" | grep -c .)
+      echo "green=$green other=$((total-green))"
+    expect: {equals: "green=3 other=0"}
+    retry: 30s
+    explain: >-
+      A selector with app=api alone would match blue and green Pods and mix both versions. The selector must contain the label that tells them apart.
+  - id: version
+    title: The Service answers with nginx 1.27 only
+    type: exec
+    run: |-
+      ip=$(kubectl -n app-gecko get svc api -o jsonpath='{.spec.clusterIP}')
+      [ -n "$ip" ] || { echo "Service api not found in app-gecko" >&2; exit 1; }
+      for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+        curl -sI -m 3 "http://$ip/" | tr -d '\r' | awk -F': ' 'tolower($1) == "server" {print $2}' | cut -d' ' -f1 | cut -d. -f1,2
+      done | sort -u | xargs
+    expect: {equals: "nginx/1.27"}
+    retry: 30s
+    explain: >-
+      After the switch every request reaches the new version; there is no phase with mixed answers as in a rolling update or a canary.
+  - id: switched-in-place
+    title: The original Service was switched, not recreated
+    type: exec
+    run: |-
+      kubectl -n app-gecko get service api -o jsonpath='{.metadata.annotations.kubedojo\.dev/original}/{.spec.selector.color}'
+    expect: {equals: "true/green"}
+    explain: >-
+      Changing the selector with patch, edit or set selector keeps the ClusterIP and takes effect within a second. A recreated Service gets a new IP and breaks clients that have the old one.
+  - id: blue-kept
+    title: api-blue still runs 3 ready replicas
+    guard: true
+    type: resource
+    resource: deployment/api-blue
+    namespace: app-gecko
+    jsonpath: "{.spec.replicas}/{.status.readyReplicas}"
+    expect: {equals: "3/3"}
+    explain: >-
+      The old version stays up until the new one has proven itself. Switching back is then one selector change, not a new rollout.

@@ -1,4 +1,4 @@
-// Package catalog loads and validates training content: tracks (CKA, CKS),
+// Package catalog loads and validates training content: tracks (CKA, CKAD, CKS),
 // their domains and lessons, and the questions with their automated checks.
 package catalog
 

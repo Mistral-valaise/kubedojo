@@ -1,0 +1,65 @@
+title: Build and save a container image
+domain: application-design-build
+difficulty: medium
+minutes: 8
+environment: base
+tags: [podman, dockerfile, images]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The directory `/opt/course/badger/app` on `{{host}}` holds the build context of a small internal
+  tool. Before it is handed to the platform team, do the following:
+
+  1. Change `/opt/course/badger/app/Dockerfile` so that the container process runs as the user with
+     UID `10001` instead of root, and so that the environment variable `APP_TIER` has the value
+     `production`. Change nothing else in the build.
+  2. Build the image with `podman` and name it `badger-api:1.4.0`.
+  3. Save the image as an archive to `/opt/course/badger/badger-api.tar`.
+
+  There is no registry to push to.
+hints:
+  - "Two instructions matter in the Dockerfile: `USER` and `ENV`. The build context is the directory, not the file."
+  - "`podman build -t <name>:<tag> <context-dir>` builds, `podman save -o <file> <name>:<tag>` writes the archive. On this host `podman` runs as root; for `candidate` it is an alias for `sudo podman`, so both spellings use the same image store."
+  - "`cd /opt/course/badger/app && podman build -t badger-api:1.4.0 . && podman save -o /opt/course/badger/badger-api.tar badger-api:1.4.0`. Save again if you rebuild: the archive is a snapshot."
+checks:
+  - id: dockerfile
+    title: The Dockerfile sets the user and the environment variable
+    type: exec
+    run: |-
+      f=/opt/course/badger/app/Dockerfile
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      grep -qiE '^\s*ENV\s.*APP_TIER[= ]"?production"?(\s|$)' "$f" || { echo "APP_TIER is not set to production in the Dockerfile" >&2; exit 1; }
+      grep -iE '^\s*USER\s' "$f" | tail -1 | xargs
+    expect: {matches: "^(USER|user) 10001(:[0-9]+)?$"}
+    explain: >-
+      The last USER instruction decides which user the container process runs as, and a numeric UID lets Kubernetes verify `runAsNonRoot`. ENV values become part of the image configuration.
+  - id: image
+    title: Image badger-api:1.4.0 exists with the new configuration
+    type: exec
+    run: |-
+      set -o pipefail
+      podman image inspect badger-api:1.4.0 | jq -r '.[0].Config | "\(.User) \((.Env // []) | map(select(startswith("APP_TIER="))) | join(","))"'
+    expect: {matches: "^10001(:[0-9]+)? APP_TIER=production$"}
+    explain: >-
+      Editing a Dockerfile changes nothing until the image is rebuilt. `podman image inspect` shows what the build really produced: user, environment, command, labels.
+  - id: archive
+    title: The archive holds the current badger-api:1.4.0 image
+    type: exec
+    run: |-
+      f=/opt/course/badger/badger-api.tar
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      id=$(podman image inspect badger-api:1.4.0 --format '{{.Id}}') || { echo "image badger-api:1.4.0 not found" >&2; exit 1; }
+      tar -tf "$f" | grep -q "$id" || { echo "the archive does not contain the current image ${id}: save again after the last build" >&2; exit 1; }
+      { tar -xOf "$f" manifest.json 2>/dev/null | jq -r '.[].RepoTags[]?' 2>/dev/null; tar -xOf "$f" index.json 2>/dev/null | jq -r '.manifests[].annotations["org.opencontainers.image.ref.name"]?' 2>/dev/null; } | grep -E '(^|/)badger-api:1\.4\.0$' | head -1
+    expect: {matches: "badger-api:1\\.4\\.0$"}
+    explain: >-
+      `podman save` writes a snapshot of the image including its name and tag, which `podman load` or `ctr images import` restore elsewhere. An archive saved before the last rebuild still holds the old image.
+  - id: intact
+    title: The rest of the build is intact
+    guard: true
+    type: exec
+    run: |-
+      grep -c -E '^(FROM docker\.io/library/busybox:1\.36|WORKDIR /srv|COPY motd\.txt |CMD \["cat", "/srv/motd\.txt"\])' /opt/course/badger/app/Dockerfile
+    expect: {equals: "4"}
+    explain: >-
+      The task changes who runs the process and one setting, not what the image contains or does.

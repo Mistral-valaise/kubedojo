@@ -1,0 +1,69 @@
+title: A Deployment that creates no Pods
+domain: application-environment-configuration-security
+difficulty: hard
+minutes: 10
+environment: base
+tags: [resourcequota, limitrange, requests, limits]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `worker` in Namespace `app-rabbit` wants `3` replicas, but not a single Pod exists. The
+  Namespace is governed by ResourceQuota `rabbit-quota` and LimitRange `rabbit-limits`, which are
+  owned by the platform team.
+
+  1. Find out why the Pods are not created.
+  2. Change the CPU requests and limits of Deployment `worker` so that all `3` replicas run. Set both
+     values explicitly.
+  3. When all replicas are running, write the quota's CPU request usage in the form `<used>/<hard>`
+     (for example `300m/2`) to `/opt/course/rabbit/cpu-requests`.
+
+  Do not change the ResourceQuota, the LimitRange, the number of replicas or Deployment `db`.
+hints:
+  - "A Deployment without Pods: the Pods are rejected at creation. The ReplicaSet reports it: `kubectl -n app-rabbit describe rs -l app=worker` or `kubectl -n app-rabbit get events --field-selector reason=FailedCreate`."
+  - "Two rules apply one after the other. The LimitRange bounds each container (min/max), the ResourceQuota bounds the sum of the Namespace, and `db` already uses a part of it: `kubectl -n app-rabbit describe quota,limitrange`."
+  - "Three replicas must share what `db` leaves over: 1 CPU - 250m = 750m of requests, so at most 250m each, and at least the LimitRange minimum of 100m. `kubectl -n app-rabbit set resources deploy worker --requests=cpu=200m --limits=cpu=400m`."
+checks:
+  - id: running
+    title: Deployment worker runs 3 replicas with explicit CPU requests and limits
+    type: exec
+    retry: 60s
+    run: |-
+      kubectl -n app-rabbit get deploy worker -o json | jq -r '[(.status.readyReplicas // 0), (.status.updatedReplicas // 0), (.status.replicas // 0), (.spec.template.spec.containers[0].resources | if (.requests.cpu and .limits.cpu) then "explicit" else "defaulted" end)] | join("/")'
+    expect: {equals: "3/3/3/explicit"}
+    explain: >-
+      Pods that violate a LimitRange or would exceed a ResourceQuota are rejected by admission: the Deployment looks fine, the ReplicaSet carries FailedCreate events. Each container must fit between min and max, and the sum over all Pods must fit into the quota.
+  - id: answer
+    title: /opt/course/rabbit/cpu-requests matches the quota's usage with all replicas running
+    type: exec
+    retry: 20s
+    run: |-
+      f=/opt/course/rabbit/cpu-requests
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      [ "$(kubectl -n app-rabbit get deploy worker -o jsonpath='{.status.readyReplicas}')" = "3" ] || { echo "worker does not run 3 ready replicas, the usage is not final" >&2; exit 1; }
+      live=$(kubectl -n app-rabbit get resourcequota rabbit-quota -o jsonpath='{.status.used.requests\.cpu}/{.status.hard.requests\.cpu}') || exit 1
+      norm() { printf '%s' "$1" | tr -d ' \n\r' | awk -F/ 'NF==2 { for (i = 1; i <= 2; i++) { v = $i; if (v ~ /m$/) { sub(/m$/, "", v); v = v + 0 } else { v = v * 1000 }; printf "%s%d", (i > 1 ? "/" : ""), v } }'; }
+      if [ -n "$(norm "$live")" ] && [ "$(norm "$(cat "$f")")" = "$(norm "$live")" ]; then echo match; else echo "the file says '$(cat "$f")', the quota reports '$live'" >&2; echo mismatch; fi
+    expect: {equals: match}
+    explain: >-
+      `kubectl describe quota` (or .status.used and .status.hard) shows how much of the Namespace budget is taken. The figure only settles once all replicas exist, so read it after the rollout, not before.
+  - id: rules-kept
+    title: ResourceQuota and LimitRange are unchanged
+    guard: true
+    type: exec
+    run: |-
+      kubectl -n app-rabbit get resourcequota rabbit-quota -o json | jq -c -S '.spec.hard'
+      kubectl -n app-rabbit get limitrange rabbit-limits -o json | jq -c '.spec.limits | [length, .[0].type, .[0].min.cpu, .[0].max.cpu, .[0].default.cpu, .[0].defaultRequest.cpu, .[0].max.memory]'
+      kubectl -n app-rabbit get resourcequota,limitrange -o name | wc -l | tr -d ' '
+    expect: {equals: "{\"limits.cpu\":\"2\",\"limits.memory\":\"2Gi\",\"requests.cpu\":\"1\",\"requests.memory\":\"1Gi\"}\n[1,\"Container\",\"100m\",\"500m\",\"500m\",\"500m\",\"512Mi\"]\n2"}
+    explain: >-
+      Quotas and LimitRanges are the platform team's guard rails. An application developer makes the workload fit; raising or deleting the rules is not the task (and in most clusters not permitted).
+  - id: neighbours-kept
+    title: Deployment db and the replica count of worker are unchanged
+    guard: true
+    type: exec
+    run: |-
+      kubectl -n app-rabbit get deploy db -o jsonpath='{.status.readyReplicas}/{.spec.replicas} {.spec.template.spec.containers[0].resources.requests.cpu} {.spec.template.spec.containers[0].resources.limits.cpu}{"\n"}'
+      kubectl -n app-rabbit get deploy worker -o jsonpath='{.spec.replicas}{"\n"}'
+    expect: {equals: "1/1 250m 500m\n3"}
+    explain: >-
+      Shrinking the neighbour or running fewer replicas would also make room in the quota, but changes what the application gets. The budget left for worker is fixed: 750m of CPU requests for three Pods.

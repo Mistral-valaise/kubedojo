@@ -1,0 +1,68 @@
+title: Repair and upgrade a Helm release
+domain: application-deployment
+difficulty: hard
+minutes: 10
+environment: base
+tags: [helm, rollback]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The release `ledger` in Namespace `app-hare` was installed from the local chart
+  `/opt/course/hare/ledger` and has been upgraded several times. Since the last upgrade its rollout
+  does not finish.
+
+  1. Find out which image the broken revision tries to run and write it as `repository:tag` to
+     `/opt/course/hare/bad-image.txt`.
+  2. Roll the release back to the **last revision that worked**.
+  3. Then upgrade the release so that the application runs with log level `warn`. Every other value
+     of the release must stay as it is after the rollback. Find the name of the chart value yourself.
+
+  Make all changes with Helm, and do not modify the chart.
+hints:
+  - "`helm -n app-hare history ledger` lists the revisions, `helm -n app-hare get values ledger --revision N` shows what each of them set. `kubectl -n app-hare get pod` shows why the rollout hangs."
+  - "Two revisions worked, and they differ in a value: roll back to the later one with `helm rollback`. For the upgrade, `helm show values /opt/course/hare/ledger` lists the value names, and `helm upgrade` forgets earlier `--set` values unless you pass `--reuse-values`."
+  - "`helm -n app-hare rollback ledger 2`, then `helm -n app-hare upgrade ledger /opt/course/hare/ledger --reuse-values --set config.logLevel=warn`. The file contains `nginx:1.72-alpine`."
+checks:
+  - id: bad-image
+    title: bad-image.txt names the image of the broken revision
+    type: file
+    path: /opt/course/hare/bad-image.txt
+    expect: {matches: "^\\s*(docker\\.io/(library/)?)?nginx:1\\.72-alpine\\s*$"}
+    explain: >-
+      `helm get values <release> --revision N` (with -a including the defaults) and `helm get manifest --revision N` show what a revision deployed. The Events of the pending Pod name the same image.
+  - id: rollout
+    title: Deployment ledger is fully rolled out with 3 replicas of nginx:1.27-alpine
+    type: resource
+    resource: deployment/ledger
+    namespace: app-hare
+    jsonpath: "{.spec.template.spec.containers[0].image} {.spec.replicas}/{.status.updatedReplicas}/{.status.readyReplicas}/{.status.replicas}"
+    expect: {equals: "nginx:1.27-alpine 3/3/3/3"}
+    retry: 30s
+    explain: >-
+      Revision 2 was the last one that worked: 3 replicas of the good image. Revision 1 works too but has only 2 replicas, so the target of a rollback matters.
+  - id: values
+    title: The release values are 3 replicas, the working tag and log level warn
+    type: exec
+    run: |-
+      helm -n app-hare get values ledger -a -o json | jq -r '"\(.replicaCount) \(.image.tag) \(.config.logLevel)"'
+    expect: {equals: "3 1.27-alpine warn"}
+    explain: >-
+      `helm upgrade` starts from the chart defaults unless --reuse-values (or the complete set of values) is given, which would reset replicaCount to 2. Changes made with kubectl never reach the release and are overwritten by the next upgrade.
+  - id: log-level
+    title: The running Pods have LOG_LEVEL=warn
+    type: exec
+    run: |-
+      kubectl -n app-hare exec deploy/ledger -- printenv LOG_LEVEL
+    expect: {equals: warn}
+    retry: 30s
+    explain: >-
+      The chart maps the value config.logLevel to the environment variable LOG_LEVEL. `helm show values <chart>` lists the names a chart understands.
+  - id: chart-untouched
+    title: The chart defaults are unchanged
+    guard: true
+    type: exec
+    run: |-
+      grep -c -e '^replicaCount: 2$' -e '^  tag: 1.27-alpine$' -e '^  logLevel: info$' /opt/course/hare/ledger/values.yaml
+    expect: {equals: "3"}
+    explain: >-
+      Overrides belong to the release (--set or -f), not into the chart's values.yaml, which is shared by every release of the chart.

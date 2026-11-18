@@ -1,0 +1,80 @@
+title: Split hardcoded credentials into a Secret
+domain: application-environment-configuration-security
+difficulty: medium
+minutes: 8
+environment: base
+tags: [secret, env, volume, permissions]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `ledger` in Namespace `app-panda` carries two credentials as plain values in its Pod
+  template: the environment variables `DB_PASSWORD` and `API_TOKEN`.
+
+  1. Create a Secret `ledger-credentials` in Namespace `app-panda` with the keys `db-password` and
+     `api-token`, holding the values the Deployment uses today.
+  2. Change the Deployment so that:
+     - `DB_PASSWORD` is still an environment variable, but takes its value from the Secret key
+       `db-password`
+     - the API token is no longer an environment variable. The application reads it from the file
+       `/etc/ledger/token`, mounted read-only from the Secret key `api-token` with file mode `0400`.
+       `/etc/ledger` must contain no other file.
+
+  Neither value may remain in the Deployment. Leave `DB_HOST` and `DB_USER` as they are.
+hints:
+  - "`kubectl -n app-panda set env deploy/ledger --list` prints the current values. `kubectl create secret generic ... --from-literal=key=value` stores them without a trailing newline."
+  - "Env from one key: `valueFrom.secretKeyRef`. File from one key: a `secret` volume with `items` (`key: api-token`, `path: token`); the mode comes from `defaultMode` or the item's `mode`."
+  - "`kubectl -n app-panda set env deploy/ledger API_TOKEN-` removes a variable. Verify with `kubectl -n app-panda exec deploy/ledger -- ls -lL /etc/ledger`."
+checks:
+  - id: secret
+    title: Secret ledger-credentials holds both values
+    type: exec
+    run: |-
+      kubectl -n app-panda get secret ledger-credentials -o json | jq -r '.data | [(.["db-password"] // "" | @base64d), (.["api-token"] // "" | @base64d)] | join("|")'
+    expect: {equals: "pa55-panda-7731|tok-panda-9f2c41"}
+    explain: >-
+      The Secret must hold exactly what the application uses today. --from-literal adds no trailing newline; `echo value | base64` in a hand-written manifest does, and the application then fails to log in.
+  - id: env-ref
+    title: DB_PASSWORD reaches the container through secretKeyRef
+    type: exec
+    retry: 30s
+    run: |-
+      kubectl -n app-panda exec deploy/ledger -- true >/dev/null || { echo "cannot run a command in deploy/ledger: is its Pod running?" >&2; exit 1; }
+      kubectl -n app-panda get deploy ledger -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="DB_PASSWORD")].valueFrom.secretKeyRef.name}{"\n"}'
+      kubectl -n app-panda exec deploy/ledger -- sh -c 'echo "$DB_PASSWORD"'
+    expect: {equals: "ledger-credentials\npa55-panda-7731"}
+    explain: >-
+      secretKeyRef keeps the variable and moves only the value out of the Pod template. The value is resolved when the container starts, so a changed Secret needs a rollout restart.
+  - id: file
+    title: /etc/ledger/token is the only file, holds the token and has mode 0400
+    type: exec
+    retry: 30s
+    run: |-
+      kubectl -n app-panda exec deploy/ledger -- true >/dev/null || { echo "cannot run a command in deploy/ledger: is its Pod running?" >&2; exit 1; }
+      kubectl -n app-panda exec deploy/ledger -- sh -c 'cat /etc/ledger/token; echo; stat -L -c %a /etc/ledger/token; ls /etc/ledger'
+    expect: {equals: "tok-panda-9f2c41\n400\ntoken"}
+    explain: >-
+      Without `items` the volume would contain a file per key, named after the key (api-token, db-password). The default mode 0644 lets every user in the container read the file; defaultMode 0400 is written in octal and stored as decimal 256.
+  - id: no-plain
+    title: No credential is left in the Deployment and API_TOKEN is not a variable
+    type: exec
+    retry: 30s
+    run: |-
+      y=$(kubectl -n app-panda get deploy ledger -o yaml) || exit 1
+      e=$(kubectl -n app-panda exec deploy/ledger -- env) || { echo "cannot run a command in deploy/ledger: is its Pod running?" >&2; exit 1; }
+      if echo "$y" | grep -qE 'pa55-panda-7731|tok-panda-9f2c41'; then echo "a plain value is still in the Deployment" >&2; echo leaked; exit 0; fi
+      if echo "$e" | grep -q '^API_TOKEN='; then echo "API_TOKEN is still an environment variable" >&2; echo leaked; exit 0; fi
+      echo clean
+    expect: {equals: clean}
+    explain: >-
+      Everyone who may read Deployments or Pods can read plain env values, and `kubectl describe` prints them. Secrets are a separate resource for RBAC and can be encrypted at rest.
+  - id: intact
+    title: The Deployment is ready and DB_HOST and DB_USER are unchanged
+    guard: true
+    type: exec
+    retry: 30s
+    run: |-
+      kubectl -n app-panda get deploy ledger -o jsonpath='{.status.readyReplicas}/{.status.updatedReplicas}/{.status.replicas}{"\n"}'
+      kubectl -n app-panda exec deploy/ledger -- sh -c 'echo "$DB_HOST $DB_USER"'
+    expect: {equals: "1/1/1\ndb.app-panda.svc ledger_app"}
+    explain: >-
+      Only the two credentials were to move. A secretKeyRef to a missing Secret or key blocks the new Pod with CreateContainerConfigError, so check the rollout after the change.

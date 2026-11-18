@@ -48,7 +48,8 @@ func reason(q *catalog.Question, workers int) string {
 		return "expects two worker nodes"
 	case strings.Contains(all, "kubelet.service.d"):
 		return "depends on the kubelet unit layout of kubedojo's nodes"
-	case strings.Contains(all, "trivy"), strings.Contains(all, "kustomize "), strings.Contains(all, "etcdutl"):
+	case strings.Contains(all, "trivy"), strings.Contains(all, "kustomize "), strings.Contains(all, "etcdutl"),
+		strings.Contains(all, "podman "), strings.Contains(all, "buildah "):
 		return "needs a tool that Killercoda images may not ship"
 	case strings.Contains(all, "crictl inspect"), strings.Contains(all, "cri-containerd-"):
 		return "depends on kubedojo's container runtime layout"
@@ -249,7 +250,7 @@ func Killercoda(cat *catalog.Catalog, dir, onlyTrack, sourceURL string) (*Result
 			ix.Backend.ImageID = "kubernetes-kubeadm-2nodes"
 			raw, _ := json.MarshalIndent(ix, "", "  ")
 
-			intro := fmt.Sprintf("# %s\n\n**%s — %s** · %s · about %d minutes\n\nThis is an exam-style task: no step-by-step guidance. Solve it in the terminal, then press **CHECK**.\n\nThe cluster has a control plane `controlplane` and a worker `node01`.\n\n> From [kubedojo](%s), an open-source trainer for the CKA and CKS exams with lessons, hints, timed exam simulations and per-check feedback.\n",
+			intro := fmt.Sprintf("# %s\n\n**%s — %s** · %s · about %d minutes\n\nThis is an exam-style task: no step-by-step guidance. Solve it in the terminal, then press **CHECK**.\n\nThe cluster has a control plane `controlplane` and a worker `node01`.\n\n> From [kubedojo](%s), an open-source trainer for the CKA, CKAD and CKS exams with lessons, hints, timed exam simulations and per-check feedback.\n",
 				q.Title, t.Short, d.Title, q.Difficulty, q.Minutes, sourceURL)
 			hints := ""
 			for i, h := range q.Hints {

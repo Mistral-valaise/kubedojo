@@ -1,0 +1,69 @@
+title: Publish a shop with host rules, TLS and a fallback
+domain: services-networking
+difficulty: medium
+minutes: 8
+environment: base
+tags: [ingress, tls, pathtype]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Namespace `app-walrus` contains the Services `storefront`, `storefront-api` and `maintenance` and
+  the TLS Secret `storefront-tls`.
+
+  Create an Ingress named `storefront` in Namespace `app-walrus`:
+
+  - it is handled by the IngressClass `walrus-edge`
+  - for host `store.walrus.example`:
+    - requests for exactly the path `/healthz` (and no path below it) go to Service `storefront-api`
+    - all other paths of that host go to Service `storefront`
+  - HTTPS for `store.walrus.example` is terminated with the certificate in Secret `storefront-tls`
+  - requests that match no rule at all, for example for another host, go to Service `maintenance`
+
+  Use the port each Service exposes. No ingress controller is installed in this cluster: the Ingress
+  will not get an address, it only has to be correct.
+hints:
+  - "Collect the facts first: `kubectl -n app-walrus get svc` for the Service ports. `kubectl create ingress -h` has an example for almost every requirement: class, TLS, path types, default backend."
+  - "A rule is `host/path=service:port`. A trailing `*` makes the path type `Prefix`, without it the type is `Exact`. Appending `,tls=<secret>` to a rule adds the TLS section; `--default-backend=service:port` handles everything that matches no rule."
+  - "`kubectl -n app-walrus create ingress storefront --class=walrus-edge --rule=\"store.walrus.example/healthz=storefront-api:9090,tls=storefront-tls\" --rule=\"store.walrus.example/*=storefront:8080,tls=storefront-tls\" --default-backend=maintenance:80`"
+checks:
+  - id: class
+    title: The Ingress is assigned to IngressClass walrus-edge
+    type: resource
+    resource: ingress/storefront
+    namespace: app-walrus
+    jsonpath: "{.spec.ingressClassName}"
+    expect: {equals: walrus-edge}
+    explain: >-
+      spec.ingressClassName names the IngressClass (`kubectl get ingressclass`) whose controller implements this Ingress. Without it, and without a default class, the object is ignored by every controller.
+  - id: health-exact
+    title: Exactly /healthz of store.walrus.example goes to storefront-api on port 9090
+    type: exec
+    run: |-
+      kubectl -n app-walrus get ingress storefront -o json | jq -r '.spec.rules[]? | .host as $h | .http.paths[]? | "\($h)|\(.path)|\(.pathType)|\(.backend.service.name):\(.backend.service.port.number // .backend.service.port.name)"' | grep -qxE 'store\.walrus\.example\|/healthz\|Exact\|storefront-api:(9090|http)' && echo routed
+    expect: {equals: routed}
+    explain: >-
+      pathType Exact matches only /healthz; Prefix would also send /healthz/anything to the API. With `kubectl create ingress` the difference is the trailing `*`. The port is the Service's port (9090), not the container port.
+  - id: root-prefix
+    title: Every other path of the host goes to storefront on port 8080
+    type: exec
+    run: |-
+      kubectl -n app-walrus get ingress storefront -o json | jq -r '.spec.rules[]? | .host as $h | .http.paths[]? | "\($h)|\(.path)|\(.pathType)|\(.backend.service.name):\(.backend.service.port.number // .backend.service.port.name)"' | grep -qxE 'store\.walrus\.example\|/\|Prefix\|storefront:(8080|http)' && echo routed
+    expect: {equals: routed}
+    explain: >-
+      Path `/` with pathType Prefix matches every path of the host. More specific matches win, so /healthz still goes to the API. The rule needs the host, otherwise it applies to every host name.
+  - id: tls
+    title: TLS for store.walrus.example uses Secret storefront-tls
+    type: exec
+    run: |-
+      kubectl -n app-walrus get ingress storefront -o json | jq -r '.spec.tls[]? | select(.secretName == "storefront-tls") | .hosts[]?' | grep -qxF 'store.walrus.example' && echo configured
+    expect: {equals: configured}
+    explain: >-
+      spec.tls lists host names and the kubernetes.io/tls Secret (same Namespace) holding certificate and key. The host must appear under tls.hosts as well as in the rule; a tls entry without hosts leaves it to the controller to guess.
+  - id: default-backend
+    title: Requests that match no rule go to maintenance on port 80
+    type: exec
+    run: |-
+      kubectl -n app-walrus get ingress storefront -o json | jq -r '.spec.defaultBackend.service | select(. != null) | "\(.name):\(.port.number // .port.name)"'
+    expect: {matches: "^maintenance:(80|http)$"}
+    explain: >-
+      spec.defaultBackend sits next to rules, not inside them, and catches everything no rule matches, such as an unknown Host header. A path `/` rule without host is not the same: it would be an ordinary rule for all hosts.

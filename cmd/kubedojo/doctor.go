@@ -78,19 +78,34 @@ func preflight(ctx context.Context, drv *sandbox.Kind, build bool) error {
 	}
 
 	for _, img := range []struct{ tag, dir string }{{drv.NodeImage, "node"}, {drv.TerminalImage, "terminal"}} {
-		if _, err := out(ctx, "docker", "image", "inspect", "--format", "{{.Id}}", img.tag); err == nil {
+		have, err := out(ctx, "docker", "image", "inspect", "--format", `{{index .Config.Labels "`+images.RevLabel+`"}}`, img.tag)
+		present := err == nil
+		// Only kubedojo's own tags are compared: an image passed with
+		// --node-image is the user's business.
+		stale := present && strings.HasPrefix(img.tag, "kubedojo/"+img.dir+":") && have != images.Rev(img.dir)
+		if present && !stale {
 			ok("image " + img.tag)
 			continue
 		}
-		if _, err := out(ctx, "docker", "pull", "-q", img.tag); err == nil {
-			ok("image " + img.tag + " (pulled)")
-			continue
+		if !present {
+			if _, err := out(ctx, "docker", "pull", "-q", img.tag); err == nil {
+				ok("image " + img.tag + " (pulled)")
+				continue
+			}
 		}
 		if !build {
-			warn("image " + img.tag + " is missing. Run `kubedojo doctor --build` (takes a few minutes, once)")
+			if stale {
+				warn("image " + img.tag + " is from an older kubedojo and lacks tools newer questions need. Run `kubedojo doctor --build`")
+			} else {
+				warn("image " + img.tag + " is missing. Run `kubedojo doctor --build` (takes a few minutes, once)")
+			}
 			continue
 		}
-		fmt.Printf("  … building %s (first run only, takes a few minutes)\n", img.tag)
+		if stale {
+			fmt.Printf("  … rebuilding %s: this kubedojo ships a newer version of it (takes a few minutes)\n", img.tag)
+		} else {
+			fmt.Printf("  … building %s (first run only, takes a few minutes)\n", img.tag)
+		}
 		if err := buildImage(ctx, img.tag, img.dir); err != nil {
 			return err
 		}

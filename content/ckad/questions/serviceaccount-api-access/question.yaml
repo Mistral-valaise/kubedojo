@@ -1,0 +1,78 @@
+title: Give an app read access to Jobs
+domain: application-environment-configuration-security
+difficulty: medium
+minutes: 7
+environment: base
+tags: [serviceaccount, rbac, role, api-access]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `job-watcher` in Namespace `app-seal` asks the Kubernetes API every few seconds for the
+  Jobs of its own Namespace. It runs with the `default` ServiceAccount and its log shows
+  `jobs: access denied`.
+
+  1. Create a ServiceAccount `job-watcher` in Namespace `app-seal`.
+  2. Create a Role `job-reader` that allows to `get`, `list` and `watch` Jobs in Namespace
+     `app-seal`, and nothing else. Bind it to the ServiceAccount with a RoleBinding
+     `job-watcher-reads-jobs`.
+  3. Run the Deployment's Pods with the new ServiceAccount.
+
+  Afterwards the log of the Pods shows `jobs: access ok`. The `default` ServiceAccount must not get
+  any new permission.
+hints:
+  - "`kubectl -n app-seal logs deploy/job-watcher` shows the denied call. Find the API group of Jobs with `kubectl api-resources | grep -i job`."
+  - "`kubectl create role job-reader --verb=get,list,watch --resource=jobs.batch` and `kubectl create rolebinding ... --role=job-reader --serviceaccount=app-seal:job-watcher`, both with `-n app-seal`."
+  - "`kubectl -n app-seal set serviceaccount deployment job-watcher job-watcher`. Test without waiting for the Pod: `kubectl -n app-seal auth can-i list jobs.batch --as system:serviceaccount:app-seal:job-watcher`."
+checks:
+  - id: pods-use-sa
+    title: All job-watcher Pods run with ServiceAccount job-watcher
+    type: exec
+    retry: 30s
+    run: |-
+      kubectl -n app-seal get deploy job-watcher -o jsonpath='{.status.readyReplicas}/{.status.updatedReplicas}/{.status.replicas}{"\n"}'
+      kubectl -n app-seal get pod -l app=job-watcher -o jsonpath='{range .items[*]}{.spec.serviceAccountName}{"\n"}{end}' | sort -u
+    expect: {equals: "2/2/2\njob-watcher"}
+    explain: >-
+      A Pod has exactly one ServiceAccount, fixed at creation: spec.serviceAccountName in the Pod template, followed by a rollout. Creating the account and the binding alone changes nothing for running Pods.
+  - id: can-read
+    title: The ServiceAccount may get, list and watch Jobs in app-seal
+    type: exec
+    run: |-
+      for v in get list watch; do kubectl -n app-seal auth can-i $v jobs.batch --as system:serviceaccount:app-seal:job-watcher; done
+    expect: {equals: "yes\nyes\nyes"}
+    explain: >-
+      Jobs live in the API group `batch`. A Role written with apiGroups [""] or for the resource `job` is accepted by the API server and grants nothing.
+  - id: pod-reads
+    title: A job-watcher Pod lists the Jobs with its own token
+    type: exec
+    retry: 30s
+    run: |-
+      kubectl -n app-seal exec deploy/job-watcher -- true >/dev/null || { echo "cannot run a command in deploy/job-watcher: is a Pod running?" >&2; exit 1; }
+      kubectl -n app-seal exec deploy/job-watcher -- sh -c 'curl -sk -m 5 -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" "https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/apis/batch/v1/namespaces/app-seal/jobs"' | grep -q nightly-export && echo listed
+    expect: {equals: listed}
+    explain: >-
+      This is what the application does: it sends the token mounted at /var/run/secrets/kubernetes.io/serviceaccount/token. `auth can-i` proves the rule, the request from inside the Pod proves that the Pod really uses the identity.
+  - id: least-privilege
+    title: The ServiceAccount can do nothing beyond reading Jobs in app-seal
+    guard: true
+    type: exec
+    run: |-
+      as=system:serviceaccount:app-seal:job-watcher
+      kubectl -n app-seal auth can-i list namespaces --as "$as" >/dev/null 2>&1; [ $? -le 1 ] || { echo "kubectl auth can-i does not work" >&2; exit 1; }
+      for q in "delete jobs.batch" "create jobs.batch" "patch jobs.batch" "list cronjobs.batch" "list pods" "get secrets"; do
+        echo "$q: $(kubectl -n app-seal auth can-i $q --as "$as" 2>/dev/null)"
+      done
+      echo "list jobs.batch in default: $(kubectl -n default auth can-i list jobs.batch --as "$as" 2>/dev/null)"
+    expect: {equals: "delete jobs.batch: no\ncreate jobs.batch: no\npatch jobs.batch: no\nlist cronjobs.batch: no\nlist pods: no\nget secrets: no\nlist jobs.batch in default: no"}
+    explain: >-
+      Least privilege: three verbs on one resource in one Namespace. Wildcards, the ClusterRoles view or edit, or a ClusterRoleBinding all make the application work and fail here.
+  - id: default-unchanged
+    title: The default ServiceAccount still cannot read Jobs
+    guard: true
+    type: exec
+    run: |-
+      echo "default: $(kubectl -n app-seal auth can-i list jobs.batch --as system:serviceaccount:app-seal:default 2>/dev/null)"
+      echo "other: $(kubectl -n app-seal auth can-i list jobs.batch --as system:serviceaccount:app-seal:someone-else --as-group system:serviceaccounts --as-group system:serviceaccounts:app-seal --as-group system:authenticated 2>/dev/null)"
+    expect: {equals: "default: no\nother: no"}
+    explain: >-
+      Binding the Role to `default` or to the group system:serviceaccounts:app-seal would also end the error, and would hand the permission to every Pod in the Namespace that does not name a ServiceAccount.

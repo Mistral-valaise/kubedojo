@@ -131,7 +131,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        track: [cka, cks]
+        track: [cka, ckad, cks]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

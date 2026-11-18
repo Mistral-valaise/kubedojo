@@ -1,0 +1,83 @@
+title: Canary release behind one Service
+domain: application-deployment
+difficulty: medium
+minutes: 8
+environment: base
+tags: [deployment, canary, service]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  In Namespace `app-ferret` the Deployment `shop-stable` runs 5 replicas of version 1 of a shop
+  frontend behind the Service `shop`. The application answers every request with its version, which
+  it takes from the environment variable `APP_VERSION`.
+
+  Version 2 should be tested with a canary release:
+
+  - create a Deployment `shop-canary` that is identical to `shop-stable` except that it runs with
+    `APP_VERSION=v2`
+  - the existing Service `shop` sends about **20%** of the requests to the canary
+  - the total number of Pods behind the Service stays at **5**
+
+  Do not change the Service.
+hints:
+  - "Look at what the Service selects: `kubectl -n app-ferret get svc shop -o wide` and `kubectl -n app-ferret get pod --show-labels`. A Service spreads requests evenly over all ready Pods that match its selector."
+  - "Two Deployments whose Pods both carry `app=shop` share the Service. The canary needs a selector of its own (for example `track: canary`), and the traffic share is the replica ratio: 4 stable + 1 canary."
+  - "`kubectl -n app-ferret get deploy shop-stable -o yaml > canary.yaml`, change the name, `replicas: 1`, `track: canary` in selector and Pod labels and `APP_VERSION` to `v2`, apply it, then `kubectl -n app-ferret scale deploy shop-stable --replicas=4`."
+checks:
+  - id: stable
+    title: shop-stable runs 4 ready replicas
+    type: resource
+    resource: deployment/shop-stable
+    namespace: app-ferret
+    jsonpath: "{.spec.replicas}/{.status.readyReplicas}"
+    expect: {equals: "4/4"}
+    retry: 30s
+    explain: >-
+      The total behind the Service stays at 5, so the stable Deployment gives up one replica for the canary. Scale it down after the canary is ready, not before.
+  - id: canary
+    title: shop-canary runs 1 ready replica
+    type: resource
+    resource: deployment/shop-canary
+    namespace: app-ferret
+    jsonpath: "{.spec.replicas}/{.status.readyReplicas}"
+    expect: {equals: "1/1"}
+    retry: 30s
+    explain: >-
+      A canary is a second Deployment with its own name and its own selector. One of five Pods is the 20% share.
+  - id: endpoints
+    title: Service shop has 5 endpoints and the canary Pod is one of them
+    type: exec
+    run: |-
+      ns=app-ferret
+      eps=$(kubectl -n $ns get endpointslices -l kubernetes.io/service-name=shop -o json | jq -r '.items[].endpoints[]? | select(.conditions.ready != false) | .addresses[0]')
+      rs=$(kubectl -n $ns get rs -o json | jq -r '.items[] | select(any(.metadata.ownerReferences[]?; .kind == "Deployment" and .name == "shop-canary")) | .metadata.name')
+      [ -n "$rs" ] || { echo "Deployment shop-canary has no ReplicaSet" >&2; exit 1; }
+      pods=$(kubectl -n $ns get pods -o json | jq -r --arg rs "$rs" '.items[] | select(.metadata.deletionTimestamp == null) | select(any(.metadata.ownerReferences[]?; .kind == "ReplicaSet" and (.name as $n | $rs | split("\n") | index($n)))) | .status.podIP // empty')
+      n=0
+      for ip in $pods; do echo "$eps" | grep -qxF "$ip" && n=$((n+1)); done
+      echo "endpoints=$(echo "$eps" | grep -c .) canary=$n"
+    expect: {equals: "endpoints=5 canary=1"}
+    retry: 30s
+    explain: >-
+      The Service selects app=shop only, so every ready Pod with this label becomes an endpoint, whichever Deployment owns it. Canary Pods without the label get no traffic at all.
+  - id: split
+    title: Four endpoints answer with v1 and one with v2
+    type: exec
+    run: |-
+      eps=$(kubectl -n app-ferret get endpointslices -l kubernetes.io/service-name=shop -o json | jq -r '.items[].endpoints[]? | select(.conditions.ready != false) | .addresses[0]')
+      [ -n "$eps" ] || { echo "Service shop has no ready endpoints" >&2; exit 1; }
+      for ip in $eps; do curl -s -m 3 "http://$ip/"; done | sort | uniq -c | awk '{print $3 "=" $1}' | xargs
+    expect: {equals: "v1=4 v2=1"}
+    retry: 30s
+    explain: >-
+      The Service picks an endpoint at random per connection, so the share of traffic is the share of Pods: 1 of 5 is 20%. The canary must really run the new version, here APP_VERSION=v2.
+  - id: service-unchanged
+    title: Service shop still selects app=shop only
+    guard: true
+    type: resource
+    resource: service/shop
+    namespace: app-ferret
+    jsonpath: "{.spec.selector}"
+    expect: {equals: '{"app":"shop"}'}
+    explain: >-
+      A canary needs no change to the Service. Adding the track label to the selector would pin all traffic to one of the two versions.

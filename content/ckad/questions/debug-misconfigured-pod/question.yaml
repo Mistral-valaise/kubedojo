@@ -1,0 +1,73 @@
+title: The orders API does not come up
+domain: application-observability-maintenance
+difficulty: hard
+minutes: 10
+environment: base
+tags: [debugging, logs, configmap, service, events]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A developer deployed the `orders` API to Namespace `app-moose` and went home. Nothing works:
+  the Pods of Deployment `orders` do not start, and Service `orders` does not answer.
+
+  The developer made several independent mistakes in the Deployment. The ConfigMaps
+  `orders-config` and `orders-scripts` and the Service are correct.
+
+  1. Get it running: Deployment `orders` has 2 ready replicas, and `http://orders` (Service port
+     `80`) answers with `orders-api ok`.
+  2. One of the mistakes makes the application itself exit with an error message. Write that
+     message, the complete log line, to `/opt/course/moose/root-cause` on `{{host}}`.
+
+  Keep the image and the start script, and keep reading `LOG_LEVEL` from ConfigMap `orders-config`.
+hints:
+  - "Fix what the cluster reports, then look again: `kubectl -n app-moose get pod`, `describe pod` (Events at the bottom), and once a container starts and dies, `kubectl -n app-moose logs`. A Pod that runs is not yet a Service that answers: `kubectl -n app-moose get endpointslices`."
+  - "`CreateContainerConfigError`: compare the key in the Event with `kubectl -n app-moose describe cm orders-config`. `CrashLoopBackOff`: the log names a file; compare with the keys of the ConfigMap mounted at that directory. `connection refused` although the Pods are Ready: which port does the Service's `targetPort: http` resolve to, and where does the app listen (see its log)?"
+  - "Three fixes in `kubectl -n app-moose edit deploy orders`: configMapKeyRef key `LOG_LEVEL` (not `log_level`), `CONFIG_FILE=/etc/orders/app.conf`, and `containerPort: 8080` for the port named `http`. Copy the `FATAL` line from the logs before you fix the second one."
+checks:
+  - id: ready
+    title: Deployment orders has 2 ready replicas
+    type: resource
+    resource: deployment/orders
+    namespace: app-moose
+    jsonpath: "{.status.readyReplicas}/{.status.updatedReplicas}/{.status.replicas}"
+    expect: {equals: "2/2/2"}
+    retry: 60s
+    explain: >-
+      Two faults stop the container one after the other. CreateContainerConfigError means the kubelet cannot assemble the container (a missing ConfigMap or Secret key); CrashLoopBackOff means it started and the process exited. The Pod status tells you whether to read Events or logs.
+  - id: log-level
+    title: LOG_LEVEL in the running container comes from ConfigMap orders-config
+    type: exec
+    retry: 30s
+    run: |-
+      ref=$(kubectl -n app-moose get deployment orders -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="LOG_LEVEL")].valueFrom.configMapKeyRef.name}')
+      val=$(kubectl -n app-moose exec deploy/orders -- printenv LOG_LEVEL 2>/dev/null) || { echo "cannot read LOG_LEVEL in a running container of deploy/orders" >&2; exit 1; }
+      echo "$ref/$val"
+    expect: {equals: orders-config/info}
+    explain: >-
+      Keys of a ConfigMap are case-sensitive: the Deployment asked for `log_level`, the ConfigMap has `LOG_LEVEL`. `describe pod` prints the exact message: couldn't find key log_level in ConfigMap app-moose/orders-config. Hard-coding the value would hide the mistake, not fix it.
+  - id: reachable
+    title: The Service answers with orders-api ok
+    type: exec
+    retry: 30s
+    run: |-
+      curl -s -m 4 "http://$(kubectl -n app-moose get svc orders -o jsonpath='{.spec.clusterIP}')" | grep -q 'orders-api ok' && echo reachable
+    expect: {equals: reachable}
+    explain: >-
+      `containerPort` is only documentation as long as nobody refers to it. A Service with a named `targetPort` looks the number up in the Pod, so `name: http, containerPort: 80` sent the traffic to port 80 while the app listens on 8080. Ready Pods and endpoints do not prove that the port is right.
+  - id: root-cause
+    title: The fatal log line is written to /opt/course/moose/root-cause
+    type: file
+    path: /opt/course/moose/root-cause
+    expect: {contains: ["FATAL: config file /etc/orders/orders.conf not found"]}
+    explain: >-
+      The application explains its own crash in its log. Read it while the Pod is crashing (`kubectl logs`, or `--previous` when the container is running again) — after the fix has rolled out, the crashed Pods and their logs are gone.
+  - id: kept
+    title: Image and start script are unchanged
+    guard: true
+    type: resource
+    resource: deployment/orders
+    namespace: app-moose
+    jsonpath: "{.spec.template.spec.containers[0].image} {.spec.template.spec.containers[0].command[*]}"
+    expect: {equals: "busybox:1.36 /bin/sh /opt/app/start.sh"}
+    explain: >-
+      Replacing the command makes a Pod run, but it no longer runs the application. Fix the configuration around the app, not the app.

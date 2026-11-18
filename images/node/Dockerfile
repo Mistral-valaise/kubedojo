@@ -3,6 +3,10 @@
 ARG K8S_VERSION=v1.37.0
 FROM kindest/node:${K8S_VERSION}
 
+# Raise this whenever the image gets new contents: the tag only names the
+# Kubernetes version, so `kubedojo doctor` rebuilds a local image by this number.
+LABEL dev.kubedojo.image-rev="2"
+
 ARG TARGETARCH
 ARG ETCD_VERSION=v3.6.16
 ARG HELM_VERSION=v3.22.1
@@ -13,7 +17,12 @@ RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       openssh-server sudo vim less jq curl ca-certificates bash-completion \
       iproute2 iputils-ping dnsutils netcat-openbsd procps psmisc openssl \
- && rm -rf /var/lib/apt/lists/*
+      podman buildah \
+ && rm -rf /var/lib/apt/lists/* \
+ # podman ships a CNI network of its own. The node's container runtime reads
+ # the first file in /etc/cni/net.d, so it would wire Pods to podman's bridge
+ # until kindnet writes its configuration. Builds here use the host network.
+ && rm -f /etc/cni/net.d/*podman*
 
 RUN curl -fsSL "https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-${TARGETARCH}.tar.gz" \
       | tar -xz -C /usr/local/bin --strip-components=1 \
@@ -37,6 +46,7 @@ RUN useradd -m -s /bin/bash candidate \
  && systemctl enable ssh
 
 COPY sshd_kubedojo.conf /etc/ssh/sshd_config.d/kubedojo.conf
+COPY containers.conf /etc/containers/containers.conf
 COPY profile.sh /etc/profile.d/kubedojo.sh
 COPY kubedojo-node-init /usr/local/bin/kubedojo-node-init
 RUN chmod 0755 /usr/local/bin/kubedojo-node-init \

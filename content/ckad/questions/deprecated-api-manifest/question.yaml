@@ -1,0 +1,69 @@
+title: Manifests written for an old cluster
+domain: application-observability-maintenance
+difficulty: medium
+minutes: 8
+environment: base
+tags: [api-deprecation, api-versions, manifests]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The manifests in `/opt/course/marmot` on `{{host}}` were written years ago for a much older
+  cluster. They use API versions this cluster no longer serves, so `kubectl apply` rejects them.
+
+  1. Update the three files `deployment.yaml`, `cronjob.yaml` and `hpa.yaml` **in place** so that
+     they use API versions this cluster serves. Every reference inside the files must be current
+     too. Keep what the manifests describe: names, images, replicas, schedule, scaling limits and
+     the CPU target.
+  2. Apply them. Deployment `reports`, CronJob `report-export` and HorizontalPodAutoscaler `reports`
+     must exist in Namespace `app-marmot`.
+  3. The team's next manifest will be a PodDisruptionBudget. Write the `apiVersion` such a manifest
+     needs on this cluster (as `group/version`) to `/opt/course/marmot/pdb-version`.
+hints:
+  - "Try it: `kubectl apply -f /opt/course/marmot/` names the kind and version that do not exist. `kubectl api-resources | grep -i -E 'deploy|cronjob|autoscal|disruption'` shows the current group/version per kind."
+  - "A new version can have another schema. `kubectl apply --dry-run=server -f <file>` names the field that is missing or unknown; `kubectl explain hpa.spec.metrics.resource` and `kubectl explain deployment.spec.selector` show the current shape. The HPA's `scaleTargetRef` also carries an apiVersion."
+  - "Deployment: `apps/v1` plus `spec.selector.matchLabels` equal to the template labels. CronJob: `batch/v1`. HPA: `autoscaling/v2`, `scaleTargetRef.apiVersion: apps/v1`, and `resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}`."
+checks:
+  - id: files
+    title: The three files are accepted by the API server
+    type: exec
+    run: |-
+      cd /opt/course/marmot || exit 1
+      kubectl apply --dry-run=server -f deployment.yaml -f cronjob.yaml -f hpa.yaml >/dev/null && echo accepted
+    expect: {equals: accepted}
+    explain: >-
+      A removed API version is not converted for you: the server answers `no matches for kind ... in version ...`. Manifests in a repository must be migrated by hand. A server-side dry run validates a file against the real API without changing anything.
+  - id: deployment
+    title: Deployment reports runs 2 ready replicas of nginx:1.27-alpine
+    type: resource
+    resource: deployment/reports
+    namespace: app-marmot
+    jsonpath: "{.spec.template.spec.containers[0].image} {.status.readyReplicas}/{.spec.replicas}"
+    expect: {equals: "nginx:1.27-alpine 2/2"}
+    retry: 60s
+    explain: >-
+      Deployments live in apps/v1 since Kubernetes 1.9; extensions/v1beta1 was removed in 1.16. apps/v1 no longer derives the selector from the template labels: spec.selector is required and immutable.
+  - id: cronjob
+    title: CronJob report-export exists with its schedule
+    type: resource
+    resource: cronjob/report-export
+    namespace: app-marmot
+    jsonpath: "{.spec.schedule}|{.spec.jobTemplate.spec.template.spec.containers[0].image}"
+    expect: {equals: "30 2 * * *|busybox:1.36"}
+    explain: >-
+      batch/v1beta1 CronJobs were removed in Kubernetes 1.25. The schema of batch/v1 is the same, so only the apiVersion line changes — the easy kind of migration.
+  - id: hpa
+    title: The HPA scales apps/v1 Deployment reports between 2 and 6 replicas at 70% CPU
+    type: resource
+    resource: horizontalpodautoscaler/reports
+    namespace: app-marmot
+    jsonpath: "{.spec.scaleTargetRef.apiVersion} {.spec.scaleTargetRef.kind}/{.spec.scaleTargetRef.name} {.spec.minReplicas}-{.spec.maxReplicas} {.spec.metrics[0].resource.name}={.spec.metrics[0].resource.target.averageUtilization}"
+    expect: {equals: "apps/v1 Deployment/reports 2-6 cpu=70"}
+    explain: >-
+      autoscaling/v2beta1 wrote `targetAverageUtilization` directly under `resource`; autoscaling/v2 nests it as `target: {type: Utilization, averageUtilization: 70}`. The API server does not validate scaleTargetRef.apiVersion, so a stale `extensions/v1beta1` there is accepted and the autoscaler then fails to find its target at runtime.
+  - id: pdb-version
+    title: The apiVersion for a PodDisruptionBudget is written down
+    type: file
+    path: /opt/course/marmot/pdb-version
+    expect: {equals: policy/v1}
+    explain: >-
+      Do not guess versions from memory: `kubectl api-resources` lists group and version for every kind the cluster serves, and `kubectl explain pdb` prints them in its first lines. policy/v1beta1 was removed in 1.25.
