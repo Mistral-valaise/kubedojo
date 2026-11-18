@@ -1,0 +1,67 @@
+title: Put the pipeline stages in order
+domain: vim
+difficulty: medium
+minutes: 6
+environment: base
+tags: [vim, delete, yank, paste]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The release pipeline of the checkout service packages an image before anything is built. Its
+  stages run in the order in which they stand in `/opt/course/vim-reorder-stages/pipeline.conf`,
+  and somebody shuffled them.
+
+  Edit the file so that
+
+  1. the stages appear in this order: `lint`, `build`, `test`, `package`, `deploy`,
+  2. the obsolete stage `legacy-upload` is removed completely, and
+  3. the stage `deploy` gets the same `on_failure` line that `test` already has.
+
+  A stage is its `[name]` line together with the settings below it: they move as one block, and no
+  setting may be lost or end up in another stage. Blank lines between stages do not matter.
+hints:
+  - "Do not retype anything. What Vim deletes is kept in a register and can be put back somewhere else: deleting and pasting is how you move text."
+  - "`dd` deletes a line, `3dd` three lines, `dap` the whole paragraph the cursor is in (a stage and the blank line after it). `p` pastes below the cursor line, `P` above. `yy` copies a line without deleting it."
+  - "Cursor in `[lint]`: `dap`, move to the `[package]` line, `P`: lint is first. Do the same for the other stages; `dap` on `legacy-upload` without a paste removes it. For step 3: `yy` on the `on_failure` line, `G` to the last line of the file, `p`. Then `:wq`."
+checks:
+  - id: order
+    title: The stages run as lint, build, test, package, deploy
+    type: exec
+    run: |-
+      python3 /opt/course/vim-reorder-stages/.grade/check.py order
+    expect: {equals: ok}
+    explain: >-
+      Deleting in Vim is cutting: `dap` or `dd` put the text into a register and `p` pastes it at the
+      new place. A second delete before the paste overwrites that register, which is how a block
+      gets lost; `u` brings it back.
+  - id: legacy-gone
+    title: The stage legacy-upload is removed with all its settings
+    type: exec
+    run: |-
+      python3 /opt/course/vim-reorder-stages/.grade/check.py legacy-gone
+    expect: {equals: ok}
+    explain: >-
+      Removing only the `[legacy-upload]` line leaves its settings behind, and they silently become
+      part of the stage above. Delete the block as a whole with `dap`, or with `4dd` from its first
+      line.
+  - id: on-failure
+    title: deploy has the on_failure line of test
+    type: exec
+    run: |-
+      python3 /opt/course/vim-reorder-stages/.grade/check.py on-failure
+    expect: {equals: ok}
+    explain: >-
+      `yy` copies a line and `p` pastes it below the cursor line, so nothing has to be retyped and
+      nothing can be mistyped. The line must stand inside the block of `[deploy]`, not after the
+      next stage header.
+  - id: intact
+    title: Every stage kept exactly its own settings
+    type: exec
+    guard: true
+    run: |-
+      python3 /opt/course/vim-reorder-stages/.grade/check.py intact
+    expect: {equals: ok}
+    explain: >-
+      A stage moves as a block. Moving only the `[name]` lines, or cutting `on_failure` out of
+      `test` with `dd` instead of copying it with `yy`, leaves stages with the wrong settings while
+      the order looks right.

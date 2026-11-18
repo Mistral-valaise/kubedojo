@@ -1,0 +1,88 @@
+title: Find and fix three mistyped ports
+domain: vim
+difficulty: easy
+minutes: 5
+environment: base
+tags: [vim, search, navigation]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The load balancer marks three healthy servers of the shop as down. Its configuration
+  `/opt/course/vim-search-fix/backend.cfg` lists 180 servers, and every one of them must be
+  health-checked on port `9100`:
+
+  ```
+  server web-001 10.20.1.10:8080 check port 9100 weight 15
+  ```
+
+  On three lines somebody mistyped the number after `check port`, each time differently. Find the
+  three lines and correct the port to `9100`.
+
+  Keep all 180 servers, and change nothing else.
+hints:
+  - "Scrolling through 180 lines is the slow way. Search for what is wrong rather than for what is right: which server lines do not contain `check port 9100`?"
+  - "In Vim, `:v/check port 9100/#` prints every line that does not match, with its line number. `:47` jumps to line 47; `/port` and Enter moves to the word, `w` to the number, `cw` changes it."
+  - "After the first fix, go to the next line (`:112`), put the cursor on the wrong number and press `.` to repeat the change. Or in one command: `:g/server/s/check port \\d\\+/check port 9100/`, then `:wq`."
+checks:
+  - id: all-9100
+    title: Every server is checked on port 9100
+    type: exec
+    run: |-
+      f=/opt/course/vim-search-fix/backend.cfg
+      [ -f "$f" ] || { echo "$f does not exist" >&2; exit 1; }
+      grep -qE '^[[:space:]]*server ' "$f" || { echo "$f contains no server lines" >&2; exit 1; }
+      bad=$(grep -E '^[[:space:]]*server ' "$f" | grep -vE ' check port 9100 ' | awk '{print $2}' | tr '\n' ' ')
+      [ -z "$bad" ] || { echo "not checked on port 9100: $bad" >&2; exit 1; }
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      The three typos are different numbers, so searching for one of them finds one line only.
+      Searching for the lines that do not match the correct text (`:v/check port 9100/#` in Vim,
+      `grep -v` in the shell) finds all of them whatever was typed.
+  - id: three-fixed
+    title: web-047, web-112 and web-163 are corrected and otherwise unchanged
+    type: exec
+    run: |-
+      d=/opt/course/vim-search-fix
+      [ -f "$d/backend.cfg" ] || { echo "$d/backend.cfg does not exist" >&2; exit 1; }
+      [ -f "$d/.grade/expected" ] || { echo "the reference copy is gone: reset the question" >&2; exit 1; }
+      line() { grep -E "^[[:space:]]*server $1 " "$2" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'; }
+      for h in web-047 web-112 web-163; do
+        [ "$(line "$h" "$d/backend.cfg")" = "$(line "$h" "$d/.grade/expected")" ] \
+          || { echo "$h: the line is missing or is not the original line with port 9100" >&2; exit 1; }
+      done
+      echo fixed
+    expect: {equals: fixed}
+    explain: >-
+      Only the port number may change: `cw` replaces exactly the word under the cursor and leaves
+      the address and the weight alone. Deleting the broken lines makes the errors disappear and
+      takes three servers out of the pool.
+  - id: count
+    title: The pool still has 180 servers
+    type: exec
+    guard: true
+    run: |-
+      f=/opt/course/vim-search-fix/backend.cfg
+      [ -f "$f" ] || { echo "$f does not exist" >&2; exit 1; }
+      grep -E '^[[:space:]]*server web-[0-9]{3} ' "$f" | awk '{print $2}' | sort -u | grep -c .
+    expect: {equals: "180"}
+    explain: >-
+      A `dd` on the wrong line removes a server without any error message. `u` brings it back; check
+      with `:g/server/#` or `grep -c server` before you save.
+  - id: intact
+    title: The other lines are untouched
+    type: exec
+    guard: true
+    run: |-
+      d=/opt/course/vim-search-fix
+      [ -f "$d/backend.cfg" ] || { echo "$d/backend.cfg does not exist" >&2; exit 1; }
+      [ -f "$d/.grade/expected" ] || { echo "the reference copy is gone: reset the question" >&2; exit 1; }
+      rest() { grep -vE ' web-(047|112|163) ' "$1" | sed -E 's/[[:space:]]+$//'; }
+      n=$(diff <(rest "$d/backend.cfg") <(rest "$d/.grade/expected") | grep -c '^[<>]')
+      [ "$n" -eq 0 ] || { echo "$n other line(s) differ from the original" >&2; exit 1; }
+      echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      A substitute without a precise pattern changes more than intended, for example a weight or an
+      address that happens to contain the same digits. Anchor the pattern on the text around the
+      number: `check port \d\+`.

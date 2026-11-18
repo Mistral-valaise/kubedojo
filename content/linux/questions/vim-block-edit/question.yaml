@@ -1,0 +1,92 @@
+title: Switch a server pool by editing columns
+domain: vim
+difficulty: medium
+minutes: 6
+environment: base
+tags: [vim, visual-block, comments]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Tonight the shop switches from the blue release to the green one. Prepare the load balancer
+  configuration `/opt/course/vim-block-edit/haproxy.cfg`:
+
+  1. **Comment out** the six `server blue-...` lines: put a `#` in front of each.
+  2. **Activate** the six `server green-...` lines: remove the `#` in front of each, so that they
+     look like the blue lines did.
+  3. The six networks listed in the frontend `admin` are missing their keyword. Each of these lines
+     must read `acl admin_net src <network>`, for example `acl admin_net src 10.20.1.0/24`.
+
+  Leave all other lines as they are, including the comments `# blue pool` and `# green pool`.
+hints:
+  - "Eighteen lines need the same small change in the same column. Vim can select a rectangle of text instead of whole lines and edit all its lines at once."
+  - "Ctrl-v starts visual block mode; `j` extends the block downwards. `I` then inserts text in front of the block on every line (it shows on all lines once you press Esc), and `x` deletes the block."
+  - "Cursor on the `s` of `server blue-1`: Ctrl-v, `5j`, `I`, `# `, Esc. Cursor on the `#` of the green-1 line: Ctrl-v, `5j`, `l`, `x`. Cursor on the first network: Ctrl-v, `5j`, `I`, `acl admin_net src `, Esc. Then `:wq`. If Ctrl-v pastes in your terminal, Ctrl-q does the same."
+checks:
+  - id: commented
+    title: The six blue servers are commented out
+    type: exec
+    run: |-
+      f=/opt/course/vim-block-edit/haproxy.cfg
+      [ -f "$f" ] || { echo "$f does not exist" >&2; exit 1; }
+      for i in 1 2 3 4 5 6; do
+        [ "$(grep -c "blue-$i " "$f")" -eq 1 ] || { echo "expected exactly one line for blue-$i" >&2; exit 1; }
+        grep -qE "^[[:space:]]*#[[:space:]]*server blue-$i 10\.20\.5\.1$i:8080 check[[:space:]]*$" "$f" \
+          || { echo "blue-$i is not commented out, or the line changed otherwise" >&2; exit 1; }
+      done
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      A block insert starts with Ctrl-v, a motion and a capital `I`; the text appears on the first
+      line only until Esc is pressed. Count the lines of the block (`5j` selects six lines): one
+      line too few leaves a live server in the old pool.
+  - id: uncommented
+    title: The six green servers are active
+    type: exec
+    run: |-
+      f=/opt/course/vim-block-edit/haproxy.cfg
+      [ -f "$f" ] || { echo "$f does not exist" >&2; exit 1; }
+      for i in 1 2 3 4 5 6; do
+        [ "$(grep -c "green-$i " "$f")" -eq 1 ] || { echo "expected exactly one line for green-$i" >&2; exit 1; }
+        grep -qE "^[[:space:]]*server green-$i 10\.20\.6\.1$i:8080 check[[:space:]]*$" "$f" \
+          || { echo "green-$i is still commented out, or the line changed otherwise" >&2; exit 1; }
+      done
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      Deleting a block is Ctrl-v, a motion that covers the columns to remove (`5j` down, `l` one
+      column to the right for `#` and the space), then `x`. Without the `l` the space stays, which
+      is harmless here and wrong in YAML.
+  - id: prefixed
+    title: Each network line reads acl admin_net src <network>
+    type: exec
+    run: |-
+      f=/opt/course/vim-block-edit/haproxy.cfg
+      [ -f "$f" ] || { echo "$f does not exist" >&2; exit 1; }
+      for n in 10.20.1.0/24 10.20.2.0/24 10.20.8.0/24 10.30.0.0/16 172.16.9.0/24 192.168.40.0/24; do
+        [ "$(grep -cF "$n" "$f")" -eq 1 ] || { echo "expected exactly one line for $n" >&2; exit 1; }
+        grep -qE "^[[:space:]]*acl admin_net src ${n//./\\.}[[:space:]]*$" "$f" \
+          || { echo "the line of $n does not read: acl admin_net src $n" >&2; exit 1; }
+      done
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      The same prefix on many lines is one block insert, not six times typing. Without visual block
+      mode, `:5,10s/^\s*/&acl admin_net src /` or `:5,10normal Iacl admin_net src ` do the same for
+      a range of lines.
+  - id: rest
+    title: All other lines are unchanged
+    type: exec
+    guard: true
+    run: |-
+      d=/opt/course/vim-block-edit
+      [ -f "$d/haproxy.cfg" ] || { echo "$d/haproxy.cfg does not exist" >&2; exit 1; }
+      [ -f "$d/.grade/original" ] || { echo "the reference copy is gone: reset the question" >&2; exit 1; }
+      rest() { grep -vE 'server (blue|green)-[1-6] |[0-9]+\.[0-9]+\.[0-9]+\.0/[0-9]+' "$1" | sed -E 's/[[:space:]]+$//'; }
+      n=$(diff <(rest "$d/haproxy.cfg") <(rest "$d/.grade/original") | grep -c '^[<>]')
+      [ "$n" -eq 0 ] || { echo "$n other line(s) differ from the original" >&2; exit 1; }
+      echo unchanged
+    expect: {equals: unchanged}
+    explain: >-
+      A block that reaches one line too far comments out `# green pool` a second time or uncomments
+      it, and an insert in the wrong column splits a word. Check the first and the last line of the
+      selection before you press `I` or `x`.
