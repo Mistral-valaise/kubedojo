@@ -1,0 +1,34 @@
+title: Kernel feature behind resource limits
+domain: kubernetes-fundamentals
+difficulty: medium
+tags: [containers, linux]
+stem: |-
+  A container has a memory limit of 512Mi and a CPU limit of 1. On a Linux node the kubelet and the
+  container runtime pass these values on, and the kernel enforces them.
+
+  Which kernel feature does the enforcing?
+options:
+  - text: Namespaces
+    explain: >-
+      A namespace gives processes their own isolated view of a global resource: process IDs, network
+      stack, mounts, hostname. Namespaces decide what a container can see, not how much it can use.
+  - text: Seccomp profiles
+    explain: >-
+      Seccomp filters the system calls a process may make. It reduces the attack surface towards the
+      kernel and knows nothing about amounts of CPU or memory.
+  - text: Capabilities
+    explain: >-
+      Linux capabilities give a process some of the privileges of root without all of them, for example
+      binding to low ports. They are about privileges, not resources.
+  - text: Control groups
+    correct: true
+explanation: >-
+  Control groups (cgroups) constrain the resources that are allocated to processes. The kubelet and the
+  container runtime configure cgroups for Pods and containers, and the kernel enforces the limits: CPU
+  by throttling, memory by out-of-memory kills. Namespaces are the other half of a container: they
+  isolate what its processes see.
+references:
+  - title: About cgroup v2
+    url: https://kubernetes.io/docs/concepts/architecture/cgroups/
+  - title: Resource Management for Pods and Containers
+    url: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/

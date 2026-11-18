@@ -1,0 +1,34 @@
+title: A Pod of a Deployment is deleted
+domain: kubernetes-fundamentals
+difficulty: easy
+tags: [workloads, reconciliation]
+stem: |-
+  A Deployment has `replicas: 3` and three running Pods. An engineer deletes one of the Pods with
+  `kubectl delete pod`.
+
+  What happens next?
+options:
+  - text: The kubelet restarts the deleted Pod on the node where it was running
+    explain: >-
+      A kubelet restarts failed containers of Pods that still exist on its node. Here the Pod object
+      itself is gone, so there is nothing left for the kubelet to restart.
+  - text: The ReplicaSet controller creates a new Pod from the Pod template
+    correct: true
+  - text: The kube-scheduler creates a new Pod and binds it to a free node
+    explain: >-
+      The scheduler never creates Pods. It only assigns Pods that already exist, and have no node yet,
+      to a node.
+  - text: The Deployment runs with two Pods until somebody scales it again
+    explain: >-
+      That would be imperative behaviour. `replicas: 3` is a desired state that is enforced all the
+      time, not a command that was executed once.
+explanation: >-
+  Kubernetes objects describe a desired state, and controllers are control loops that keep moving the
+  current state towards it. The Deployment's ReplicaSet wants three Pods and sees two, so its controller
+  asks the API server to create a third one from the Pod template. The new Pod has a new name and may
+  land on another node; the scheduler and a kubelet then do their usual part.
+references:
+  - title: ReplicaSet
+    url: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
+  - title: Controllers
+    url: https://kubernetes.io/docs/concepts/architecture/controller/

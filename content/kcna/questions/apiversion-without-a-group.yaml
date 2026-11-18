@@ -1,0 +1,32 @@
+title: apiVersion with and without a group
+domain: kubernetes-fundamentals
+difficulty: medium
+tags: [api]
+stem: |-
+  A Deployment manifest starts with `apiVersion: apps/v1`, a CronJob manifest with
+  `apiVersion: batch/v1`. A Pod manifest starts with just `apiVersion: v1`.
+
+  Why is there no group name in front of the version for a Pod?
+options:
+  - text: Pod is a stable resource, and stable resources drop the group name
+    explain: >-
+      Stability is expressed by the version (`v1`, `v1beta1`, `v1alpha1`), not by the group. Deployment
+      is just as stable and still written `apps/v1`.
+  - text: Pod is a namespaced resource, and the namespace takes the place of the group
+    explain: >-
+      Namespace and API group are unrelated. The namespace is set in `metadata.namespace`, and
+      Deployments are namespaced too.
+  - text: Pod is in the core group, and the core group is not written in apiVersion
+    correct: true
+  - text: Pod is older than API groups, and such resources are served by every group
+    explain: >-
+      Every resource belongs to exactly one group. The oldest resources were kept together in one
+      group, which is also called the legacy group.
+explanation: >-
+  The Kubernetes API is divided into API groups. The core (or legacy) group is served at `/api/v1` and
+  is not specified in the `apiVersion` field, hence `apiVersion: v1` for Pods, Services, ConfigMaps,
+  Secrets, Namespaces and Nodes. Named groups are served at `/apis/<group>/<version>` and written as
+  `<group>/<version>`, for example `apps/v1` or `batch/v1`.
+references:
+  - title: API Overview, API groups
+    url: https://kubernetes.io/docs/reference/using-api/

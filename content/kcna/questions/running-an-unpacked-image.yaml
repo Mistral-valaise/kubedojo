@@ -1,0 +1,33 @@
+title: Standard for running an unpacked container
+domain: kubernetes-fundamentals
+difficulty: medium
+tags: [containers, oci]
+stem: |-
+  A container runtime has pulled an image and unpacked it on the node into a filesystem bundle: a root
+  filesystem plus a configuration file. It now hands the bundle to a low-level runtime such as runc,
+  which creates the container.
+
+  Which specification describes how such a bundle is run?
+options:
+  - text: OCI Image Specification
+    explain: >-
+      It defines what an image is made of (manifest, layers, configuration), that is the format before
+      unpacking. It is why an image built by one tool can be used by any runtime.
+  - text: OCI Runtime Specification
+    correct: true
+  - text: OCI Distribution Specification
+    explain: >-
+      It standardizes the API of registries, used for pushing and pulling images. It was involved one
+      step earlier, when the image was pulled.
+  - text: Kubernetes Container Runtime Interface
+    explain: >-
+      The CRI is the protocol between the kubelet and the container runtime (containerd, CRI-O). What
+      that runtime does with a low-level runtime underneath is outside of it.
+explanation: >-
+  The Open Container Initiative maintains three specifications. The Runtime Specification describes how
+  to run a filesystem bundle that is unpacked on disk; the Image Specification describes the image
+  format; the Distribution Specification describes the registry API. Together they let an image built
+  with one tool be stored in any registry and run by any conforming runtime.
+references:
+  - title: Open Container Initiative, overview
+    url: https://opencontainers.org/about/overview/

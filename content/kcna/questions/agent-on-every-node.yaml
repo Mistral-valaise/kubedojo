@@ -1,0 +1,32 @@
+title: Running an agent on every node
+domain: kubernetes-fundamentals
+difficulty: easy
+tags: [workloads]
+stem: |-
+  A platform team wants a log collection agent to run as exactly one Pod on every node of the cluster.
+  Nodes that join the cluster later must get the agent without anybody changing a manifest.
+
+  Which workload resource is made for this?
+options:
+  - text: Deployment
+    explain: >-
+      A Deployment keeps a number of interchangeable replicas running, wherever the scheduler puts
+      them. Setting replicas to the number of nodes guarantees neither one Pod per node nor a new Pod
+      when a node joins.
+  - text: StatefulSet
+    explain: >-
+      A StatefulSet gives each replica a stable name and its own storage. The number of replicas is
+      still a fixed number in the spec and has nothing to do with the number of nodes.
+  - text: DaemonSet
+    correct: true
+  - text: ReplicaSet
+    explain: >-
+      A ReplicaSet keeps a fixed number of identical Pods running. It is what a Deployment uses
+      underneath, and it does not tie Pods to nodes either.
+explanation: >-
+  A DaemonSet ensures that all (or a selected set of) nodes run a copy of a Pod. When a node is added,
+  the DaemonSet controller creates a Pod for it; when a node is removed, that Pod is garbage collected.
+  Log collectors, node monitoring agents and storage or network daemons are the typical uses.
+references:
+  - title: DaemonSet
+    url: https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/

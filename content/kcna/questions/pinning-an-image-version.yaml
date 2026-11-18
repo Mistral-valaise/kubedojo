@@ -1,0 +1,33 @@
+title: Getting the same image content every time
+domain: kubernetes-fundamentals
+difficulty: medium
+tags: [containers, images]
+stem: |-
+  A Deployment uses the image `registry.example/shop/api:1.4`. The publisher rebuilds the image and
+  pushes it under the same name and tag, and Pods started afterwards run different code than the older
+  ones.
+
+  What must the team do so that every Pod of the Deployment runs exactly the same image content?
+options:
+  - text: Refer to the image by its digest (`@sha256:...`) and not by a tag
+    correct: true
+  - text: Refer to the image by a complete version tag such as `1.4.2`
+    explain: >-
+      A more specific tag is a convention, not a guarantee. Any tag can be moved to point to another
+      image.
+  - text: Keep the tag and set `imagePullPolicy` to `IfNotPresent`
+    explain: >-
+      Then a node that has the image keeps its copy, but a node without it pulls whatever the tag
+      points to at that moment. The Pods can still differ.
+  - text: Keep the tag and pull through an `imagePullSecret`
+    explain: >-
+      An imagePullSecret holds the credentials for a private registry. It decides whether the pull is
+      allowed, not which content the tag resolves to.
+explanation: >-
+  A tag identifies a version in a series of images, and it can be moved to another image. A digest is a
+  hash of the image's content: it is immutable and identifies exactly one image, so with
+  `name@sha256:<hash>` Kubernetes runs the same code every time it starts a container. If a reference
+  has a tag and a digest, only the digest is used for pulling.
+references:
+  - title: Images
+    url: https://kubernetes.io/docs/concepts/containers/images/
