@@ -1,0 +1,22 @@
+# The recommended order through the tracks, shown on the home page. It only
+# recommends: every track stays reachable whatever the learner has done.
+id: kubestronaut
+title: Road to Kubestronaut
+summary: >-
+  A recommended order through the certifications that the CNCF Kubestronaut
+  program asks for. Nothing is locked: start wherever you like.
+url: https://www.cncf.io/training/kubestronaut/
+disclaimer: >-
+  kubedojo is an independent project, not affiliated with or endorsed by the
+  CNCF or the Linux Foundation. Kubestronaut is a program of the Cloud Native
+  Computing Foundation; passing mock exams here earns no title or certificate.
+steps:
+  - track: ckad
+    role: required
+    why: Build, deploy and configure applications on Kubernetes.
+  - track: cka
+    role: required
+    why: Operate the cluster itself, from installation to troubleshooting.
+  - track: cks
+    role: required
+    why: Harden clusters and workloads. The real exam requires a valid CKA.

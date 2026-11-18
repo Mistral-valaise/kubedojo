@@ -1,6 +1,7 @@
 import { type ButtonHTMLAttributes, type ReactNode, useEffect } from "react";
 import { Link } from "react-router";
 import { Loader2, Moon, Sun, X } from "lucide-react";
+import type { Link as DocsLink } from "../api";
 import { useTheme } from "../hooks";
 import { t } from "../i18n";
 
@@ -59,7 +60,7 @@ export function Bar({ value, tone = "accent", className }: { value: number; tone
   const colors = { accent: "bg-accent", ok: "bg-ok", bad: "bg-bad", warn: "bg-warn" };
   return (
     <div className={cx("h-1.5 w-full overflow-hidden rounded-full bg-panel2", className)}>
-      <div className={cx("h-full rounded-full transition-all duration-500", colors[tone])} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+      <div className={cx("h-full rounded-full transition-all duration-500 motion-reduce:transition-none", colors[tone])} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
     </div>
   );
 }
@@ -71,10 +72,10 @@ export function Ring({ value, size = 120, stroke = 10, tone = "accent", children
   const color = { accent: "var(--accent)", ok: "var(--ok)", bad: "var(--bad)" }[tone];
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
+      <svg width={size} height={size} className="-rotate-90" aria-hidden>
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--panel-2)" strokeWidth={stroke} />
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round"
-          strokeDasharray={c} strokeDashoffset={c * (1 - Math.min(100, Math.max(0, value)) / 100)} style={{ transition: "stroke-dashoffset .6s ease" }} />
+          strokeDasharray={c} strokeDashoffset={c * (1 - Math.min(100, Math.max(0, value)) / 100)} className="ring-arc" />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">{children}</div>
     </div>
@@ -108,8 +109,14 @@ export function Brand() {
   );
 }
 
-/** Standard page chrome for non-workspace pages. */
-export function Page({ children, crumbs }: { children: ReactNode; crumbs?: { label: string; to?: string }[] }) {
+/**
+ * Standard page chrome for non-workspace pages. A page about one track passes
+ * that track's documentation (null when it has none to link); pages about no
+ * track link the Kubernetes documentation.
+ */
+export function Page({ children, crumbs, docs = { title: t("Kubernetes docs"), url: "https://kubernetes.io/docs/" } }: {
+  children: ReactNode; crumbs?: { label: string; to?: string }[]; docs?: DocsLink | null;
+}) {
   return (
     <div className="min-h-full">
       <header className="sticky top-0 z-20 border-b bg-bg/85 backdrop-blur">
@@ -122,9 +129,11 @@ export function Page({ children, crumbs }: { children: ReactNode; crumbs?: { lab
             </span>
           ))}
           <div className="ml-auto flex items-center gap-1">
-            <a href="https://kubernetes.io/docs/" target="_blank" rel="noreferrer" className="hidden px-2 text-sm text-muted hover:text-text sm:block">
-              {t("Kubernetes docs")}
-            </a>
+            {docs && (
+              <a href={docs.url} target="_blank" rel="noreferrer" className="hidden px-2 text-sm text-muted hover:text-text sm:block">
+                {docs.title}
+              </a>
+            )}
             <ThemeToggle />
           </div>
         </div>

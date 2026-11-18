@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Clock, PlayCircle, RotateCcw, Ser
 import { api, type Config, type QuestionView, type Result, type Session, type Track } from "../api";
 import { useInterval } from "../hooks";
 import { t } from "../i18n";
+import { words } from "../track";
 import { Help } from "../components/Help";
 import { Markdown } from "../components/Markdown";
 import { Provisioning } from "../components/Provisioning";
@@ -87,6 +88,7 @@ export function PracticePage() {
   const pos = sameDomain.findIndex((q) => q.id === qid);
   const prev = sameDomain[pos - 1], next = sameDomain[pos + 1];
   const domain = track?.domains.find((d) => d.id === meta?.domain);
+  const w = words(track);
 
   const left = (
     <div ref={scroller} className="h-full overflow-y-auto bg-panel">
@@ -104,14 +106,14 @@ export function PracticePage() {
         {error && <ErrorNote>{error}</ErrorNote>}
         {status === "error" && (
           <ErrorNote>
-            <div className="mb-2 font-medium">{t("The question could not be prepared.")}</div>
+            <div className="mb-2 font-medium">{w.prepareFailed}</div>
             <div className="mb-3 font-mono text-xs break-words">{state?.error}</div>
             <Button size="sm" onClick={reset}>{t("Try again")}</Button>
           </ErrorNote>
         )}
         {!view && status !== "error" && (
           <div className="flex items-center gap-3 rounded-xl border border-dashed px-4 py-6 text-sm text-muted">
-            <Spinner />{t("Preparing the environment for this question ...")}
+            <Spinner />{w.preparing}
           </div>
         )}
 
@@ -120,16 +122,16 @@ export function PracticePage() {
             <Markdown>{view.task}</Markdown>
             <div className="flex flex-wrap items-center gap-2 border-t pt-4">
               <Button variant="primary" loading={checking} icon={<PlayCircle className="size-4" />} onClick={check}>{t("Check my solution")}</Button>
-              <Button variant="ghost" icon={<RotateCcw className="size-4" />} onClick={() => setConfirmReset(true)}>{t("Reset question")}</Button>
+              <Button variant="ghost" icon={<RotateCcw className="size-4" />} onClick={() => setConfirmReset(true)}>{w.reset}</Button>
             </div>
             {result && <Results result={result} />}
             {session && meta && (
-              <Help sid={session.id} q={meta} result={result} tutor={!!config?.tutor} initialHints={view.state.hintsUsed} />
+              <Help sid={session.id} q={meta} result={result} tutor={!!config?.tutor} track={track} initialHints={view.state.hintsUsed} />
             )}
             {result && <Rating track={trackId} question={qid} />}
             {result?.passed && next && (
               <Button variant="ok" className="w-full" onClick={() => nav(`/t/${trackId}/q/${next.id}`)}>
-                {t("Next question")}<ChevronRight className="size-4" />
+                {w.next}<ChevronRight className="size-4" />
               </Button>
             )}
           </>
@@ -140,7 +142,8 @@ export function PracticePage() {
 
   const right = session && termReady
     ? <TerminalTabs sessionId={session.id} />
-    : <Provisioning session={session} title={t("Creating your sandbox")} />;
+    // The note names the kind of sandbox, so it waits for the track.
+    : <Provisioning session={session} title={t("Creating your sandbox")} note={track ? w.provisioningNote : ""} />;
 
   return (
     <div className="flex h-full flex-col">
@@ -151,18 +154,18 @@ export function PracticePage() {
           <ArrowLeft className="size-3.5" />{track?.short ?? trackId} · {t("Practice")}
         </Link>
         <div className="ml-auto flex items-center gap-1">
-          <Button size="sm" variant="ghost" disabled={!prev} onClick={() => prev && nav(`/t/${trackId}/q/${prev.id}`)} aria-label={t("Previous question")}><ChevronLeft className="size-4" /></Button>
+          <Button size="sm" variant="ghost" disabled={!prev} onClick={() => prev && nav(`/t/${trackId}/q/${prev.id}`)} aria-label={w.previous}><ChevronLeft className="size-4" /></Button>
           <span className="px-1 text-xs tabular-nums text-muted">{pos >= 0 ? `${pos + 1} / ${sameDomain.length}` : ""}</span>
-          <Button size="sm" variant="ghost" disabled={!next} onClick={() => next && nav(`/t/${trackId}/q/${next.id}`)} aria-label={t("Next question")}><ChevronRight className="size-4" /></Button>
-          <a href="https://kubernetes.io/docs/" target="_blank" rel="noreferrer" className="px-2 text-sm text-muted hover:text-text">{t("Docs")}</a>
+          <Button size="sm" variant="ghost" disabled={!next} onClick={() => next && nav(`/t/${trackId}/q/${next.id}`)} aria-label={w.next}><ChevronRight className="size-4" /></Button>
+          {track && w.docs && <a href={w.docs.url} target="_blank" rel="noreferrer" title={w.docs.title} className="px-2 text-sm text-muted hover:text-text">{t("Docs")}</a>}
           <ThemeToggle />
         </div>
       </header>
       <Split left={left} right={right} />
       {confirmReset && (
-        <Modal title={t("Reset this question?")} onClose={() => setConfirmReset(false)}
+        <Modal title={w.resetTitle} onClose={() => setConfirmReset(false)}
           footer={<><Button onClick={() => setConfirmReset(false)}>{t("Cancel")}</Button><Button variant="danger" onClick={reset}>{t("Reset")}</Button></>}>
-          {t("Everything this question created is removed and its starting state is restored. Other questions are not affected.")}
+          {w.resetNote}
         </Modal>
       )}
     </div>
