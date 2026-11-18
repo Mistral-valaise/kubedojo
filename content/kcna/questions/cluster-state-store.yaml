@@ -10,8 +10,8 @@ stem: |-
 options:
   - text: kube-apiserver
     explain: >-
-      The API server exposes the Kubernetes API and validates what comes in, but it keeps no state of
-      its own. It writes every object to its data store and reads it from there.
+      The API server exposes the Kubernetes API, but the objects are not kept in it. It writes every
+      object to its data store and reads it from there.
   - text: kube-controller-manager
     explain: >-
       It runs the controllers. They read and change objects through the API server and store nothing
@@ -23,12 +23,12 @@ options:
       A kubelet makes sure the Pods assigned to its node are running. It learns about them from the
       API server and holds no cluster-wide state.
 explanation: >-
-  etcd is the consistent and highly available key-value store behind the API server: Kubernetes stores
-  the serialized state of all objects in it. The other control plane components are stateless and can
-  be started again from their configuration, which is why a backup plan for a cluster is first of all a
-  backup plan for etcd.
+  etcd is the consistent and highly available key-value store for all API server data: all Kubernetes
+  objects are stored in it. The other components work on those objects through the API server. That is
+  why the documentation asks for a backup plan for etcd, and why a snapshot of etcd is what recovers a
+  cluster after all control plane nodes were lost.
 references:
   - title: Kubernetes Components
     url: https://kubernetes.io/docs/concepts/overview/components/
-  - title: The Kubernetes API
-    url: https://kubernetes.io/docs/concepts/overview/kubernetes-api/
+  - title: Operating etcd clusters for Kubernetes (Backing up an etcd cluster)
+    url: https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/#backing-up-an-etcd-cluster

@@ -34,7 +34,7 @@ GitOps applies the Kubernetes idea of desired state to delivery itself. The Open
 | Manual change in the cluster | stays until the next run | is detected as drift and reverted |
 | Rollback | run an older pipeline | revert the commit |
 
-Argo CD and Flux are the CNCF projects that implement the pull side.
+Argo CD (part of the Argo project) and Flux are graduated CNCF projects built for the pull side.
 
 ### Helm and Kustomize
 

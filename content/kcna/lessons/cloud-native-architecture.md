@@ -55,8 +55,9 @@ DaemonSet cannot be scaled horizontally.
   best-known form; Knative brings the model to Kubernetes.
 - A **service mesh** manages the traffic between services and adds reliability (retries, timeouts),
   observability and security (mutual TLS) uniformly, **without changes to application code**.
-  Classically a proxy runs as a sidecar in every Pod, the data plane, configured by a control plane.
-  Istio and Linkerd are the graduated examples.
+  Classically a proxy runs as a sidecar in every Pod. The proxies are the **data plane**: all traffic
+  between services passes through them. The **control plane** configures them. Istio and Linkerd are
+  graduated CNCF projects of this kind.
 
 ### Open standards
 

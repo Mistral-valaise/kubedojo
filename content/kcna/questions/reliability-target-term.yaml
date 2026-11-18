@@ -24,9 +24,9 @@ options:
     correct: true
 explanation: >-
   An SLI is a carefully defined quantitative measure of some aspect of the service, such as error rate
-  or tail latency. An SLO is a target value or range for an SLI over a period. An SLA is a contract
-  with consequences for violating the objective, usually a slightly relaxed version of the internal
-  SLO. The error budget is what the SLO leaves over, and it is a common basis for alerting.
+  or tail latency. An SLO is a target value or range for an SLI. An SLA is a business contract with
+  consequences for violating the SLO, or a slightly relaxed version of it. The error budget is the
+  tolerance the SLO leaves, 100% minus the SLO over a time frame, and a recommended basis for alerts.
 references:
   - title: CNCF TAG Observability whitepaper (Implementing SLIs, SLOs and SLAs)
     url: https://github.com/cncf/tag-observability/blob/main/whitepaper.md#implementing-slis-slos-and-slas

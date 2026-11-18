@@ -1,0 +1,36 @@
+title: What a distributed trace is built from
+domain: cloud-native-architecture
+difficulty: easy
+tags: [observability, opentelemetry, tracing]
+stem: |-
+  A request to a web shop passes through five services, all instrumented with OpenTelemetry. For every
+  operation it performs for the request, a service records a named entry with a start time, an end
+  time and the ID of the entry that caused it. All entries of the request carry the same trace ID.
+
+  What does OpenTelemetry call one such entry?
+options:
+  - text: A span
+    correct: true
+  - text: A trace
+    explain: >-
+      The trace is the whole: the path of the request through the application, made up of all entries
+      that share the trace ID.
+  - text: A metric
+    explain: >-
+      A metric is a measurement of a service captured at runtime, for example how many requests it
+      has handled. It does not follow a single request.
+  - text: A log record
+    explain: >-
+      A log is a timestamped text record of an event, structured or unstructured. It can be correlated
+      with a trace through the trace ID, but a trace is not made of log records.
+explanation: >-
+  A span represents a unit of work or operation, and spans are the building blocks of traces. Each span
+  has a name, start and end time, and a context with its trace ID and span ID; the parent ID links it to
+  the span that caused it, and the root span has no parent. A trace is the path of one request through
+  the application and shows where the time was spent or where it failed. OpenTelemetry only produces
+  and transports this data; storing and viewing it is left to a backend.
+references:
+  - title: OpenTelemetry - Traces
+    url: https://opentelemetry.io/docs/concepts/signals/traces/
+  - title: What is OpenTelemetry?
+    url: https://opentelemetry.io/docs/what-is-opentelemetry/

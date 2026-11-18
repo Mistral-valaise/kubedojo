@@ -26,8 +26,8 @@ explanation: >-
   OpenGitOps names four principles: the desired state is declarative; it is stored versioned and
   immutable, with a complete history; software agents pull it automatically from the source; and they
   continuously reconcile, observing the actual state and applying the desired one. The last two
-  separate GitOps from a pipeline that pushes: an agent such as Argo CD or Flux runs next to the
-  workloads, fetches the declarations itself and corrects drift whenever it appears.
+  separate GitOps from a pipeline that pushes: an agent, for example from the CNCF projects Argo or
+  Flux, fetches the declarations itself and corrects drift whenever it appears.
 references:
   - title: OpenGitOps principles
     url: https://opengitops.dev/

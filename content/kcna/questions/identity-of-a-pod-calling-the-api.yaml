@@ -1,0 +1,35 @@
+title: The identity of a Pod that calls the API
+domain: container-orchestration
+difficulty: medium
+tags: [security, serviceaccount]
+stem: |-
+  An application in a Pod sends requests to the Kubernetes API server of its own cluster. The Pod
+  specification does not mention any account, and the cluster uses its defaults for Pod credentials.
+
+  As whom does the API server authenticate these requests?
+options:
+  - text: As the user account that created the Pod
+    explain: >-
+      User accounts stand for people, who authenticate from outside with their own credentials. Those
+      credentials are not handed on to the Pods a user creates.
+  - text: As the `default` ServiceAccount of the Pod's namespace
+    correct: true
+  - text: As the node on which the Pod is running
+    explain: >-
+      The node is a different identity. For the processes that run in a Pod, Kubernetes provides the
+      identity of a ServiceAccount.
+  - text: As an anonymous client without any identity
+    explain: >-
+      The Pod is not without credentials. Kubernetes provides the credentials of the Pod's
+      ServiceAccount automatically unless that is switched off.
+explanation: >-
+  A service account is a non-human identity for processes that run in a Pod. Every namespace gets a
+  ServiceAccount named `default`, and a Pod that names none is assigned that one. Kubernetes obtains a
+  short-lived, automatically rotating token for it and mounts it into the Pod as a projected volume;
+  the application presents that token to the API server. What the identity may do is a separate
+  matter: the `default` ServiceAccount has no permissions beyond API discovery until RBAC grants some.
+references:
+  - title: Service Accounts
+    url: https://kubernetes.io/docs/concepts/security/service-accounts/
+  - title: Configure Service Accounts for Pods
+    url: https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/
