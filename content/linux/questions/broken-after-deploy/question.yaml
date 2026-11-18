@@ -1,0 +1,103 @@
+title: Down since last night's change
+domain: incident-troubleshooting
+difficulty: hard
+minutes: 10
+tags: [logs, diff, permissions, service, root-cause]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The order service `ordersd` has been down since a change was applied last night. What the change
+  was meant to do is written in `/opt/course/broken-after-deploy/CHANGE-4711.txt`.
+
+  | | |
+  |---|---|
+  | Directory | `/opt/course/broken-after-deploy/` |
+  | Configuration | `etc/orders.conf` |
+  | Log | `var/log/orders.log` |
+  | Control script | `sudo /opt/course/broken-after-deploy/orderctl start`, `stop`, `restart` or `status` |
+  | Service account | `broken-after-deploy` (what `orderctl` starts the service as) |
+  | Health URL | `http://127.0.0.1:23180/health` |
+
+  Bring the service back:
+
+  - `ordersd` runs under its service account, and its health URL reports `"status": "ok"`, all
+    **3** orders loaded and the new limit of **500** orders that the change was made for.
+  - The API token stays secret: the service account must be able to read `etc/api.token`,
+    ordinary users must not. Do not change its content.
+  - Keep the log: it is the record of the incident.
+
+  There may be more than one thing wrong. Do not change `bin/ordersd.py` or `orderctl`.
+hints:
+  - "Start the service and read the end of its log: it tells you why it gave up. Fix that one thing, start again, and read the log again. A service stops at the first error, so the next one only shows up after the first is gone."
+  - "`diff etc/orders.conf.bak etc/orders.conf` shows what the change really did to the configuration: one line is what was planned, one is not. For the second error compare who the service runs as with `ls -l etc/api.token`."
+  - "Correct the path in `data_dir` (keep `max_orders = 500`). Then give the service account, and only it, read access to the token: `sudo chgrp broken-after-deploy etc/api.token && sudo chmod 640 etc/api.token`. Finally `sudo ./orderctl restart` and `curl http://127.0.0.1:23180/health`."
+checks:
+  - id: healthy
+    title: The health URL answers with status ok
+    type: exec
+    run: |-
+      out=$(curl -sS -m 5 http://127.0.0.1:23180/health) || { echo "no answer from http://127.0.0.1:23180/health" >&2; exit 1; }
+      echo "$out" | jq -r .status
+    expect: {equals: ok}
+    explain: >-
+      The proof of a repair is the service answering, not a start command that printed no error.
+      A service that fails during start-up says why in its log, one error at a time: fix, start,
+      read again until it stays up.
+  - id: config
+    title: The service loaded all 3 orders and runs with the new limit of 500
+    type: exec
+    run: |-
+      out=$(curl -sS -m 5 http://127.0.0.1:23180/health) || { echo "no answer from http://127.0.0.1:23180/health" >&2; exit 1; }
+      echo "$out" | jq -r '"\(.orders_loaded) orders, limit \(.max_orders)"'
+    expect: {equals: "3 orders, limit 500"}
+    explain: >-
+      `diff` against the backup shows two changed lines: the planned new limit and a typo in the
+      data directory. Copying the backup over the file removes the typo and the reason for the
+      change with it; creating the misspelled directory starts a service without any data.
+  - id: service-user
+    title: ordersd runs as its service account
+    type: exec
+    run: |-
+      sock=$(ss -Hltne 'sport = :23180')
+      [ -n "$sock" ] || { echo "nothing listens on port 23180" >&2; exit 1; }
+      uid=$(echo "$sock" | grep -o 'uid:[0-9]*' | head -n 1 | cut -d: -f2)
+      id -un "${uid:-0}"
+    expect: {equals: broken-after-deploy}
+    explain: >-
+      Started as root, the service reads every file and the permission problem seems to be gone.
+      It also runs with rights it must not have, and the next regular restart under the service
+      account fails again: test with the user the service really runs as.
+  - id: token-private
+    title: The API token is unchanged and not readable for ordinary users
+    type: exec
+    guard: true
+    run: |-
+      b=/opt/course/broken-after-deploy; t=$b/etc/api.token
+      [ -f "$t" ] || { echo "$t is missing" >&2; exit 1; }
+      sha256sum --quiet -c "$b/.state/token.sha256" >&2 || { echo "the content of the token was changed" >&2; exit 1; }
+      for u in nobody candidate; do
+        if setpriv --reuid "$u" --regid "$(id -g "$u")" --init-groups test -r "$t"; then
+          echo "user $u can read $t ($(stat -c '%A %U:%G' "$t"))" >&2; exit 1
+        fi
+      done
+      echo private
+    expect: {equals: private}
+    explain: >-
+      `chmod 644` or `777` makes the error disappear and hands the secret to every account on the
+      host. Grant exactly what is missing: make the service account the owner or the group of the
+      file (`chown`, `chgrp` with mode 640) and leave "others" without any right.
+  - id: log-kept
+    title: The log still holds the record of the incident
+    type: exec
+    guard: true
+    run: |-
+      b=/opt/course/broken-after-deploy; l=$b/var/log/orders.log
+      [ -f "$l" ] || { echo "$l is missing" >&2; exit 1; }
+      head -n 11 "$l" | sha256sum | diff -q - "$b/.state/log-head.sha256" > /dev/null || {
+        echo "the lines written before and during the incident were removed or changed" >&2; exit 1; }
+      echo kept
+    expect: {equals: kept}
+    explain: >-
+      Emptying or deleting a log to "start clean" throws away the timeline that the post-mortem
+      needs. New lines are appended; tell old from new by the timestamp, or note the line count
+      before you start (`wc -l`).

@@ -1,0 +1,111 @@
+title: No space left on device
+domain: incident-troubleshooting
+difficulty: medium
+minutes: 9
+tags: [df, du, find, inodes, sparse-files, cleanup]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The shop cannot create session files any more: `No space left on device`. The on-call colleague
+  looked at `df -h`, saw free space and gave up. What was recorded during the alert is in
+  `/opt/course/disk-full-or-inodes/incident.txt`. The content of the affected volume is the
+  directory tree `/opt/course/disk-full-or-inodes/volume`.
+
+  **Diagnose.** Write three lines to `/opt/course/disk-full-or-inodes/report.txt`:
+
+  ```
+  exhausted: <blocks or inodes>
+  largest-file: <absolute path>
+  most-files: <absolute path>
+  ```
+
+  - `exhausted`: what the file system in `incident.txt` has run out of: `blocks` (disk space) or
+    `inodes` (number of files).
+  - `largest-file`: the file below `volume` that **occupies the most disk space**.
+  - `most-files`: the directory below `volume` that **directly contains the most files**.
+
+  **Clean up**, and nothing more than this:
+
+  - Delete the file you reported as `largest-file`: it is a crash dump nobody needs.
+  - In the directory you reported as `most-files`, delete every file that was last modified
+    **more than 7 days ago**. Newer files there belong to customers who are logged in.
+hints:
+  - "A file system has two budgets: blocks (`df -h`) and inodes, one per file (`df -i`). Either one at 100% gives the same 'No space left on device'. In the tree, `du` answers 'what occupies space' and counting with `find` answers 'where are the files'."
+  - "Size and disk usage are different things: `ls -l` shows how long a file is, `du` (or the first column of `ls -ls`) how many blocks it really occupies. `find <dir> -type f -printf '%h\\n' | sort | uniq -c | sort -rn | head` counts files per directory."
+  - "`du -a volume | sort -rn | head` for the space; the count as in the previous hint; then `rm` the dump and `find volume/cache/sessions -type f -mtime +7 -delete`. Run the `find` without `-delete` first and look at what it would remove."
+checks:
+  - id: symptom
+    title: The report names what the file system ran out of
+    type: exec
+    run: |-
+      f=/opt/course/disk-full-or-inodes/report.txt
+      [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+      sed 's/\r$//' "$f" | tr -s ' \t' ' ' | sed 's/ $//' | grep -ix 'exhausted: *inodes'
+    expect: {matches: "(?i)^exhausted: ?inodes$"}
+    explain: >-
+      Every file needs an inode, and their number is fixed when the file system is created. With
+      `IUse%` at 100 no file can be created although `df -h` shows gigabytes free: always run
+      `df -i` next to `df -h` when you see "No space left on device".
+  - id: culprits
+    title: The report names the file that occupies the most space and the directory with the most files
+    type: exec
+    run: |-
+      b=/opt/course/disk-full-or-inodes; f=$b/report.txt
+      [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+      rows=$(sed 's/\r$//' "$f" | tr -s ' \t' ' ' | sed 's/ $//; s|/$||')
+      echo "$rows" | grep -qx "largest-file: $b/volume/uploads/tmp/core.20391" || {
+        echo "largest-file is missing or not the file that occupies the most disk space" >&2; exit 1; }
+      echo "$rows" | grep -qx "most-files: $b/volume/cache/sessions" || {
+        echo "most-files is missing or not the directory that directly contains the most files" >&2; exit 1; }
+      echo found
+    expect: {equals: found}
+    explain: >-
+      `ls -l` shows the length of a file, not what it occupies: a sparse file such as a database
+      image can be a gigabyte long and use no blocks, and `du` tells the truth. Thousands of empty
+      files are the opposite case: no space at all, but one inode each, and `du` hardly sees them.
+  - id: space-freed
+    title: The crash dump is gone and the volume occupies less than 12 MiB
+    type: exec
+    run: |-
+      v=/opt/course/disk-full-or-inodes/volume
+      [ -d "$v" ] || { echo "$v is missing" >&2; exit 1; }
+      kb=$(du -sk "$v" | cut -f1)
+      [ -n "$kb" ] || { echo "du failed" >&2; exit 1; }
+      [ "$kb" -lt 12288 ] || { echo "the volume still occupies $kb KiB" >&2; exit 1; }
+      echo freed
+    expect: {equals: freed}
+    explain: >-
+      Free the space where it really is used: one 24 MiB core dump outweighs everything else in
+      the tree. Deleting the file that merely looks biggest frees nothing and destroys data.
+  - id: sessions-pruned
+    title: No session file older than 7 days is left
+    type: exec
+    run: |-
+      d=/opt/course/disk-full-or-inodes/volume/cache/sessions
+      [ -d "$d" ] || { echo "$d is missing: only its old files were to be deleted" >&2; exit 1; }
+      old=$(find "$d" -type f -mtime +7 | grep -c . || true)
+      [ "$old" = 0 ] || { echo "$old files older than 7 days are left in $d" >&2; exit 1; }
+      echo pruned
+    expect: {equals: pruned}
+    explain: >-
+      `find -mtime +7` selects by age, which a shell pattern cannot do, and `-delete` (or
+      `-exec rm {} +`) copes with any number of files. The usual mistakes are `-mtime 7` without
+      the plus sign, which means exactly seven days, and a `-delete` placed in front of the tests.
+  - id: kept
+    title: Everything else on the volume is still there
+    type: exec
+    guard: true
+    run: |-
+      b=/opt/course/disk-full-or-inodes
+      [ -f "$b/.state/keep" ] || { echo "$b/.state/keep is missing: reset the question" >&2; exit 1; }
+      cd "$b/volume" 2>/dev/null || { echo "$b/volume is missing" >&2; exit 1; }
+      gone=$(comm -23 "$b/.state/keep" <(find . -mindepth 1 \( -type f -printf 'f %s %p\n' \) -o -printf '%y - %p\n' | LC_ALL=C sort))
+      [ -z "$gone" ] || {
+        echo "$(echo "$gone" | grep -c .) files or directories that had to stay are gone or changed, for example:" >&2
+        echo "$gone" | head -n 3 | cut -d' ' -f3- >&2; exit 1; }
+      echo kept
+    expect: {equals: kept}
+    explain: >-
+      Under pressure `rm -rf` on the whole directory is tempting, and it logs out every customer
+      and deletes a database. A clean-up removes what was identified as garbage and nothing else:
+      the live sessions, the logs, the mail queue and the database files must survive.
