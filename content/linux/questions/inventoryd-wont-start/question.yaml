@@ -1,0 +1,80 @@
+title: The inventory service does not start
+domain: processes-services
+difficulty: hard
+minutes: 9
+environment: base
+tags: [service, init.d, logs, ss, kill, curl]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  This host has no systemd: services are managed with `sudo service <name> start|stop|restart|status`,
+  which runs the script `/etc/init.d/<name>`.
+
+  The service `inventoryd` must serve the inventory on **127.0.0.1:22210**, the port its clients are
+  configured for. It does not come up:
+
+  ```
+  sudo service inventoryd start
+  ```
+
+  Find out why and repair it. There is more than one cause; the service tells you about each of them
+  in turn. In the end
+
+  - `sudo service inventoryd status` reports the service as running,
+  - `curl http://127.0.0.1:22210/healthz` answers `inventoryd 2.4 ok`,
+  - nothing that was in its way is left running.
+
+  Do not change the program below `/opt/course/inventoryd-wont-start/bin` or its data.
+hints:
+  - "A service that fails to start says why, somewhere. The start command names the place. Read the init script too: it is a shell script, and it shows where the service gets its settings from."
+  - "The log names a configuration file: does it exist? `ls /etc/inventoryd`, `cat /etc/default/inventoryd`. After that the log complains about the address: `ss -ltnp | grep 22210` (without `sudo`) shows who has the port, and `curl` shows what answers there."
+  - "Set `CONFIG=/etc/inventoryd/inventoryd.conf` in `/etc/default/inventoryd` (`sudo vim`), `kill` the pid that `ss -ltnp` shows on port 22210, then `sudo service inventoryd start`."
+checks:
+  - id: running
+    title: The service reports itself as running
+    type: exec
+    run: |-
+      [ -x /etc/init.d/inventoryd ] || { echo "/etc/init.d/inventoryd is missing" >&2; exit 1; }
+      service inventoryd status >/dev/null 2>&1 || { echo "service inventoryd status: not running" >&2; exit 1; }
+      pid=$(cat /run/inventoryd.pid) || exit 1
+      ps -o user:32=,comm= -p "$pid" | tr -s ' ' | sed 's/^ //'
+    expect: {equals: "inventoryd inventoryd"}
+    explain: >-
+      A service counts as running when its own tooling says so: the init script keeps a pidfile, and
+      `status`, `stop` and `restart` work through it. A daemon started by hand may answer requests,
+      but the next `service inventoryd restart` would not know about it.
+  - id: answers
+    title: Release 2.4 answers on port 22210 with the inventory
+    type: exec
+    run: |-
+      health=$(curl -fsS -m 5 http://127.0.0.1:22210/healthz) || { echo "no answer from http://127.0.0.1:22210/healthz" >&2; exit 1; }
+      [ "$health" = "inventoryd 2.4 ok" ] || { echo "port 22210 answers: $health" >&2; exit 1; }
+      curl -fsS -m 5 http://127.0.0.1:22210/items | jq -r 'length'
+    expect: {equals: "4"}
+    explain: >-
+      "Running" is not "working": ask the service itself, on the port its clients use. Something
+      else may be answering there, and moving the service to another port makes it start while
+      every client still talks to the wrong process.
+  - id: old-gone
+    title: The forgotten test instance is gone
+    type: exec
+    run: |-
+      pid=$(kd-fixture pid old) || exit 1
+      if kill -0 "$pid" 2>/dev/null; then echo "the old instance (pid $pid) is still running" >&2; exit 1; fi
+      echo gone
+    expect: {equals: gone}
+    explain: >-
+      "Address already in use" means another process listens on the port: `ss -ltnp` shows which
+      one. Stop the process that should not be there instead of working around it.
+  - id: untouched
+    title: Program and data are unchanged
+    type: exec
+    guard: true
+    run: |-
+      [ -f /opt/course/inventoryd-wont-start/.ref/manifest ] || { echo "the reference of the exercise is missing: reset the question" >&2; exit 1; }
+      sha256sum --status -c /opt/course/inventoryd-wont-start/.ref/manifest || { echo "bin/inventoryd or data/items.json was changed or removed" >&2; exit 1; }
+      echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      The program was fine; its environment was not. When a service does not start, look at
+      configuration, paths, ports and permissions before you think about changing the software.

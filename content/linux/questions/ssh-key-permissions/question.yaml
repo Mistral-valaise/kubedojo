@@ -1,0 +1,103 @@
+title: Lock down a deploy key
+domain: permissions-identity
+difficulty: easy
+minutes: 5
+environment: base
+tags: [chmod, ssh, acl, setfacl]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The release job uses the ssh key below `/opt/course/ssh-key-permissions/deploy/.ssh`. After somebody
+  "fixed" an access problem with a broad `chmod`, ssh refuses to use the key. See for yourself:
+
+  ```
+  ssh-keygen -y -f /opt/course/ssh-key-permissions/deploy/.ssh/id_ed25519
+  ```
+
+  1. Repair the modes the way ssh expects them:
+     - only the owner may enter, list or change the directory `.ssh`,
+     - only the owner may read the private key `id_ed25519`,
+     - nobody but the owner may write to `config`.
+  2. The file `/opt/course/ssh-key-permissions/deploy/release.env` holds a registry token. The audit
+     account `sshkeyperm-audit` must be able to **read** it. Nobody else may gain access: the file's
+     owner and group stay as they are, and neither the group nor others get any permission.
+
+  Everything belongs to you (`candidate`); you do not need `sudo`.
+hints:
+  - "`ls -la` on the directory shows what is too open. For the token: file modes know only one owner, one group and everybody else. What grants access to exactly one more user?"
+  - "ssh wants `.ssh` as `drwx------` and a private key as `-rw-------`. An access control list (ACL) adds an entry for a single user: see `man setfacl`, and read the result with `getfacl`."
+  - "`chmod 700 .ssh; chmod 600 .ssh/id_ed25519 .ssh/config` and `setfacl -m u:sshkeyperm-audit:r release.env`"
+checks:
+  - id: ssh-dir
+    title: Only the owner can use the directory .ssh
+    type: exec
+    run: |-
+      d=/opt/course/ssh-key-permissions/deploy/.ssh
+      [ -d "$d" ] || { echo "$d is missing" >&2; exit 1; }
+      stat -c '%a %U' "$d"
+    expect: {equals: "700 candidate"}
+    explain: >-
+      Whoever can write to the directory can replace the key or the configuration in it, whatever the
+      modes of the files are. A directory needs the execute bit to be entered: `600` locks the owner
+      out too, the right mode is `700`.
+  - id: private-key
+    title: ssh accepts the private key
+    type: exec
+    run: |-
+      k=/opt/course/ssh-key-permissions/deploy/.ssh/id_ed25519
+      [ -f "$k" ] || { echo "$k is missing" >&2; exit 1; }
+      [ "$(stat -c %U "$k")" = candidate ] || { echo "$k no longer belongs to candidate" >&2; exit 1; }
+      pub=$(runuser -u candidate -- ssh-keygen -y -f "$k" | cut -d' ' -f1,2) || exit 1
+      [ "$pub" = "$(cat /opt/course/ssh-key-permissions/.ref/public-key)" ] && echo accepted
+    expect: {equals: accepted}
+    explain: >-
+      ssh ignores a private key that anybody but its owner can read ("UNPROTECTED PRIVATE KEY FILE"),
+      because such a key has to be treated as leaked. `600` or `400` are the modes it accepts; `640`
+      is already too much.
+  - id: config
+    title: Only the owner can write to the ssh configuration
+    type: exec
+    run: |-
+      f=/opt/course/ssh-key-permissions/deploy/.ssh/config
+      [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+      stat -c '%a %U' "$f"
+    expect: {matches: "^[46][04][04] candidate$"}
+    explain: >-
+      A configuration that others can write lets them redirect your connections, for example with a
+      `ProxyCommand`. ssh refuses `~/.ssh/config` with "Bad owner or permissions" as soon as group or
+      others have the write bit.
+  - id: auditor-reads
+    title: sshkeyperm-audit can read release.env
+    type: exec
+    run: |-
+      f=/opt/course/ssh-key-permissions/deploy/release.env
+      [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+      id sshkeyperm-audit >/dev/null || exit 1
+      sum=$(runuser -u sshkeyperm-audit -- cat "$f" | sha256sum | cut -d' ' -f1)
+      [ "$sum" = "$(cat /opt/course/ssh-key-permissions/.ref/release-env.sha256)" ] && echo readable
+    expect: {equals: readable}
+    explain: >-
+      The check reads the file as that account, which is also how you test it:
+      `sudo -u sshkeyperm-audit cat release.env`. The mode bits cannot name a second user; an ACL entry
+      (`setfacl -m u:<user>:r`) can, and `ls -l` marks such a file with a `+`.
+  - id: private
+    title: Nobody else gained access to release.env
+    type: exec
+    guard: true
+    run: |-
+      f=/opt/course/ssh-key-permissions/deploy/release.env
+      [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+      [ "$(stat -c %U:%G "$f")" = candidate:candidate ] || { echo "owner or group of $f changed" >&2; exit 1; }
+      acl=$(getfacl -cpE "$f") || exit 1
+      echo "$acl" | grep -qx 'user::rw-' || { echo "the owner needs read and write access" >&2; exit 1; }
+      echo "$acl" | grep -qx 'group::---' || { echo "the group has access" >&2; exit 1; }
+      echo "$acl" | grep -qx 'other::---' || { echo "others have access" >&2; exit 1; }
+      extra=$(echo "$acl" | grep -E '^(user|group):[^:]+:' | grep -v '^user:sshkeyperm-audit:r--$' || true)
+      [ -z "$extra" ] || { echo "unexpected ACL entries: $extra" >&2; exit 1; }
+      [ "$(id -nG sshkeyperm-audit)" = sshkeyperm-audit ] || { echo "the groups of sshkeyperm-audit changed" >&2; exit 1; }
+      echo private
+    expect: {equals: private}
+    explain: >-
+      `chmod 644` would let the auditor read the token, and every other account on the host with it.
+      Give the least access that does the job: one ACL entry for one user, read only, while group and
+      others stay at `---`.
