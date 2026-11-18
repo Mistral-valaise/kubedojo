@@ -1,0 +1,149 @@
+title: Fix a deploy script that only works on good days
+domain: bash-automation
+difficulty: medium
+minutes: 8
+tags: [quoting, exit-status, test, loops, pipefail]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  `/opt/course/fix-deploy-script/deploy.sh` has deployed the shop for months. Last night it reported
+  success for a release whose health check had failed, and today it broke on a release directory
+  with a blank in its name. Try it yourself:
+
+  ```
+  cd /opt/course/fix-deploy-script
+  ./deploy.sh "sample/release 1.4" "out/live site"; echo "exit code: $?"
+  ```
+
+  Fix the script so that it does what its header comment promises, for **any** directory and file
+  names:
+
+  - `deploy.sh <release-dir> <target-dir>` creates `<target-dir>` if needed and copies every file
+    named in `<release-dir>/manifest.txt` (one name per line) into it.
+  - It then runs `<release-dir>/healthcheck.sh <target-dir>` and stores the output of the health
+    check in `<target-dir>/healthcheck.log`.
+  - Health check passed: it prints `deployed <N> files` (N = number of files copied) and exits
+    with `0`.
+  - Health check failed: it exits with **the exit code of the health check** and does not print
+    `deployed`.
+  - Called with fewer than two arguments: it prints a line starting with `usage:` to standard error,
+    exits with `2` and does nothing else.
+  - No `manifest.txt` in the release directory: a message on standard error and exit code `3`.
+
+  The script is graded by running it against releases you have not seen. It must stay at its path
+  and stay executable.
+hints:
+  - "Read the error messages of the sample run one by one: each points at a line. Ask yourself what the shell makes of `$release` when the value contains a blank, and what `<` means to the shell inside `[ ... ]`."
+  - "Put every expansion in double quotes: `\"$release/manifest.txt\"`. Compare numbers with `-lt`, not `<`. Read a file line by line with `while IFS= read -r f; do ...; done < \"$file\"` instead of `for f in $(cat ...)`. After `a | b`, `$?` is the exit code of `b`: use `${PIPESTATUS[0]}`, or `set -o pipefail`, or no pipe at all."
+  - "`\"$release/healthcheck.sh\" \"$target\" > \"$target/healthcheck.log\"; rc=$?; if [ \"$rc\" -ne 0 ]; then echo \"deploy: health check failed\" >&2; exit \"$rc\"; fi`"
+checks:
+  - id: simple-names
+    title: A release with simple names is still deployed
+    type: exec
+    guard: true
+    run: |-
+      s=/opt/course/fix-deploy-script/deploy.sh
+      [ -f "$s" ] && [ -x "$s" ] || { echo "$s is missing or not executable" >&2; exit 1; }
+      t=$(mktemp -d /tmp/fix-deploy-script.XXXXXX) || exit 1
+      trap 'rm -rf "$t"' EXIT
+      mkdir "$t/rel"
+      echo one > "$t/rel/a.html"; echo two > "$t/rel/b.css"; echo three > "$t/rel/c.js"
+      printf '%s\n' a.html b.css c.js > "$t/rel/manifest.txt"
+      printf '%s\n' '#!/bin/sh' 'echo "probe target=$1"' 'exit 0' > "$t/rel/healthcheck.sh"
+      chmod 0755 "$t/rel/healthcheck.sh"; chown -R candidate:candidate "$t"
+      (cd "$t" && timeout -k 2 15 runuser -u candidate -- "$s" rel live) > "$t/out" 2> "$t/err" < /dev/null; rc=$?
+      [ "$rc" -eq 0 ] || { echo "a good release: expected exit code 0, got $rc" >&2; exit 1; }
+      grep -qx 'deployed 3 files' "$t/out" || { echo "a good release: expected the output line 'deployed 3 files'" >&2; exit 1; }
+      for f in a.html b.css c.js; do
+        cmp -s "$t/rel/$f" "$t/live/$f" || { echo "a good release: $f was not copied to the target" >&2; exit 1; }
+      done
+      grep -q 'probe target=live' "$t/live/healthcheck.log" || { echo "a good release: healthcheck.log lacks the output of the health check" >&2; exit 1; }
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      The script worked for a release without blanks and with a passing health check, and a repair
+      must not lose that. Run the simple case again after every change: fixing one path and
+      breaking another is the usual result of editing under pressure.
+  - id: blanks-in-names
+    title: Directory and file names with blanks are deployed
+    type: exec
+    run: |-
+      s=/opt/course/fix-deploy-script/deploy.sh
+      [ -f "$s" ] && [ -x "$s" ] || { echo "$s is missing or not executable" >&2; exit 1; }
+      t=$(mktemp -d /tmp/fix-deploy-script.XXXXXX) || exit 1
+      trap 'rm -rf "$t"' EXIT
+      r="$t/releases/shop 2.1 final"; d="$t/www/live site"
+      mkdir -p "$r" "$t/www"
+      echo one > "$r/index.html"; echo two > "$r/release notes.txt"; echo three > "$r/price list  2025.csv"; echo four > "$r/app.js"
+      printf '%s\n' index.html "release notes.txt" "price list  2025.csv" app.js > "$r/manifest.txt"
+      printf '%s\n' '#!/bin/sh' 'echo "probe target=$1"' 'exit 0' > "$r/healthcheck.sh"
+      chmod 0755 "$r/healthcheck.sh"; chown -R candidate:candidate "$t"
+      (cd "$t" && timeout -k 2 15 runuser -u candidate -- "$s" "$r" "$d") > "$t/out" 2> "$t/err" < /dev/null; rc=$?
+      [ "$rc" -eq 0 ] || { echo "release 'shop 2.1 final' to 'live site': expected exit code 0, got $rc" >&2; exit 1; }
+      grep -qx 'deployed 4 files' "$t/out" || { echo "expected the output line 'deployed 4 files' for a manifest of 4 names, two of them with blanks" >&2; exit 1; }
+      for f in index.html "release notes.txt" "price list  2025.csv" app.js; do
+        cmp -s "$r/$f" "$d/$f" || { echo "'$f' was not copied to the target 'live site'" >&2; exit 1; }
+      done
+      grep -qxF "probe target=$d" "$d/healthcheck.log" || { echo "the health check did not get the target directory as ONE argument, or its output is not in healthcheck.log" >&2; exit 1; }
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      An unquoted `$var` is split at blanks into several words, so `mkdir -p $target` creates two
+      directories and `[ ! -f $release/manifest.txt ]` becomes a syntax error that the `if` treats
+      as false. `for f in $(cat file)` has the same flaw for the names in the manifest: quote every
+      expansion and read lines with `while IFS= read -r`.
+  - id: failed-health-check
+    title: A failed health check sets the exit code
+    type: exec
+    run: |-
+      s=/opt/course/fix-deploy-script/deploy.sh
+      [ -f "$s" ] && [ -x "$s" ] || { echo "$s is missing or not executable" >&2; exit 1; }
+      t=$(mktemp -d /tmp/fix-deploy-script.XXXXXX) || exit 1
+      trap 'rm -rf "$t"' EXIT
+      mkdir "$t/rel"
+      echo one > "$t/rel/a.html"
+      echo a.html > "$t/rel/manifest.txt"
+      printf '%s\n' '#!/bin/sh' 'echo "probe target=$1 unhealthy"' 'exit 7' > "$t/rel/healthcheck.sh"
+      chmod 0755 "$t/rel/healthcheck.sh"; chown -R candidate:candidate "$t"
+      (cd "$t" && timeout -k 2 15 runuser -u candidate -- "$s" rel live) > "$t/out" 2> "$t/err" < /dev/null; rc=$?
+      [ "$rc" -eq 7 ] || { echo "the health check exited with 7: expected deploy.sh to exit with 7, got $rc" >&2; exit 1; }
+      if grep -q 'deployed' "$t/out"; then echo "the script printed 'deployed' although the health check failed" >&2; exit 1; fi
+      cmp -s "$t/rel/a.html" "$t/live/a.html" || { echo "the files must be copied before the health check runs" >&2; exit 1; }
+      grep -q 'probe target=live unhealthy' "$t/live/healthcheck.log" || { echo "healthcheck.log lacks the output of the failed health check" >&2; exit 1; }
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      A pipeline returns the exit code of its last command, so after `healthcheck.sh | tee log` the
+      variable `$?` describes `tee`, which always works. Take the code from `${PIPESTATUS[0]}`, set
+      `pipefail` or redirect instead of piping, and end the script with `exit` and that code:
+      printing "failed" does not make a script fail.
+  - id: argument-checks
+    title: Missing arguments and a missing manifest are rejected
+    type: exec
+    run: |-
+      s=/opt/course/fix-deploy-script/deploy.sh
+      [ -f "$s" ] && [ -x "$s" ] || { echo "$s is missing or not executable" >&2; exit 1; }
+      t=$(mktemp -d /tmp/fix-deploy-script.XXXXXX) || exit 1
+      trap 'rm -rf "$t"' EXIT
+      mkdir "$t/rel" "$t/empty dir"
+      echo one > "$t/rel/a.html"; echo a.html > "$t/rel/manifest.txt"
+      printf '%s\n' '#!/bin/sh' 'touch health-check-ran' 'exit 0' > "$t/rel/healthcheck.sh"
+      chmod 0755 "$t/rel/healthcheck.sh"; chown -R candidate:candidate "$t"
+      try() { (cd "$t" && timeout -k 2 15 runuser -u candidate -- "$s" "$@") > "$t/out" 2> "$t/err" < /dev/null; }
+      try; rc=$?
+      [ "$rc" -eq 2 ] || { echo "no arguments: expected exit code 2, got $rc" >&2; exit 1; }
+      grep -q '^usage:' "$t/err" || { echo "no arguments: expected a line starting with 'usage:' on standard error" >&2; exit 1; }
+      try rel; rc=$?
+      [ "$rc" -eq 2 ] || { echo "one argument: expected exit code 2, got $rc" >&2; exit 1; }
+      grep -q '^usage:' "$t/err" || { echo "one argument: expected a line starting with 'usage:' on standard error" >&2; exit 1; }
+      [ ! -e "$t/health-check-ran" ] || { echo "one argument: the script went on and ran the health check" >&2; exit 1; }
+      try "empty dir" live; rc=$?
+      [ "$rc" -eq 3 ] || { echo "release directory without manifest.txt: expected exit code 3, got $rc" >&2; exit 1; }
+      [ -s "$t/err" ] || { echo "release directory without manifest.txt: expected a message on standard error" >&2; exit 1; }
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      Inside `[ ... ]` the character `<` is a redirection: `[ $# < 2 ]` tries to read a file named
+      `2`, fails, and the script runs on with empty variables. Numbers are compared with `-lt`,
+      `-eq`, `-ne` (or inside `(( ... ))`), and a script must stop with a defined exit code before
+      it touches anything.

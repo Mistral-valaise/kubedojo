@@ -1,0 +1,73 @@
+title: Separate output, errors and the exit code
+domain: pipes-transformations
+difficulty: easy
+minutes: 4
+tags: [redirection, stderr, exit-status]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The nightly job runs `/opt/course/split-output-streams/bin/inventory-export`. The tool prints the
+  inventory as CSV, but it also complains about broken records, and the import that reads its output
+  chokes on those complaints. Nobody knows whether the tool reports success or failure either.
+
+  Run the tool **once** and capture, below `/opt/course/split-output-streams/`:
+
+  - `export.csv`: everything the tool writes to **standard output**, and nothing else,
+  - `warnings.log`: everything the tool writes to **standard error**, and nothing else,
+  - `exit-code.txt`: the **exit code** of the tool, as a number.
+
+  Do not change the tool.
+hints:
+  - "A program has two output streams. On the terminal they look the same, but each can be sent to its own file: see REDIRECTION in `man bash`."
+  - "`>` redirects standard output (file descriptor 1) and `2>` redirects standard error (file descriptor 2). The exit code of the last command is in `$?`, and only until the next command has run."
+  - "`cd /opt/course/split-output-streams && bin/inventory-export > export.csv 2> warnings.log; echo $? > exit-code.txt`"
+checks:
+  - id: stdout
+    title: export.csv holds exactly the standard output
+    type: exec
+    run: |-
+      b=/opt/course/split-output-streams
+      [ -x "$b/bin/inventory-export" ] || { echo "the tool $b/bin/inventory-export is gone" >&2; exit 1; }
+      [ -f "$b/export.csv" ] || { echo "$b/export.csv does not exist" >&2; exit 1; }
+      "$b/bin/inventory-export" 2>/dev/null | cmp -s - "$b/export.csv" && echo same
+    expect: {equals: same}
+    explain: >-
+      A consumer of the data must get the data only, so standard output goes to the file with `>`
+      and nothing else may be mixed in. The usual slip is `> file 2>&1` or `&> file`, which sends the
+      warnings into the same file.
+  - id: stderr
+    title: warnings.log holds exactly the standard error
+    type: exec
+    run: |-
+      b=/opt/course/split-output-streams
+      [ -x "$b/bin/inventory-export" ] || { echo "the tool $b/bin/inventory-export is gone" >&2; exit 1; }
+      [ -f "$b/warnings.log" ] || { echo "$b/warnings.log does not exist" >&2; exit 1; }
+      "$b/bin/inventory-export" 2>&1 >/dev/null | cmp -s - "$b/warnings.log" && echo same
+    expect: {equals: same}
+    explain: >-
+      Diagnostics travel on file descriptor 2, so that they can be kept apart from the result: `2>`
+      catches them. A pipe and a plain `>` carry standard output only, which is why the warnings
+      still showed up on the terminal.
+  - id: exit-code
+    title: exit-code.txt holds the exit code of the tool
+    type: exec
+    run: |-
+      f=/opt/course/split-output-streams/exit-code.txt
+      [ -f "$f" ] || { echo "$f does not exist" >&2; exit 1; }
+      tr -d '[:space:]' < "$f"
+    expect: {equals: "3"}
+    explain: >-
+      The exit code tells a script whether a command worked, and `$?` holds it only until the next
+      command runs. Typical mistakes: another command in between, or a pipeline such as
+      `tool | tee file`, whose `$?` is the exit code of `tee`.
+  - id: tool-untouched
+    title: The tool is unchanged
+    type: exec
+    guard: true
+    run: |-
+      cd /opt/course/split-output-streams || exit 1
+      sha256sum bin/inventory-export | cut -d' ' -f1 | cmp -s - .manifest && echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      The task is to capture what the tool does, not to change it. Editing the tool so that it
+      stops complaining hides the broken records instead of reporting them.

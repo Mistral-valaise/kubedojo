@@ -1,0 +1,152 @@
+title: Automate the service check of an incident
+domain: bash-automation
+difficulty: hard
+minutes: 10
+tags: [while-read, exit-status, functions, loops, nc]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  After every deployment the on-call engineer checks by hand whether the services answer. Automate
+  it: write the executable script `/opt/course/service-status-report/check-services.sh`, called as
+
+  ```
+  check-services.sh <list-file> <report-file>
+  ```
+
+  **The list** has one service per line: `<name> <host> <port>`, separated by blanks. Blank lines
+  and lines starting with `#` are to be ignored. `/opt/course/service-status-report/services.txt` is
+  an example; on this host `127.0.0.1` listens on ports `21080` and `21443`, and nothing listens on
+  `21090` and `21091`.
+
+  **The report** gets one line per service, in the order of the list: `<name> UP` when a TCP
+  connection to `<host>:<port>` succeeds, otherwise `<name> DOWN`. For the example:
+
+  ```
+  shop-web UP
+  shop-admin UP
+  shop-search DOWN
+  ```
+
+  The report file is created or **replaced** on every run and contains nothing else.
+
+  **Exit code:** `0` when every service is UP, `1` when at least one is DOWN, `2` when the script is
+  not called with exactly two arguments or the list file cannot be read; in that case it prints a
+  message to standard error and does not write a report.
+
+  The script is graded by running it against lists you have not seen.
+hints:
+  - "Two building blocks: a test for one port, and a loop over the lines of a file. Try the test at the prompt first: `nc -z -w 2 127.0.0.1 21080; echo $?` and the same for port 21090."
+  - "`while read -r name host port; do ...; done < \"$list\"` reads one line per round and splits it into the three variables. Skip lines with `case $name in ''|'#'*) continue ;; esac`. Remember in a variable that something was DOWN and use it for `exit` after the loop. Redirect the output of the whole loop once (`done < \"$list\" > \"$report\"`) rather than appending line by line."
+  - "Inside the loop: `if nc -z -w 2 \"$host\" \"$port\" 2>/dev/null; then echo \"$name UP\"; else echo \"$name DOWN\"; failed=1; fi`. A last line without a newline at its end is read, but `read` reports failure for it: write `while read -r name host port || [ -n \"$name\" ]`. Do not pipe into the loop (`cat file | while ...`): the loop would run in a subshell and `failed` would be lost."
+checks:
+  - id: report
+    title: The report lists every service with its state
+    type: exec
+    run: |-
+      s=/opt/course/service-status-report/check-services.sh
+      [ -f "$s" ] && [ -x "$s" ] || { echo "$s is missing or not executable" >&2; exit 1; }
+      nc -z -w 2 127.0.0.1 21080 && nc -z -w 2 127.0.0.1 21443 || { echo "the listeners on ports 21080 and 21443 are gone: reset the question" >&2; exit 1; }
+      t=$(mktemp -d /tmp/service-status-report.XXXXXX) || exit 1
+      trap 'rm -rf "$t"' EXIT
+      printf '%s\n' '# name host port' '' 'billing-api 127.0.0.1 21443' 'ledger-db   127.0.0.1   21091' '#old-gateway 127.0.0.1 21080' \
+        'search 127.0.0.1 21090' '   ' 'frontend 127.0.0.1 21080' 'mailer 127.0.0.1 21443' > "$t/hosts list.txt"
+      echo "stale line from an earlier run" > "$t/status report.txt"
+      chown -R candidate:candidate "$t"
+      for run in first second; do
+        (cd "$t" && timeout -k 2 20 runuser -u candidate -- "$s" "hosts list.txt" "status report.txt") > "$t/out" 2> "$t/err" < /dev/null; rc=$?
+        [ "$rc" -ne 124 ] || { echo "the script did not finish within 20 seconds" >&2; exit 1; }
+        printf '%s\n' 'billing-api UP' 'ledger-db DOWN' 'search DOWN' 'frontend UP' 'mailer UP' | cmp -s - "$t/status report.txt" \
+          || { echo "$run run: the report differs from the expected five lines (the list has comments, blank lines and extra blanks; the report file existed before)" >&2; exit 1; }
+      done
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      `while read -r name host port` splits each line at runs of blanks, and a `case` on the first
+      field skips comments and blank lines. The script runs twice against the same report: with
+      `>>` inside the loop the second run doubles the lines, so redirect the whole loop once with
+      `>`.
+  - id: last-line
+    title: A list without a final newline is read completely
+    type: exec
+    run: |-
+      s=/opt/course/service-status-report/check-services.sh
+      [ -f "$s" ] && [ -x "$s" ] || { echo "$s is missing or not executable" >&2; exit 1; }
+      nc -z -w 2 127.0.0.1 21080 || { echo "the listener on port 21080 is gone: reset the question" >&2; exit 1; }
+      t=$(mktemp -d /tmp/service-status-report.XXXXXX) || exit 1
+      trap 'rm -rf "$t"' EXIT
+      printf '%s\n%s' 'cache 127.0.0.1 21090' 'frontend 127.0.0.1 21080' > "$t/list.txt"
+      chown -R candidate:candidate "$t"
+      (cd "$t" && timeout -k 2 20 runuser -u candidate -- "$s" list.txt report.txt) > "$t/out" 2> "$t/err" < /dev/null
+      printf '%s\n' 'cache DOWN' 'frontend UP' | cmp -s - "$t/report.txt" \
+        || { echo "a list of two services whose last line has no newline at its end: expected two report lines" >&2; exit 1; }
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      Files written by tools or other editors often lack the final newline. `read` fills the
+      variables for such a last line but returns failure, so a plain `while read` loop silently
+      skips the last service: add `|| [ -n "$name" ]` to the loop condition.
+  - id: exit-code
+    title: The exit code says whether a service is down
+    type: exec
+    run: |-
+      s=/opt/course/service-status-report/check-services.sh
+      [ -f "$s" ] && [ -x "$s" ] || { echo "$s is missing or not executable" >&2; exit 1; }
+      nc -z -w 2 127.0.0.1 21080 && nc -z -w 2 127.0.0.1 21443 || { echo "the listeners on ports 21080 and 21443 are gone: reset the question" >&2; exit 1; }
+      t=$(mktemp -d /tmp/service-status-report.XXXXXX) || exit 1
+      trap 'rm -rf "$t"' EXIT
+      printf '%s\n' 'a 127.0.0.1 21080' '# b' 'c 127.0.0.1 21443' > "$t/all-up.txt"
+      printf '%s\n' 'a 127.0.0.1 21080' 'b 127.0.0.1 21091' 'c 127.0.0.1 21443' > "$t/one-down.txt"
+      chown -R candidate:candidate "$t"
+      try() { (cd "$t" && timeout -k 2 20 runuser -u candidate -- "$s" "$@") > "$t/out" 2> "$t/err" < /dev/null; }
+      try all-up.txt r1.txt; rc=$?
+      [ "$rc" -eq 0 ] || { echo "all services UP: expected exit code 0, got $rc" >&2; exit 1; }
+      grep -qx 'c UP' "$t/r1.txt" || { echo "all services UP: the report is missing or incomplete" >&2; exit 1; }
+      try one-down.txt r2.txt; rc=$?
+      [ "$rc" -eq 1 ] || { echo "a service in the middle of the list is DOWN: expected exit code 1, got $rc" >&2; exit 1; }
+      grep -qx 'b DOWN' "$t/r2.txt" || { echo "one service DOWN: the report is missing or incomplete" >&2; exit 1; }
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      Automation reads exit codes, not reports: a monitoring job or `&&` chain needs the 1. Two
+      classic losses: the script ends with the status of its last command, which was a successful
+      check, and `cat list | while read ...; do failed=1; done` sets the variable in a subshell that
+      ends with the pipe.
+  - id: bad-calls
+    title: Wrong arguments and an unreadable list give exit code 2
+    type: exec
+    run: |-
+      s=/opt/course/service-status-report/check-services.sh
+      [ -f "$s" ] && [ -x "$s" ] || { echo "$s is missing or not executable" >&2; exit 1; }
+      t=$(mktemp -d /tmp/service-status-report.XXXXXX) || exit 1
+      trap 'rm -rf "$t"' EXIT
+      echo 'a 127.0.0.1 21090' > "$t/list.txt"
+      chown -R candidate:candidate "$t"
+      try() { (cd "$t" && timeout -k 2 20 runuser -u candidate -- "$s" "$@") > "$t/out" 2> "$t/err" < /dev/null; }
+      try; rc=$?
+      [ "$rc" -eq 2 ] || { echo "no arguments: expected exit code 2, got $rc" >&2; exit 1; }
+      [ -s "$t/err" ] || { echo "no arguments: expected a message on standard error" >&2; exit 1; }
+      try list.txt; rc=$?
+      [ "$rc" -eq 2 ] || { echo "one argument: expected exit code 2, got $rc" >&2; exit 1; }
+      try "no such list.txt" report.txt; rc=$?
+      [ "$rc" -eq 2 ] || { echo "list file does not exist: expected exit code 2, got $rc" >&2; exit 1; }
+      [ -s "$t/err" ] || { echo "list file does not exist: expected a message on standard error" >&2; exit 1; }
+      [ ! -e "$t/report.txt" ] || { echo "list file does not exist: no report may be written" >&2; exit 1; }
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      Exit code 1 means "a service is down" here, so a call that could not check anything needs
+      its own code, or a typo in the file name pages somebody at night. Test `$#` and `[ -r "$list" ]`
+      before the loop: `done < "$list" > "$report"` creates the report even when the list is missing.
+  - id: listeners
+    title: The two local services are still listening
+    type: exec
+    guard: true
+    run: |-
+      for name in web admin; do
+        pid=$(kd-fixture pid "$name") && kill -0 "$pid" 2>/dev/null || { echo "the service behind fixture '$name' was stopped" >&2; exit 1; }
+      done
+      nc -z -w 2 127.0.0.1 21080 && nc -z -w 2 127.0.0.1 21443 && echo listening
+    expect: {equals: listening}
+    explain: >-
+      A status check observes; it never stops or restarts what it looks at. If a listener is gone,
+      the reports of this exercise cannot be right: reset the question.

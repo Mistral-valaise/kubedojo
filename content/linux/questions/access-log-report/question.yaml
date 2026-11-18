@@ -1,0 +1,90 @@
+title: Rank the failing paths in an access log
+domain: pipes-transformations
+difficulty: medium
+minutes: 6
+tags: [awk, sort, uniq, pipes]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The shop had a bad morning. `/opt/course/access-log-report/access.log` is the web server's access
+  log of that time, in the usual combined format:
+
+  ```
+  10.21.2.41 - - [14/Mar/2025:08:00:11 +0000] "GET /login HTTP/1.1" 500 188 "-" "Mozilla/5.0 ..."
+  ```
+
+  After the quoted request come the **status code** and the **number of bytes** sent.
+
+  1. Which paths failed? Write to `/opt/course/access-log-report/errors.txt` one line per requested
+     path that was answered with a **server error** (status 500 to 599 at least once), in the form
+     `<number of server errors> <path>`, the path with the most server errors first:
+
+     ```
+     42 /some/path
+     17 /another/path
+     ```
+
+  2. Write to `/opt/course/access-log-report/bytes.txt` the total number of bytes sent in responses
+     with status **200**, as one number.
+
+  Do not change the log.
+hints:
+  - "Split each line into fields at the blanks and count which field holds the path, the status and the bytes. Compare the status field itself: the text `500` also occurs elsewhere in a line."
+  - "`awk '$9 >= 500 && $9 <= 599 {print $7}'` prints the path of every server error. `sort | uniq -c` counts equal lines, `sort -rn` puts the highest number first. `awk` can also add up a field: `{sum += $10} END {print sum}`."
+  - "`awk '$9 >= 500 && $9 <= 599 {print $7}' access.log | sort | uniq -c | sort -rn > errors.txt` and `awk '$9 == 200 {sum += $10} END {print sum}' access.log > bytes.txt`"
+checks:
+  - id: error-counts
+    title: errors.txt counts the server errors of every failing path
+    type: exec
+    run: |-
+      f=/opt/course/access-log-report/errors.txt
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      awk '{$1 = $1} 1' "$f"
+    expect:
+      sameLines:
+        - 14 /api/checkout
+        - 11 /api/cart
+        - 7 /api/search
+        - 4 /login
+        - 2 /api/orders
+        - 1 /healthz
+    explain: >-
+      Select by the status field (`$9` in awk), then count per path; leading blanks as `uniq -c`
+      prints them are accepted. Searching the whole line for `500` or ` 50. ` also catches
+      `/img/500.png` and successful responses that happen to be 502 bytes long, and `/api/checkout`
+      fails with two different codes that belong to one path.
+  - id: error-order
+    title: The path with the most server errors comes first
+    type: exec
+    run: |-
+      f=/opt/course/access-log-report/errors.txt
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      awk '$1 !~ /^[0-9]+$/ {bad = 1} END {exit bad}' "$f" || { echo "every line of $f must start with a number" >&2; exit 1; }
+      LC_ALL=C sort -c -s -k1,1nr "$f" && echo ordered
+    expect: {equals: ordered}
+    explain: >-
+      A report is read from the top, so the worst offender belongs there. `sort` without options
+      compares text, which puts 7 before 14; `-n` compares numbers and `-r` reverses the order.
+  - id: bytes
+    title: bytes.txt holds the bytes sent with status 200
+    type: exec
+    run: |-
+      f=/opt/course/access-log-report/bytes.txt
+      [ -f "$f" ] || { echo "$f does not exist" >&2; exit 1; }
+      tr -d '[:space:]' < "$f"
+    expect: {equals: "188708"}
+    explain: >-
+      awk adds up a column in one pass: a pattern selects the lines, `sum += $10` accumulates and
+      the `END` block prints. Without the pattern `$9 == 200` the error pages and redirects are
+      counted too.
+  - id: log-untouched
+    title: The access log is unchanged
+    type: exec
+    guard: true
+    run: |-
+      cd /opt/course/access-log-report || exit 1
+      sha256sum access.log | cut -d' ' -f1 | cmp -s - .manifest && echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      A report reads the log and writes somewhere else. Redirecting a pipeline into the file it
+      reads from (`... access.log > access.log`) empties the file before the first command sees it.

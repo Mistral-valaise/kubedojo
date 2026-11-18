@@ -1,0 +1,99 @@
+title: Summarise a cluster snapshot with jq
+domain: pipes-transformations
+difficulty: hard
+minutes: 10
+tags: [jq, json, sort, uniq, pipes]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  During an incident somebody saved the output of `kubectl get pods -A -o json` to
+  `/opt/course/jq-pod-summary/pods.json` before the cluster became unreachable. The file is all you
+  have (there is no `kubectl` on this host), and the incident channel wants three answers. Write them
+  below `/opt/course/jq-pod-summary/`:
+
+  1. `not-running.txt`: every Pod whose phase (`.status.phase`) is **neither `Running` nor
+     `Succeeded`**, as `<namespace>/<name>`, one per line.
+
+  2. `restarts.txt`: the **three** Pods with the most container restarts. The restarts of a Pod are
+     the sum of `restartCount` over **all** its containers. One line per Pod in the form
+     `<restarts> <namespace>/<name>`, the highest number first:
+
+     ```
+     31 some-namespace/some-pod
+     ```
+
+  3. `images.txt`: every **distinct** image used by a container in `.spec.containers` (init
+     containers do not count), one per line, sorted alphabetically.
+
+  Do not change `pods.json`.
+hints:
+  - "Explore first: `jq '.items | length' pods.json`, `jq '.items[0]' pods.json | less`, `jq -r '.items[].status.phase' pods.json | sort | uniq -c`. `-r` prints strings without quotes, ready for the next command in a pipe."
+  - "`.items[]` yields one Pod at a time; `select(condition)` keeps some of them; `\"\\(.a)/\\(.b)\"` builds a line of text. An array of numbers is added up with `add`; a Pod that is not started has no `containerStatuses`, which `[.status.containerStatuses[]?.restartCount] | add // 0` survives. Ranking and de-duplicating can stay with `sort`, `uniq` and `head`."
+  - "`jq -r '.items[] | \"\\([.status.containerStatuses[]?.restartCount] | add // 0) \\(.metadata.namespace)/\\(.metadata.name)\"' pods.json | sort -rn | head -3 > restarts.txt`; for the phases use `select(.status.phase != \"Running\" and .status.phase != \"Succeeded\")`; for the images `jq -r '.items[].spec.containers[].image' pods.json | sort -u > images.txt`."
+checks:
+  - id: not-running
+    title: not-running.txt lists the Pods that are neither Running nor Succeeded
+    type: file
+    path: /opt/course/jq-pod-summary/not-running.txt
+    expect:
+      sameLines:
+        - shop/cache-0
+        - payments/gateway-66f7b9c4d-aa7lp
+        - monitoring/loki-0
+    explain: >-
+      `select()` with two conditions joined by `and` picks the Pods; string interpolation builds
+      `namespace/name`. A finished Job Pod has the phase Succeeded and is no problem, which
+      `select(.status.phase != "Running")` alone gets wrong; without `-r` the lines carry quotes.
+  - id: restarts
+    title: restarts.txt ranks the three Pods with the most restarts
+    type: exec
+    run: |-
+      f=/opt/course/jq-pod-summary/restarts.txt
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      awk '{$1 = $1} 1' "$f"
+    expect:
+      equals: |-
+        23 shop/api-5c6b7d8f9-zt8vw
+        8 shop/api-5c6b7d8f9-k2j4n
+        5 payments/gateway-66f7b9c4d-bb3rx
+    explain: >-
+      Most Pods here have a sidecar, so the restarts of a Pod are a sum over an array:
+      `[.status.containerStatuses[].restartCount] | add`. Taking only the first container
+      (`containerStatuses[0]`) ranks the wrong Pods, and a text sort instead of `sort -rn` puts 8
+      before 23.
+  - id: images
+    title: images.txt lists every container image once, sorted
+    type: exec
+    run: |-
+      f=/opt/course/jq-pod-summary/images.txt
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      LC_ALL=C sort -c "$f" 2>/dev/null || { echo "$f is not sorted" >&2; exit 1; }
+      cat "$f"
+    expect:
+      sameLines:
+        - envoyproxy/envoy:v1.31.0
+        - grafana/loki:3.1.1
+        - nginx:1.27-alpine
+        - postgres:16.4
+        - prom/prometheus:v2.54.1
+        - redis:7.4-alpine
+        - registry.k8s.io/coredns/coredns:v1.11.3
+        - registry.shop.internal/api:2.4.1
+        - registry.shop.internal/gateway:1.9.0
+        - registry.shop.internal/migrate:2.4.1
+    explain: >-
+      `.items[].spec.containers[].image` walks two arrays and prints one image per container;
+      `sort -u` removes the repeats. A search over the whole document (`..|.image?` or `grep image`)
+      also finds the init container's `busybox` and counts every image twice, because
+      `status.containerStatuses` repeats it.
+  - id: snapshot-untouched
+    title: pods.json is unchanged
+    type: exec
+    guard: true
+    run: |-
+      cd /opt/course/jq-pod-summary || exit 1
+      sha256sum pods.json | cut -d' ' -f1 | cmp -s - .manifest && echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      The snapshot is the only evidence of the incident. `jq ... pods.json > pods.json` empties the
+      file before jq reads it: always write results to another file.
