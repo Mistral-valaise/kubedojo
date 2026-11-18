@@ -11,7 +11,10 @@
 #   ALL   "true" proves everything (the pull request carries the content label).
 set -euo pipefail
 
-tracks=$(for f in content/*/track.yaml; do basename "$(dirname "$f")"; done)
+# Theory tracks (kind: theory) have no sandbox: the build job proves them.
+tracks=$(for f in content/*/track.yaml; do
+  grep -qE '^kind:[[:space:]]*theory[[:space:]]*$' "$f" || basename "$(dirname "$f")"
+done)
 everything() { for t in $tracks; do printf '%s\t\n' "$t"; done; }
 
 rows() {

@@ -99,6 +99,33 @@ changing anything here, check by hand on a Mac with a German layout:
 State lives in memory and is persisted to SQLite on every change, so a restarted server finds its
 sessions again. That is also why the server is a single replica.
 
+### Sessions without a sandbox
+
+The questions of a theory track (`kind: theory`, `Track.Sandboxless()`) are multiple choice. Their
+sessions use the same `Session` type, the same routes and the same store, but nothing is provisioned
+(`internal/session/quiz.go`):
+
+- They never acquire a host and never call the driver, not even on `Destroy`: in hosted mode acquiring
+  a host creates a Pod. They have no key pair and no terminal.
+- They do not count against `--max-sessions`, which limits sandboxes.
+- `Prepare` and `Finish` are synchronous. Preparing draws the order of the options; finishing an exam
+  grades it inline, with no settle time, and the report exists when the call returns.
+- An answer is graded into the same `checker.Result` a task produces (one point or none, no checks), so
+  attempts, exam results, progress and telemetry need no second path. Readiness counts the *latest*
+  attempt at a choice question, not the best one: having clicked the right option once after seeing the
+  answer says little.
+
+**Where the answer key lives.** Only in the catalog: `Question.Choice` (correct options, explanations,
+references) is tagged `json:"-"`. A `Session` holds what the learner did and saw, `QState.Order` (the
+option ids in the order drawn) and `QState.Answer` (the ids picked), because a session is serialised as
+it is into SQLite and into API responses. Grading looks the key up in the catalog at that moment.
+
+The API adds the key to a question as `choice.review` only when `Session.Revealed` says so: in practice
+once the question was graded or its solution was opened (it can then be answered again only after a
+reset, which also reshuffles), in an exam once the exam is finished. Until then `Answer` is the only
+call that takes option ids, and no response says which are correct. Option ids are a hash of the option
+text, so they say nothing about position or correctness.
+
 ## Adding a driver
 
 Implement `sandbox.Driver` (`CreateEnv`, `EnsureTerminal`, `Exec`, `Attach`, `DeleteEnv`, `Destroy`).

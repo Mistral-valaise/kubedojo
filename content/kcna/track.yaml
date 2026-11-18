@@ -1,0 +1,31 @@
+id: kcna
+title: Kubernetes and Cloud Native Associate
+short: KCNA
+kind: theory
+description: >-
+  The foundations of Kubernetes and the cloud native ecosystem. Multiple-choice exam:
+  you answer questions about concepts, no terminal involved.
+docs:
+  - title: KCNA curriculum (CNCF)
+    url: https://github.com/cncf/curriculum/blob/main/KCNA_Curriculum.pdf
+exam:
+  durationMinutes: 45
+  passPercent: 75
+  questions: 30
+domains:
+  - id: kubernetes-fundamentals
+    title: Kubernetes Fundamentals
+    weight: 44
+    summary: Core concepts, administration, scheduling and containerization.
+  - id: container-orchestration
+    title: Container Orchestration
+    weight: 28
+    summary: Networking, security, troubleshooting and storage of orchestrated containers.
+  - id: cloud-native-application-delivery
+    title: Cloud Native Application Delivery
+    weight: 16
+    summary: Application delivery with GitOps and CI/CD, and debugging what was delivered.
+  - id: cloud-native-architecture
+    title: Cloud Native Architecture
+    weight: 12
+    summary: Observability, the cloud native ecosystem and its principles, community and collaboration.

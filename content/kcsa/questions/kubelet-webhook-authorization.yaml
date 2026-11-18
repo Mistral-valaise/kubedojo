@@ -1,0 +1,33 @@
+title: Kubelet authorization in Webhook mode
+domain: kubernetes-cluster-component-security
+difficulty: medium
+tags: [kubelet, authorization]
+stem: |-
+  A kubelet runs with `--anonymous-auth=false` and `--authorization-mode=Webhook`. A request for
+  `/pods` arrives on port 10250 with a client certificate that the kubelet accepts.
+
+  How does the kubelet decide whether to serve the request?
+options:
+  - text: It sends a SubjectAccessReview to the API server and serves the request if that allows it
+    correct: true
+  - text: It serves the request, because every caller with an accepted certificate is authorized
+    explain: >-
+      That is the default mode, AlwaysAllow. In Webhook mode the certificate only establishes who is
+      calling; what the caller may do is decided separately.
+  - text: It looks for a rule matching the user in the authorization policy file on the node
+    explain: >-
+      The kubelet has no policy file of its own. Its authorization modes are AlwaysAllow and Webhook.
+  - text: It forwards the request to the API server, which reads the Pods and answers for it
+    explain: >-
+      Only the decision is delegated. The kubelet answers the request itself, from what it knows about
+      its node.
+explanation: >-
+  In Webhook mode the kubelet delegates authorization to the API server: for each request it calls the
+  SubjectAccessReview API with the authenticated user and the node resource the request maps to (for
+  `/pods` that is `nodes/proxy`), and the API server's authorizers, usually RBAC, decide. Together with
+  `--anonymous-auth=false`, which answers requests without credentials with 401, this is how kubeadm
+  sets up kubelets. The default mode, AlwaysAllow, lets every caller do everything, including running
+  commands in containers.
+references:
+  - title: Kubelet authentication/authorization
+    url: https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/

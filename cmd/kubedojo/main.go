@@ -42,7 +42,7 @@ Usage:
   kubedojo down      Remove every sandbox kubedojo created
   kubedojo ratings   Show the feedback learners left on questions
   kubedojo content lint          Validate the content
-  kubedojo content test          Prove every question is solvable (needs Docker)
+  kubedojo content test          Prove every question is solvable (needs Docker, except for theory tracks)
   kubedojo content export        Export questions as Killercoda scenarios
   kubedojo version
 
@@ -289,7 +289,7 @@ func cmdLint(args []string) error {
 		for _, q := range t.Questions {
 			perDomain[q.Domain]++
 		}
-		fmt.Printf("%s — %s: %d questions\n", t.ID, t.Title, len(t.Questions))
+		fmt.Printf("%s — %s (%s): %d questions\n", t.ID, t.Title, t.Kind, len(t.Questions))
 		for _, d := range t.Domains {
 			fmt.Printf("  %-28s %3d%%  %2d questions\n", d.ID, d.Weight, perDomain[d.ID])
 		}

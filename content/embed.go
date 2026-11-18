@@ -3,5 +3,5 @@ package content
 
 import "embed"
 
-//go:embed all:cka all:ckad all:cks
+//go:embed all:cka all:ckad all:cks all:kcna all:kcsa
 var FS embed.FS

@@ -37,6 +37,15 @@ jobs:
         working-directory: web
         run: npx playwright install --with-deps chromium && npm run test:e2e
       - run: ./bin/kubedojo content lint --strict
+      # Multiple-choice tracks need no cluster, so they are proven right here.
+      - name: Quiz proofs
+        run: |
+          for f in content/*/track.yaml; do
+            grep -qE '^kind:[[:space:]]*theory[[:space:]]*$' "$f" || continue
+            track=$(basename "$(dirname "$f")")
+            ./bin/kubedojo content test --track "$track"
+            ./bin/kubedojo content test --track "$track" --exam
+          done
       - uses: azure/setup-helm@v5
       - run: helm lint deploy/helm/kubedojo
 

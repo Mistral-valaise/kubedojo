@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -49,6 +50,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	mux.HandleFunc("GET /api/config", s.config)
+	mux.HandleFunc("GET /api/path", s.path)
 	mux.HandleFunc("GET /api/tracks", s.tracks)
 	mux.HandleFunc("GET /api/tracks/{track}", s.track)
 	mux.HandleFunc("GET /api/tracks/{track}/lessons/{domain}", s.lesson)
@@ -114,6 +116,8 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		writeErr(w, 404, "not found")
 	case errors.Is(err, session.ErrConflict):
 		writeErr(w, 409, err.Error())
+	case errors.Is(err, session.ErrInvalid):
+		writeErr(w, 400, err.Error())
 	case errors.Is(err, session.ErrLimit):
 		writeErr(w, 429, "Too many active sessions. End one before starting another.")
 	default:
@@ -180,6 +184,15 @@ func (s *Server) track(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, viewTrack(t))
+}
+
+// path returns the recommended order through the tracks, if the content has one.
+func (s *Server) path(w http.ResponseWriter, r *http.Request) {
+	if s.Catalog.Path == nil {
+		writeErr(w, 404, "this content has no path")
+		return
+	}
+	writeJSON(w, 200, s.Catalog.Path)
 }
 
 func (s *Server) lesson(w http.ResponseWriter, r *http.Request) {
@@ -366,12 +379,44 @@ func (s *Server) getQuestion(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, "the exam has not started yet")
 		return
 	}
-	writeJSON(w, 200, map[string]any{
+	out := map[string]any{
 		"question": questionMeta{Question: q, Hints: len(q.Hints)},
 		"task":     render(q.Task, host),
 		"host":     host,
 		"state":    qs,
-	})
+	}
+	if q.Type == catalog.TypeChoice {
+		if v.Mode == session.ModePractice && len(qs.Order) == 0 {
+			// Preparing a choice question only draws the order of its options,
+			// so a question opened for the first time is prepared on the spot.
+			if v, qs = s.prepared(w, v, q); v == nil {
+				return
+			}
+			out["state"] = qs
+		}
+		out["choice"] = viewChoice(v, q, qs)
+	}
+	writeJSON(w, 200, out)
+}
+
+// prepared prepares a choice question of a practice session and returns the
+// session and the question's state as they are afterwards.
+func (s *Server) prepared(w http.ResponseWriter, v *session.Session, q *catalog.Question) (*session.Session, *session.QState) {
+	err := s.Sessions.Prepare(v.ID, q.ID, false)
+	if err == nil {
+		v, err = s.Sessions.View(v.ID)
+	}
+	if err != nil {
+		s.fail(w, err)
+		return nil, nil
+	}
+	for _, x := range v.Questions {
+		if x.ID == q.ID {
+			return v, x
+		}
+	}
+	s.fail(w, session.ErrNotFound)
+	return nil, nil
 }
 
 func (s *Server) patchQuestion(w http.ResponseWriter, r *http.Request) {
@@ -380,16 +425,25 @@ func (s *Server) patchQuestion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Flagged *bool   `json:"flagged"`
-		Note    *string `json:"note"`
+		Flagged *bool     `json:"flagged"`
+		Note    *string   `json:"note"`
+		Answer  *[]string `json:"answer"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "invalid JSON")
 		return
 	}
-	if err := s.Sessions.Patch(v.ID, q.ID, req.Flagged, req.Note); err != nil {
-		s.fail(w, err)
-		return
+	if req.Answer != nil {
+		if err := s.Sessions.Answer(v.ID, q.ID, *req.Answer); err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
+	if req.Flagged != nil || req.Note != nil || req.Answer == nil {
+		if err := s.Sessions.Patch(v.ID, q.ID, req.Flagged, req.Note); err != nil {
+			s.fail(w, err)
+			return
+		}
 	}
 	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
@@ -410,6 +464,22 @@ func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 	v, q, _ := s.question(w, r)
 	if v == nil {
 		return
+	}
+	if q.Type == catalog.TypeChoice {
+		// The body is optional: {"answer": [ids]} submits and grades in one call.
+		var req struct {
+			Answer *[]string `json:"answer"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			writeErr(w, 400, "invalid JSON")
+			return
+		}
+		if req.Answer != nil {
+			if err := s.Sessions.Answer(v.ID, q.ID, *req.Answer); err != nil {
+				s.fail(w, err)
+				return
+			}
+		}
 	}
 	res, err := s.Sessions.Check(r.Context(), v.ID, q.ID)
 	if err != nil {
@@ -441,6 +511,21 @@ func (s *Server) solution(w http.ResponseWriter, r *http.Request) {
 	if v == nil {
 		return
 	}
+	if q.Type == catalog.TypeChoice {
+		// The solution of a choice question is its answer key. Opening it
+		// reveals the question: it can be answered again only after a reset.
+		if v.Mode == session.ModePractice {
+			if v, _ = s.prepared(w, v, q); v == nil {
+				return
+			}
+		}
+		if err := s.Sessions.Reveal(v.ID, q.ID, 0); err != nil {
+			s.fail(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"markdown": solutionMarkdown(q.Choice), "review": review(q.Choice)})
+		return
+	}
 	if err := s.Sessions.Reveal(v.ID, q.ID, 0); err != nil {
 		s.fail(w, err)
 		return
@@ -468,7 +553,7 @@ func (s *Server) tutor(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
 	state := ""
-	if qs.Status == "ready" {
+	if qs.Status == "ready" && q.Type != catalog.TypeChoice {
 		// A compact, read-only snapshot of what the learner built.
 		res, err := s.Sessions.Exec(ctx, v.ID, q.ID, "control-plane", tutorSnapshot)
 		if err == nil {
@@ -626,7 +711,11 @@ type domainProgress struct {
 }
 
 type questionProgress struct {
-	Best     float64   `json:"best"` // 0..1
+	Best float64 `json:"best"` // 0..1
+	// Latest is the score of the most recent attempt. It is what counts for a
+	// choice question: having picked the right option once, perhaps after
+	// seeing the answer, says little about knowing it now.
+	Latest   float64   `json:"latest"`
 	Attempts int       `json:"attempts"`
 	Last     time.Time `json:"last"`
 }
@@ -666,9 +755,19 @@ func (s *Server) progress(w http.ResponseWriter, r *http.Request) {
 		}
 		p.Attempts++
 		p.Last = a.At
-		if ratio := float64(a.Score) / float64(a.Max); ratio > p.Best {
-			p.Best = ratio
+		p.Latest = float64(a.Score) / float64(a.Max)
+		p.Best = max(p.Best, p.Latest)
+	}
+	// score is what a question contributes to mastery and readiness.
+	score := func(q *catalog.Question) (float64, bool) {
+		p := qp[q.ID]
+		switch {
+		case p == nil:
+			return 0, false
+		case q.Type == catalog.TypeChoice:
+			return p.Latest, true
 		}
+		return p.Best, true
 	}
 	var domains []domainProgress
 	var recs []recommendation
@@ -687,15 +786,15 @@ func (s *Server) progress(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			dp.Questions++
-			p := qp[q.ID]
-			if p != nil {
+			got, attempted := score(q)
+			if attempted {
 				dp.Attempted++
-				sum += p.Best
-				if p.Best >= 1 {
+				sum += got
+				if got >= 1 {
 					dp.Solved++
 				}
 			}
-			if next == "" && (p == nil || p.Best < 1) {
+			if next == "" && got < 1 {
 				next = q.ID
 			}
 		}
