@@ -1,0 +1,105 @@
+title: The report job cannot read its configuration
+domain: permissions-identity
+difficulty: medium
+minutes: 7
+environment: base
+tags: [chmod, chgrp, id, namei, sudo]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The nightly report runs as the service account `unreadable-config-svc`. Since the application was
+  restored from a backup it fails. Reproduce it:
+
+  ```
+  sudo -u unreadable-config-svc /opt/course/unreadable-config/app/run-report.sh
+  ```
+
+  Find out why and repair it, so that this command prints the report header. More than one thing is
+  wrong on the way from the account to `/opt/course/unreadable-config/app/conf/report.conf`.
+
+  Keep it tight:
+
+  - `report.conf` contains a password. Accounts that are not meant to use the application must not be
+    able to read it.
+  - The service account may read the configuration and run the script, but must not be able to change
+    either of them. `root` stays the owner of everything below `app`.
+  - The account and its groups are correct as they are: do not change them, and do not change the
+    content of the files.
+
+  The application belongs to `root`: you need `sudo`.
+hints:
+  - "Who is the account (`id unreadable-config-svc`), and what does each directory on the path to the file allow? To read a file you must be able to enter every directory above it."
+  - "`sudo namei -l /opt/course/unreadable-config/app/conf/report.conf` prints owner, group and mode of every step of the path. Compare each line with the groups of the account. A script needs both read and execute permission."
+  - "`sudo chgrp unreadable-config-ops app/conf; sudo chmod 750 app/conf; sudo chmod 640 app/conf/report.conf; sudo chmod 750 app/run-report.sh`"
+checks:
+  - id: enter-dir
+    title: The service account can enter the directory conf
+    type: exec
+    run: |-
+      d=/opt/course/unreadable-config/app/conf
+      [ -d "$d" ] || { echo "$d is missing" >&2; exit 1; }
+      id unreadable-config-svc >/dev/null || exit 1
+      runuser -u unreadable-config-svc -- test -x "$d" && echo enters
+    expect: {equals: enters}
+    explain: >-
+      Permissions are checked on every directory of a path, not only on the file at its end: without
+      the execute bit on `conf` the file below it cannot be reached, whatever its own mode is.
+      `namei -l <path>` shows the whole chain at once.
+  - id: read-config
+    title: The service account can read report.conf
+    type: exec
+    run: |-
+      f=/opt/course/unreadable-config/app/conf/report.conf
+      [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+      id unreadable-config-svc >/dev/null || exit 1
+      sum=$(runuser -u unreadable-config-svc -- cat "$f" | sha256sum | cut -d' ' -f1)
+      [ "$sum" = "$(cat /opt/course/unreadable-config/.ref/report-conf.sha256)" ] || { echo "the account cannot read $f, or its content changed" >&2; exit 1; }
+      echo readable
+    expect: {equals: readable}
+    explain: >-
+      The file had the right group but mode `600`: the kernel uses the group bits for a member of the
+      group, and they were empty. Being in the right group is not enough, the group must also be
+      given the permission (`chmod g+r`).
+  - id: script-runs
+    title: The report runs as the service account
+    type: exec
+    run: |-
+      s=/opt/course/unreadable-config/app/run-report.sh
+      [ -f "$s" ] || { echo "$s is missing" >&2; exit 1; }
+      id unreadable-config-svc >/dev/null || exit 1
+      [ "$(sha256sum < "$s" | cut -d' ' -f1)" = "$(cat /opt/course/unreadable-config/.ref/run-report.sha256)" ] || { echo "$s was changed" >&2; exit 1; }
+      runuser -u unreadable-config-svc -- "$s"
+    expect: {equals: "report ok: region=eu-central recipients=3"}
+    explain: >-
+      This is the outcome that counts: the job itself, run as its own account. A script needs read
+      and execute permission, because the interpreter has to read the file; `x` alone is enough only
+      for compiled programs.
+  - id: private
+    title: Nobody else can read the configuration, and the account cannot change it
+    type: exec
+    guard: true
+    run: |-
+      app=/opt/course/unreadable-config/app
+      svc=unreadable-config-svc
+      [ -f "$app/conf/report.conf" ] || { echo "$app/conf/report.conf is missing" >&2; exit 1; }
+      [ -f "$app/run-report.sh" ] || { echo "$app/run-report.sh is missing" >&2; exit 1; }
+      id "$svc" >/dev/null || exit 1
+      for p in "$app" "$app/conf" "$app/conf/report.conf" "$app/run-report.sh"; do
+        [ "$(stat -c %U "$p")" = root ] || { echo "$p no longer belongs to root" >&2; exit 1; }
+        if runuser -u "$svc" -- test -w "$p"; then echo "$svc can write to $p" >&2; exit 1; fi
+      done
+      [ -z "$(find "$app/conf/report.conf" -perm /007)" ] || { echo "the mode of report.conf gives rights to others" >&2; exit 1; }
+      if runuser -u nobody -- cat "$app/conf/report.conf" >/dev/null 2>&1; then
+        echo "any account can read report.conf" >&2; exit 1
+      fi
+      if runuser -u candidate -- cat "$app/conf/report.conf" >/dev/null 2>&1; then
+        echo "candidate can read report.conf without sudo" >&2; exit 1
+      fi
+      [ "$(id -nG "$svc")" = "unreadable-config-svc unreadable-config-ops" ] || { echo "the groups of $svc changed" >&2; exit 1; }
+      [ "$(id -nG candidate)" = candidate ] || { echo "the groups of candidate changed" >&2; exit 1; }
+      echo private
+    expect: {equals: private}
+    explain: >-
+      `chmod 755` and `644` make the error go away and publish the password to every account on the
+      host; `chown` to the service account lets a compromised job rewrite its own configuration. Use
+      the group the account is already in, and give that group read access only.
