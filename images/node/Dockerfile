@@ -18,7 +18,11 @@ RUN apt-get update \
       openssh-server sudo vim less jq curl ca-certificates bash-completion \
       iproute2 iputils-ping dnsutils netcat-openbsd procps psmisc openssl \
       podman buildah \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ # podman ships a CNI network of its own. The node's container runtime reads
+ # the first file in /etc/cni/net.d, so it would wire Pods to podman's bridge
+ # until kindnet writes its configuration. Builds here use the host network.
+ && rm -f /etc/cni/net.d/*podman*
 
 RUN curl -fsSL "https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-${TARGETARCH}.tar.gz" \
       | tar -xz -C /usr/local/bin --strip-components=1 \
