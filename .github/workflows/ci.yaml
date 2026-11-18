@@ -25,6 +25,9 @@ jobs:
       - run: test -z "$(gofmt -l cmd internal content images deploy)"
       - run: go vet ./...
       - run: make test
+      - name: Browser tests
+        working-directory: web
+        run: npx playwright install --with-deps chromium && npm run test:e2e
       - run: ./bin/kubedojo content lint --strict
       - uses: azure/setup-helm@v5
       - run: helm lint deploy/helm/kubedojo

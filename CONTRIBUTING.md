@@ -48,6 +48,7 @@ reproduce the failing check by hand.
 
 ```bash
 make test             # Go unit tests, TypeScript type check, UI tests (vitest)
+make e2e              # terminal keyboard tests in a real browser (Playwright, Chromium)
 go vet ./... && gofmt -l cmd internal
 helm lint deploy/helm/kubedojo
 ```

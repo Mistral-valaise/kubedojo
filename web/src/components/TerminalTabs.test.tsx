@@ -15,6 +15,7 @@ vi.mock("./Terminal", async () => {
       if (active) shells.shortcut = onShortcut;
       return <div data-testid="shell" data-shell={id} data-session={sessionId} data-active={String(active)} />;
     },
+    shortcutModifiers: () => "Alt+Shift",
   };
 });
 

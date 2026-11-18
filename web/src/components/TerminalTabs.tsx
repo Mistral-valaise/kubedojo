@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, SquareTerminal, X } from "lucide-react";
 import { api } from "../api";
 import { t } from "../i18n";
-import { Terminal, type TerminalShortcut } from "./Terminal";
+import { Terminal, shortcutModifiers, type TerminalShortcut } from "./Terminal";
 import { cx } from "./ui";
 
 /** Used until the server's limit is known, and when it cannot be fetched. */
@@ -121,7 +121,7 @@ function Tabs({ sessionId, max: maxProp }: { sessionId: string; max?: number }) 
           aria-label={t("New terminal")}
           title={full
             ? t("At most {n} terminals can be open. Close one to open another.", { n: limit })
-            : t("New terminal (Alt+Shift+T)")}
+            : t("New terminal ({keys}+T)", { keys: shortcutModifiers() })}
           className="flex w-9 shrink-0 items-center justify-center outline-none hover:bg-white/5 hover:text-[#d7deea] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[#5b9dff] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
         >
           <Plus className="size-4" aria-hidden />
