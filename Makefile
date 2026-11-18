@@ -2,7 +2,7 @@ K8S_VERSION ?= v1.37.0
 VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS     := -s -w -X main.version=$(VERSION)
 
-.PHONY: all build go web images server-image sandbox-host test lint content-test dev clean
+.PHONY: all build go web images server-image sandbox-host test e2e lint content-test dev clean
 
 all: build
 
@@ -30,6 +30,9 @@ sandbox-host: images ## build the Docker-in-Docker sandbox host image (hosted mo
 test: ## unit tests
 	go test ./...
 	cd web && npm run typecheck && npm test
+
+e2e: ## browser tests of the terminal keyboard (downloads Chromium once)
+	cd web && npx playwright install chromium && npm run test:e2e
 
 lint: go ## validate the content
 	./bin/kubedojo content lint

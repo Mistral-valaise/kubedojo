@@ -114,7 +114,9 @@ solutions have a **Run** button that types them into your terminal.
 Need a second shell? The **+** next to the terminal tabs opens another one in the same sandbox — keep
 `watch kubectl get pods` running in one tab while you work in the other. Each tab is its own shell with
 its own scrollback; up to four can be open (`--max-terminals`). `Alt+Shift+T` opens a tab,
-`Alt+Shift+W` closes it, `Alt+Shift+←/→` and `Alt+Shift+1…9` switch.
+`Alt+Shift+W` closes it, `Alt+Shift+←/→` and `Alt+Shift+1…9` switch. On macOS the shortcuts use
+`Ctrl+Option` instead of `Alt+Shift`, because Option and Option+Shift type characters there
+(`|`, `\`, `{`, `[`, `@` on a German keyboard).
 
 ### Simulate — the exam, timed
 

@@ -21,13 +21,35 @@ export const CLOSE_TERMINAL_LIMIT = 4429;
 /** Tab actions a focused terminal can trigger from the keyboard. */
 export type TerminalShortcut = "new" | "close" | "next" | "previous" | { select: number };
 
+/** True on macOS, where Option is the third-level shift that types | [ ] { } @ \ ~ on many layouts. */
+export function isMac(nav: { platform?: string; userAgentData?: { platform?: string } } = navigator): boolean {
+  // navigator.platform first: it is what xterm.js decides on, and the two must agree.
+  return /mac/i.test(nav.platform || nav.userAgentData?.platform || "");
+}
+
+/** The modifier keys of the tab shortcuts, for display: "Ctrl+Option" on macOS, "Alt+Shift" elsewhere. */
+export function shortcutModifiers(mac = isMac()): string {
+  return mac ? "Ctrl+Option" : "Alt+Shift";
+}
+
+type ShortcutEvent = Pick<KeyboardEvent, "type" | "altKey" | "shiftKey" | "ctrlKey" | "metaKey" | "code">
+  & { getModifierState?: (key: string) => boolean };
+
 /**
- * Alt+Shift+T/W/arrows/1-9. Matched on `code`, so they work on every keyboard
- * layout, and chosen to collide neither with the browser's own tab shortcuts
- * nor with anything a shell or editor commonly binds.
+ * The tab shortcuts: modifiers + T/W/arrows/1-9, matched on `code` so they sit
+ * on the same physical keys on every layout.
+ *
+ * The modifiers must never be ones a keyboard layout uses to type characters,
+ * or the shortcut swallows them:
+ *  - macOS: Ctrl+Option. Option and Option+Shift type characters there
+ *    (German: Option+7 is |, Option+Shift+7 is \), Ctrl+Option types nothing.
+ *  - elsewhere: Alt+Shift. Ctrl+Alt is AltGr on Windows, so it is out, and a
+ *    key pressed with AltGr is never a shortcut.
  */
-export function shortcutOf(ev: Pick<KeyboardEvent, "type" | "altKey" | "shiftKey" | "ctrlKey" | "metaKey" | "code">): TerminalShortcut | null {
-  if (ev.type !== "keydown" || !ev.altKey || !ev.shiftKey || ev.ctrlKey || ev.metaKey) return null;
+export function shortcutOf(ev: ShortcutEvent, mac = isMac()): TerminalShortcut | null {
+  if (ev.type !== "keydown" || ev.metaKey || !ev.altKey) return null;
+  if (mac ? !ev.ctrlKey || ev.shiftKey : !ev.shiftKey || ev.ctrlKey) return null;
+  if (!mac && ev.getModifierState?.("AltGraph")) return null;
   switch (ev.code) {
     case "KeyT": return "new";
     case "KeyW": return "close";
@@ -66,7 +88,8 @@ export function Terminal({ sessionId, active = true, onShortcut }: {
     const term = new XTerm({
       theme, fontFamily: '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace',
       fontSize: 13.5, lineHeight: 1.25, cursorBlink: true, scrollback: 10000, allowProposedApi: true,
-      macOptionIsMeta: true,
+      // No macOptionIsMeta: it would send ESC+key for Option+key, and layouts that
+      // type | @ [ ] { } \ ~ with Option (German, French, …) could not enter them.
     });
     const fit = new FitAddon();
     term.loadAddon(fit);

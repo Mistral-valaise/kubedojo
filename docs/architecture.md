@@ -55,6 +55,39 @@ same clusters. No tab creates a cluster.
   receiving output and are resized together with the visible one. "Run" buttons type into the active
   tab (`web/src/terminalBus.ts`).
 
+### Keyboard layouts
+
+Keys travel browser → xterm.js → WebSocket (binary frame, UTF-8) → `docker exec` TTY → shell. The
+server and the terminal image do not translate input, so what a key types is decided in the browser,
+by two things in `web/src/components/Terminal.tsx`:
+
+- **The Option key on macOS types characters.** Many layouts need it for shell symbols: on a German
+  keyboard Option+7 is `|`, Option+5/6 `[ ]`, Option+8/9 `{ }`, Option+L `@`, Option+N `~` and
+  Option+Shift+7 `\`. xterm.js is therefore left at its default, `macOptionIsMeta: false`. With
+  `true` it sends `ESC` plus the key's US meaning instead — Option+7 became `ESC 7`, which readline
+  shows as `(arg: 7)` and Vim reads as a command ([#5](https://github.com/Mistral-valaise/kubedojo/issues/5)).
+  The price: Option+B/F no longer move by word on macOS. Press `Esc` and then the key instead, as in
+  any terminal without a Meta key.
+- **Tab shortcuts use modifiers that type nothing.** `shortcutOf` matches T, W, the arrows and 1–9 on
+  the physical key (`code`) with Ctrl+Option on macOS and Alt+Shift elsewhere. Alt+Shift on macOS
+  would swallow Option+Shift characters (German `\`); Ctrl+Alt elsewhere is how Windows reports AltGr.
+  A key pressed with AltGr is never a shortcut.
+
+Covered layouts: German and US on macOS, German on Windows and Linux (AltGr). Other layouts that
+type symbols with Option or AltGr work for the same reason.
+
+**Tests.** `Terminal.test.ts` checks the shortcut mapping against the events these layouts produce.
+`web/e2e/keyboard.spec.ts` (`make e2e`) sends those events through the real xterm.js in Chromium and
+asserts the bytes on the WebSocket. Neither can switch the operating system's layout: they replay the
+event a layout produces (`key: "|"`, `code: "Digit7"`, `altKey`), not the physical key. So after
+changing anything here, check by hand on a Mac with a German layout:
+
+1. Open any question, click into the terminal.
+2. `printf 'ok\n' | cat` prints `ok`; no `(arg: 7)` appears while typing.
+3. `vim /tmp/t`, press `i`, type `| [ ] { } @ \ ~` — the characters appear in the buffer.
+4. Ctrl+C, Ctrl+R, the arrow keys and paste (Cmd+V) behave as before.
+5. Ctrl+Option+T opens a tab, Ctrl+Option+1/2 and Ctrl+Option+←/→ switch, Ctrl+Option+W closes.
+
 ## Sessions
 
 - **Practice**: one long-lived session per track and user. Clusters are created the first time a

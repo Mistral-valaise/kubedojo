@@ -6,6 +6,8 @@ cka-cks-exam/
 /dist/
 web/node_modules/
 web/dist/
+web/test-results/
+web/playwright-report/
 internal/webui/dist/*
 !internal/webui/dist/.gitkeep
 
