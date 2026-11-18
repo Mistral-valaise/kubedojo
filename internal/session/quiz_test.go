@@ -83,9 +83,9 @@ func (d *watchedDriver) CreateEnv(ctx context.Context, h dockerhost.Host, sid, a
 	return d.Driver.CreateEnv(ctx, h, sid, alias, spec, keys, logf)
 }
 
-func (d *watchedDriver) EnsureTerminal(ctx context.Context, h dockerhost.Host, sid string, aliases []string, keys sandbox.KeyPair) error {
+func (d *watchedDriver) EnsureTerminal(ctx context.Context, h dockerhost.Host, sid string, envs []sandbox.Env, keys sandbox.KeyPair) error {
 	d.calls.Add(1)
-	return d.Driver.EnsureTerminal(ctx, h, sid, aliases, keys)
+	return d.Driver.EnsureTerminal(ctx, h, sid, envs, keys)
 }
 
 func (d *watchedDriver) Exec(ctx context.Context, h dockerhost.Host, sid string, t sandbox.Target, user, script string, env map[string]string) (sandbox.ExecResult, error) {
@@ -98,14 +98,14 @@ func (d *watchedDriver) Attach(ctx context.Context, h dockerhost.Host, sid strin
 	return d.Driver.Attach(ctx, h, sid, cols, rows)
 }
 
-func (d *watchedDriver) DeleteEnv(ctx context.Context, h dockerhost.Host, alias string) error {
+func (d *watchedDriver) DeleteEnv(ctx context.Context, h dockerhost.Host, env sandbox.Env) error {
 	d.calls.Add(1)
-	return d.Driver.DeleteEnv(ctx, h, alias)
+	return d.Driver.DeleteEnv(ctx, h, env)
 }
 
-func (d *watchedDriver) Destroy(ctx context.Context, h dockerhost.Host, sid string, aliases []string) error {
+func (d *watchedDriver) Destroy(ctx context.Context, h dockerhost.Host, sid string, envs []sandbox.Env) error {
 	d.calls.Add(1)
-	return d.Driver.Destroy(ctx, h, sid, aliases)
+	return d.Driver.Destroy(ctx, h, sid, envs)
 }
 
 // watchedHosts counts acquisitions: in hosted mode each one may create a pod.
