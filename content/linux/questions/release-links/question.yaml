@@ -1,0 +1,115 @@
+title: Repair the links of a release directory
+domain: files-directories
+difficulty: medium
+minutes: 8
+tags: [ln, symlink, hardlink, stat, inode]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The application in `/opt/course/release-links/app` does not start: its start script follows the
+  link `current`, and after the last deployment the links are a mess.
+
+  1. Make `app/current` a symbolic link to the newest release, `releases/2024-05-20`, and
+     `app/previous` a symbolic link to `releases/2024-04-15`. The whole `app` directory is synced
+     to other hosts under other paths: both links must still work when `app` is moved or copied
+     somewhere else.
+  2. Every release must contain the license as `license.key`, and it must be **the same file** as
+     `app/shared/license.key`, not a copy and not a symbolic link: one inode with several names.
+  3. Write the number of names (hard links) that `app/shared/license.key` has when you are done to
+     `/opt/course/release-links/link-count.txt`.
+
+  Apart from the three `license.key` entries, do not add, remove or change anything below
+  `releases`.
+hints:
+  - "`ls -l` shows where a symbolic link points, and `ls -li` shows the inode number in the first column and the link count after the permissions. Two names are the same file when their inode numbers are equal."
+  - "A symbolic link stores its target as text, and a relative target is resolved from the directory the link is in. `ln -s target name` does not replace an existing link: when `name` is a link to a directory, the new link is created inside that directory unless you use `-n` (with `-f` to replace). `ln` without `-s` makes a hard link."
+  - "In `app`: `ln -sfn releases/2024-05-20 current; ln -sfn releases/2024-04-15 previous`, then `ln -f shared/license.key releases/2024-04-15/license.key` (and the same for `2024-05-20`), then `stat -c %h shared/license.key > ../link-count.txt`."
+checks:
+  - id: links
+    title: current and previous are symbolic links to the right releases
+    type: exec
+    run: |-
+      a=/opt/course/release-links/app
+      for l in current:2024-05-20 previous:2024-04-15; do
+        n=${l%%:*}; want=$a/releases/${l##*:}
+        [ -L "$a/$n" ] || { echo "$n is not a symbolic link" >&2; exit 1; }
+        [ -d "$want" ] || { echo "$want is gone" >&2; exit 1; }
+        got=$(readlink -f "$a/$n")
+        [ "$got" = "$want" ] || { echo "$n leads to $got" >&2; exit 1; }
+      done
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      `previous` already is a link to a directory, and `ln -s` or `ln -sf` with such a name
+      follows it and creates the new link inside the old release. `ln -sfn` treats the existing
+      link as the thing to replace; removing it first works as well.
+  - id: relocatable
+    title: Both links still work in a copy of app at another path
+    type: exec
+    run: |-
+      a=/opt/course/release-links/app
+      [ -d "$a/releases" ] || { echo "$a/releases is gone" >&2; exit 1; }
+      t=$(mktemp -d) || exit 1
+      trap 'rm -rf "$t"' EXIT
+      cp -a "$a" "$t/app" || exit 1
+      for n in current previous; do
+        [ -L "$t/app/$n" ] || { echo "$n is not a symbolic link" >&2; exit 1; }
+        got=$(readlink -f "$t/app/$n")
+        case "$got" in
+          "$t/app/releases/"*) [ -d "$got" ] || { echo "in the copy, $n points to nothing" >&2; exit 1; } ;;
+          *) echo "in the copy, $n leaves the copy: $(readlink "$t/app/$n")" >&2; exit 1 ;;
+        esac
+      done
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      A symbolic link with an absolute target keeps pointing at the old location when the tree is
+      copied, moved or mounted elsewhere. A relative target such as `releases/2024-05-20` is
+      resolved from the directory the link is in, so it travels with the tree.
+  - id: hardlinks
+    title: license.key in every release is the shared file itself
+    type: exec
+    run: |-
+      a=/opt/course/release-links/app
+      s=$a/shared/license.key
+      [ -f "$s" ] && [ ! -L "$s" ] || { echo "$s is not a regular file any more" >&2; exit 1; }
+      for r in 2024-03-01 2024-04-15 2024-05-20; do
+        f=$a/releases/$r/license.key
+        [ ! -L "$f" ] || { echo "$f is a symbolic link" >&2; exit 1; }
+        [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+        [ "$(stat -c %d:%i "$f")" = "$(stat -c %d:%i "$s")" ] || { echo "$f is another file (inode $(stat -c %i "$f"))" >&2; exit 1; }
+      done
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      A copy has the same content but its own inode: it takes space again and goes stale when the
+      shared file is replaced. A symbolic link is a third thing, a small file that holds a path.
+      Only `ln` without `-s` gives one inode a second name.
+  - id: count
+    title: link-count.txt holds the link count of the shared license
+    type: exec
+    run: |-
+      b=/opt/course/release-links
+      [ -s "$b/link-count.txt" ] || { echo "$b/link-count.txt is missing or empty" >&2; exit 1; }
+      n=$(stat -c %h "$b/app/shared/license.key") || exit 1
+      [ "$n" -ge 4 ] || { echo "the shared file has only $n names: create the hard links first" >&2; exit 1; }
+      [ "$(tr -d '[:space:]' < "$b/link-count.txt")" = "$n" ] || { echo "the file has $n names" >&2; exit 1; }
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      The link count is the number of directory entries that lead to an inode: the name in
+      `shared` plus one per release. `stat -c %h` prints it, `ls -l` shows it in the second
+      column, and the data is freed only when the count drops to zero.
+  - id: untouched
+    title: Nothing else below releases changed
+    type: exec
+    guard: true
+    run: |-
+      cd /opt/course/release-links/app || exit 1
+      { find releases -printf '%P\n' | LC_ALL=C sort; sha256sum shared/license.key releases/*/app.sh; } \
+        | sha256sum | cut -d' ' -f1 | diff -q - ../.manifest >/dev/null && echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      A link that lands inside a release directory, a deleted release or an edited license all
+      "fix" a symptom and break the deployment. Look at `ls -la releases/*` after working with
+      `ln`: a stray entry shows up at once.

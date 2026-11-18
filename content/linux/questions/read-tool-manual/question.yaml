@@ -1,0 +1,84 @@
+title: Learn an unfamiliar tool from its help and manual
+domain: shell-navigation
+difficulty: medium
+minutes: 8
+tags: [man, help, environment, exit-status]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The release team hands you a tool you have never seen: `/opt/course/read-tool-manual/bin/relcheck`.
+  It checks the release directories below `/opt/course/read-tool-manual/releases`. Nobody is around
+  to explain it, but it has a `--help` and a manual page. All result files go to
+  `/opt/course/read-tool-manual/`.
+
+  1. `report.tsv`: the output of `relcheck` for **all** releases, including the hidden staging
+     release, as tab-separated values, the largest release first.
+  2. `report-clean.tsv`: the same report, but with leftover files named `*.bak` and `*.tmp` left out
+     of the check. The leftovers themselves must stay where they are.
+  3. `no-manifest-status.txt`: a CI wrapper has to tell "a release has no MANIFEST" apart from "a
+     file differs". Write the exit status (the number) that `relcheck` returns in the first case.
+
+  Do not change the tool or anything below `releases`.
+hints:
+  - "Start with `relcheck --help`. Its last lines say where the manual page is and how to open a page that is not installed system-wide."
+  - "The options for all releases, the format and the order are in `--help`. For task 2 and 3 search the manual: `man -l <file>`, then `/ENVIRONMENT` and `/EXIT STATUS` (`n` jumps to the next hit, `q` quits)."
+  - "`cd /opt/course/read-tool-manual; bin/relcheck --all --format tsv --sort size releases > report.tsv`, then the same command with `RELCHECK_IGNORE='*.bak:*.tmp'` in front of it for `report-clean.tsv`."
+checks:
+  - id: report
+    title: report.tsv lists all five releases as TSV, largest first
+    type: exec
+    run: |-
+      f=/opt/course/read-tool-manual/report.tsv
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      tr '\t' ' ' < "$f"
+    expect:
+      equals: |-
+        .staging 3 15450 UNLISTED
+        v1.3.0 2 6350 OK
+        v1.1.0 3 5630 UNLISTED
+        v1.2.0 2 5520 DIFFERS
+        v1.0.0 2 4300 OK
+    explain: >-
+      Three options are needed and `--help` names them all: `--all` for the release whose name
+      starts with a dot, `--format tsv` and `--sort size`. Reading the help text first is faster
+      than guessing, and the default output looks plausible while being the wrong format and order.
+  - id: clean
+    title: report-clean.tsv ignores the *.bak and *.tmp leftovers
+    type: exec
+    run: |-
+      f=/opt/course/read-tool-manual/report-clean.tsv
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      tr '\t' ' ' < "$f"
+    expect:
+      equals: |-
+        .staging 2 6450 OK
+        v1.3.0 2 6350 OK
+        v1.2.0 2 5520 DIFFERS
+        v1.1.0 2 5320 OK
+        v1.0.0 2 4300 OK
+    explain: >-
+      The manual's ENVIRONMENT section describes `RELCHECK_IGNORE` as a list separated by colons,
+      and its example quotes the value. With a comma or a space the whole value is one pattern that
+      matches nothing, and the report silently stays the same.
+  - id: status
+    title: no-manifest-status.txt holds the exit status for a missing MANIFEST
+    type: file
+    path: /opt/course/read-tool-manual/no-manifest-status.txt
+    expect: {equals: "4"}
+    explain: >-
+      Exit statuses are documented in the EXIT STATUS section of a manual page, and scripts depend
+      on them. Running the tool here only ever shows status 1, because none of these releases lacks
+      its MANIFEST.
+  - id: untouched
+    title: The tool and the releases are untouched
+    type: exec
+    guard: true
+    run: |-
+      cd /opt/course/read-tool-manual || exit 1
+      { sha256sum bin/relcheck man/man1/relcheck.1; find releases -printf '%y %s %p\n' | LC_ALL=C sort; } \
+        | sha256sum | cut -d' ' -f1 | diff -q - .manifest >/dev/null && echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      Deleting the leftovers also gives a clean report, but it destroys what somebody may still
+      need and proves nothing about the tool. Telling the tool what to ignore leaves the releases
+      as they are.

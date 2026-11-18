@@ -1,0 +1,93 @@
+title: Triage the errors in an application log
+domain: text-search-logs
+difficulty: hard
+minutes: 9
+tags: [grep, cut, sort, uniq, head, tail]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  After a bad morning you are asked what happened. `/opt/course/error-log-triage/app.log` holds the
+  log of six services. Every line has the same form:
+
+  ```
+  2024-05-14 09:01:01 [auth] ERROR connection refused by db-1
+  date       time     [service] LEVEL message
+  ```
+
+  Write three files to `/opt/course/error-log-triage/`:
+
+  1. `levels.txt`: how many lines there are per level, one line per level with the number, a space
+     and the level. Example line: `7 FATAL`.
+  2. `errors-by-service.txt`: for every service that logged at least one line of level `ERROR`, the
+     number of such lines, a space and the service name without brackets, the service with the
+     most errors first. Services without errors do not appear.
+  3. `payments-window.txt`: two complete log lines, the first and the last line of level `ERROR`
+     of the service `payments`, in that order.
+
+  The level is the fourth field. A message may contain any word, level names included. Do not
+  change `app.log`.
+hints:
+  - "Look at the data before you count: `less app.log`, then search inside it with `/ERROR` and `n`. Is every hit a line of level ERROR? Is `payments` the only service with that word in its name?"
+  - "Select by position, not by word: `cut -d' ' -f4` is the level, and `grep '\\] ERROR '` matches the level only where it follows the service's closing bracket. `grep -F '[payments] ERROR '` takes the text literally, brackets included. `sort | uniq -c | sort -rn` counts and ranks."
+  - "`cut -d' ' -f4 app.log | sort | uniq -c > levels.txt`; `grep '\\] ERROR ' app.log | cut -d' ' -f3 | tr -d '[]' | sort | uniq -c | sort -rn > errors-by-service.txt`; `grep -F '[payments] ERROR ' app.log | sed -n '1p;$p' > payments-window.txt` (or `head -n 1` and `tail -n 1`)."
+checks:
+  - id: levels
+    title: levels.txt counts the lines per level
+    type: exec
+    run: |-
+      f=/opt/course/error-log-triage/levels.txt
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      awk 'NF {$1=$1; print}' "$f"
+    expect:
+      sameLines:
+        - 246 INFO
+        - 90 WARN
+        - 48 DEBUG
+        - 36 ERROR
+    explain: >-
+      Counting a word with `grep -c ERROR` counts every line that contains it anywhere, also INFO
+      lines such as "no ERROR in the last 200 queries". Cut out the field that holds the level
+      and count that: the four numbers then add up to the 420 lines of the file.
+  - id: by-service
+    title: errors-by-service.txt ranks the services by their ERROR lines
+    type: exec
+    run: |-
+      f=/opt/course/error-log-triage/errors-by-service.txt
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      awk 'NF {$1=$1; print}' "$f"
+    expect:
+      equals: |-
+        13 auth
+        11 payments-worker
+        9 gateway
+        3 payments
+    explain: >-
+      The service `search` never logged an error, it only talks about them: a pattern that ties
+      the level to its position (`\] ERROR `) keeps it out. `sort | uniq -c` counts, and a final
+      `sort -rn` is what makes it a ranking.
+  - id: window
+    title: payments-window.txt holds the first and the last ERROR line of payments
+    type: exec
+    run: |-
+      f=/opt/course/error-log-triage/payments-window.txt
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      sed 's/[[:space:]]*$//' "$f" | grep -v '^$'
+    expect:
+      equals: |-
+        2024-05-14 09:20:33 [payments] ERROR connection refused by db-3
+        2024-05-14 10:34:42 [payments] ERROR connection refused by db-3
+    explain: >-
+      `grep payments` also matches `payments-worker`, whose errors start earlier and end later,
+      and payments itself logs INFO lines with the word ERROR before and after. Match the service
+      with its brackets and the level together, then take `head -n 1` and `tail -n 1` of the result.
+  - id: untouched
+    title: app.log is untouched
+    type: exec
+    guard: true
+    run: |-
+      cd /opt/course/error-log-triage || exit 1
+      sha256sum app.log | cut -d' ' -f1 | diff -q - .manifest >/dev/null && echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      A log is evidence. Filter copies of it through pipelines and never edit it in place, or the
+      next person investigates a different incident than you did.

@@ -1,0 +1,71 @@
+title: Audit a configuration tree with grep
+domain: text-search-logs
+difficulty: medium
+minutes: 8
+tags: [grep, regex, recursive]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Before a migration you audit the configuration below `/opt/course/grep-config-tree/etc`. Only
+  files whose name ends in `.conf` are loaded, and only **active** lines count: a line whose first
+  non-blank character is `#` is a comment. Write the answers to `/opt/course/grep-config-tree/`.
+
+  1. `weak-tls.txt`: the absolute paths of the files with an active `ssl_protocols` directive that
+     still allows `TLSv1` or `TLSv1.1`, one per line. (`TLSv1.2` and `TLSv1.3` are fine.)
+  2. `decom-count.txt`: the network `10.20.0.0/16` is being switched off. Write the number of
+     active lines, in the whole tree, that contain an IPv4 address starting with `10.20.`.
+  3. `no-server-name.txt`: the absolute paths of the files directly in `etc/nginx/sites` that have
+     no active `server_name` directive, one per line.
+
+  Do not change anything below `etc`.
+hints:
+  - "`grep -r` searches a tree, `--include='*.conf'` limits it to file names, `-l` prints only the names of files with a match and `-L` the names of files without one. Give grep the absolute path and it prints absolute paths."
+  - "Put the whole condition into one pattern with `-E`: `^[[:space:]]*directive` matches only lines where the directive is the first thing on the line, so comments drop out. A dot matches any character unless it is escaped (`\\.`), and `110.20.1.5` contains `10.20.1.5` unless the pattern says what may come before."
+  - "`grep -rlE --include='*.conf' '^[[:space:]]*ssl_protocols.*TLSv1(\\.1)?[ ;]' /opt/course/grep-config-tree/etc`; for the count `grep -rhE --include='*.conf' '^[^#]*(^|[^0-9.])10\\.20\\.[0-9]+\\.[0-9]+' ... | wc -l`; for the third `grep -LE '^[[:space:]]*server_name' .../etc/nginx/sites/*.conf`."
+checks:
+  - id: weak-tls
+    title: weak-tls.txt lists the files that still allow TLSv1 or TLSv1.1
+    type: file
+    path: /opt/course/grep-config-tree/weak-tls.txt
+    expect:
+      sameLines:
+        - /opt/course/grep-config-tree/etc/nginx/sites/shop.conf
+        - /opt/course/grep-config-tree/etc/nginx/sites/api.conf
+        - /opt/course/grep-config-tree/etc/mail/relay.conf
+    explain: >-
+      `TLSv1` is also the beginning of `TLSv1.2`, and `grep -w` does not help because a dot ends a
+      word: the pattern has to say what follows, as in `TLSv1(\.1)?[ ;]`. Anchor the directive at
+      the start of the line to drop the commented-out lines, and use `--include` to skip the
+      `.bak` file.
+  - id: decom-count
+    title: decom-count.txt holds the number of active lines with a 10.20.x.x address
+    type: file
+    path: /opt/course/grep-config-tree/decom-count.txt
+    expect: {equals: "6"}
+    explain: >-
+      An unescaped dot matches any character, so `10.20.` also finds `1012034`, and without a
+      boundary in front the pattern finds `110.20.1.5`. `grep -c` counts per file; for one total
+      print the lines with `-h` and count them with `wc -l`.
+  - id: no-server-name
+    title: no-server-name.txt lists the site files without an active server_name
+    type: file
+    path: /opt/course/grep-config-tree/no-server-name.txt
+    expect:
+      sameLines:
+        - /opt/course/grep-config-tree/etc/nginx/sites/default.conf
+        - /opt/course/grep-config-tree/etc/nginx/sites/status.conf
+    explain: >-
+      `grep -L` prints the files in which the pattern does not occur, which no pipeline of `-v`
+      can do: `-v` inverts lines, not files. A commented-out `server_name` still contains the
+      word, so the pattern must demand that the line starts with it.
+  - id: untouched
+    title: The configuration tree is untouched
+    type: exec
+    guard: true
+    run: |-
+      cd /opt/course/grep-config-tree || exit 1
+      find etc -type f -exec sha256sum {} + | LC_ALL=C sort -k2 | sha256sum | cut -d' ' -f1 | diff -q - .manifest >/dev/null && echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      An audit reads. Removing comments or the backup file to make the search easier changes the
+      system that is being audited; let the pattern and `--include` do the filtering.

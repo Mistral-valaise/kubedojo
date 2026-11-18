@@ -1,0 +1,105 @@
+title: Give a messy project directory a layout
+domain: files-directories
+difficulty: easy
+minutes: 6
+tags: [mv, mkdir, globbing, quoting]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Everything in `/opt/course/sort-project-files/project` lies in one flat directory, and the build
+  tooling expects a layout. Move the files so that, inside `project`:
+
+  | Directory | Contains |
+  |---|---|
+  | `src/` | the Python files that are not tests |
+  | `tests/` | the Python files whose name starts with `test_` |
+  | `docs/` | every Markdown file (`*.md`), hidden ones too, except `README.md` |
+  | `assets/img/` | every `*.png` file |
+
+  `README.md` and everything that is not mentioned stay at the top of `project`. Move the files:
+  no file may be lost, emptied, renamed or left behind as a second copy.
+hints:
+  - "Look with `ls -la` first: some names contain spaces, one starts with a dash and one starts with a dot. `mkdir -p` creates nested directories in one go."
+  - "A pattern like `*.md` expands to all matching names, each as one argument, spaces included, but it skips hidden files. A name that starts with `-` is read as an option unless `--` ends the options (or the name is written as `./-name`)."
+  - "`mkdir -p src tests docs assets/img; mv -- test_*.py tests/; mv -- *.py src/; mv -- *.md .*.md docs/; mv docs/README.md .; mv -- *.png assets/img/`"
+checks:
+  - id: code
+    title: src/ and tests/ hold the right Python files
+    type: exec
+    run: |-
+      cd /opt/course/sort-project-files/project || exit 1
+      [ -d src ] && [ -d tests ] || { echo "src/ or tests/ is missing" >&2; exit 1; }
+      find src tests -mindepth 1 -printf '%y %p\n'
+    expect:
+      sameLines:
+        - f src/main.py
+        - f src/utils.py
+        - f tests/test_main.py
+        - f tests/test_utils.py
+    explain: >-
+      The order of the two moves matters: `*.py` matches the tests too, so move `test_*.py` first
+      and what is left afterwards belongs to `src/`. Run `ls` with the pattern before `mv` to see
+      what a glob will match.
+  - id: docs
+    title: docs/ holds every Markdown file except README.md
+    type: exec
+    run: |-
+      cd /opt/course/sort-project-files/project/docs || { echo "docs/ is missing" >&2; exit 1; }
+      find . -mindepth 1 -printf '%y %P\n'
+    expect:
+      sameLines:
+        - f CHANGELOG.md
+        - f design notes.md
+        - f -draft.md
+        - f .todo.md
+    explain: >-
+      Three names resist a quick `mv *.md docs/`: `-draft.md` is taken for a bundle of options
+      unless `--` comes first, `.todo.md` is hidden and not matched by `*`, and `design notes.md`
+      falls apart into two words when a loop or variable is not quoted.
+  - id: assets
+    title: assets/img/ holds the three images
+    type: exec
+    run: |-
+      cd /opt/course/sort-project-files/project/assets/img || { echo "assets/img/ is missing" >&2; exit 1; }
+      find . -mindepth 1 -printf '%y %P\n'
+    expect:
+      sameLines:
+        - f logo.png
+        - f screenshot 1.png
+        - f screenshot 2.png
+    explain: >-
+      `mkdir assets/img` fails while `assets` does not exist; `mkdir -p` creates the whole path.
+      The glob `*.png` hands each name to `mv` as one argument, so the spaces are harmless as long
+      as the names never pass through an unquoted variable.
+  - id: top-level
+    title: Only README.md and the unmentioned files remain at the top
+    type: exec
+    run: |-
+      cd /opt/course/sort-project-files/project || exit 1
+      find . -mindepth 1 -maxdepth 1 -printf '%y %P\n'
+    expect:
+      sameLines:
+        - f README.md
+        - f Makefile
+        - f .gitignore
+        - f .env.example
+        - d src
+        - d tests
+        - d docs
+        - d assets
+    explain: >-
+      `README.md` matches `*.md` and goes along to `docs/` unless it is kept out or moved back.
+      Check the result with `ls -la`: a plain `ls` hides the dot files and with them what was
+      forgotten.
+  - id: nothing-lost
+    title: Every file still exists exactly once with its content
+    type: exec
+    guard: true
+    run: |-
+      cd /opt/course/sort-project-files/project || exit 1
+      find . -type f -exec sha256sum {} + | cut -d' ' -f1 | LC_ALL=C sort | diff -q - ../.contents >/dev/null && echo complete
+    expect: {equals: complete}
+    explain: >-
+      `mv` with several sources and a last argument that is not a directory, or a redirect into
+      the wrong place, overwrites files without a question. `mv -i` or `mv -n` refuses to
+      overwrite; copies that were left behind count as a mistake as well.
