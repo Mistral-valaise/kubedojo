@@ -1,0 +1,100 @@
+title: Which layer is broken?
+domain: networking-ssh
+difficulty: easy
+minutes: 6
+tags: [curl, dig, ss, nc, dns, http]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The status page shows four of five internal services as "down", and nobody knows why. The health
+  URLs it polls are listed in `/opt/course/net-layer-diagnosis/endpoints.txt` (name, then URL).
+
+  Find out for every service **at which layer** its health URL fails, and write one line per service
+  to `/opt/course/net-layer-diagnosis/report.txt` in the form `<name> <verdict>`:
+
+  | Verdict | Meaning |
+  |---|---|
+  | `dns` | the host name of the URL does not resolve |
+  | `tcp` | the name resolves, but nothing accepts connections on the port |
+  | `http-<status>` | a server answers, but not with status 200: for example `http-500` |
+  | `ok` | the URL answers with status 200 |
+
+  Example line: `billing ok`
+
+  Only diagnose: do not start, stop or change any service.
+hints:
+  - "Work from the bottom up, and stop at the first layer that fails: does the name resolve (`getent hosts <name>`, `dig +short <name>`), does the port accept a connection (`nc -zv <host> <port>`), and only then: what does HTTP say?"
+  - "`curl` tells the layers apart by its exit code: 6 is 'could not resolve host', 7 is 'failed to connect'. When it exits 0, a server answered, and `-w '%{http_code}'` prints the status. An open port is not a healthy service."
+  - "`curl -s -o /dev/null -m 5 -w '%{http_code}\\n' <url>; echo \"exit $?\"` for each URL, then write the five lines, e.g. `checkout http-503`."
+checks:
+  - id: dns
+    title: The service whose name does not resolve is reported as dns
+    type: exec
+    run: |-
+      f=/opt/course/net-layer-diagnosis/report.txt
+      [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+      tr -s ' \t' ' ' < "$f" | sed 's/^ //; s/ $//' | grep -x 'inventory dns'
+    expect: {equals: inventory dns}
+    explain: >-
+      Before any packet goes to a server, the name has to become an address: `getent hosts` or
+      `dig +short` answer that question on their own. Without this step a resolver problem is
+      mistaken for a dead server, and the wrong team is called.
+  - id: tcp
+    title: The service whose port is closed is reported as tcp
+    type: exec
+    run: |-
+      f=/opt/course/net-layer-diagnosis/report.txt
+      [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+      tr -s ' \t' ' ' < "$f" | sed 's/^ //; s/ $//' | grep -x 'search tcp'
+    expect: {equals: search tcp}
+    explain: >-
+      "Connection refused" means the host is there and answered, but no process listens on that
+      port: `nc -zv` from the client or `ss -ltn` on the host show it. It is a different fault from
+      a name that does not resolve and from a timeout, where no answer comes back at all.
+  - id: http
+    title: The services that answer with an error are reported with their HTTP status
+    type: exec
+    run: |-
+      f=/opt/course/net-layer-diagnosis/report.txt
+      [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+      tr -s ' \t' ' ' < "$f" | sed 's/^ //; s/ $//' | grep -x -e 'checkout http-503' -e 'profile http-404'
+    expect:
+      sameLines:
+        - checkout http-503
+        - profile http-404
+    explain: >-
+      An open port only proves that a process accepted the connection. The status code says what the
+      application thinks: 503 is a server that is up but cannot do its work, 404 is a wrong path.
+      A port test such as `nc -z` reports both as healthy.
+  - id: healthy
+    title: The report has one line per service and the healthy one is ok
+    type: exec
+    run: |-
+      f=/opt/course/net-layer-diagnosis/report.txt
+      [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+      rows=$(tr -s ' \t' ' ' < "$f" | sed 's/^ //; s/ $//' | grep -v '^$')
+      echo "$rows" | grep -qx 'billing ok' || { echo "billing answers with 200 and must be reported as ok" >&2; exit 1; }
+      names=$(echo "$rows" | cut -d' ' -f1 | LC_ALL=C sort | tr '\n' ' ')
+      [ "$names" = "billing checkout inventory profile search " ] || { echo "expected exactly one line for each of the five services, got: $names" >&2; exit 1; }
+      echo complete
+    expect: {equals: complete}
+    explain: >-
+      A diagnosis is complete only when it also says what works: the healthy service is the
+      reference that proves your method (and the network) is fine. Each service appears exactly
+      once, so that nobody has to guess which of two lines is meant.
+  - id: untouched
+    title: The services were diagnosed, not changed
+    type: exec
+    guard: true
+    run: |-
+      h=$(hostname)
+      code() { curl -s -o /dev/null -m 5 -w '%{http_code}' "http://$h:$1/health"; }
+      [ "$(code 23011)" = 200 ] || { echo "billing no longer answers with 200" >&2; exit 1; }
+      [ "$(code 23014)" = 503 ] || { echo "checkout was changed" >&2; exit 1; }
+      [ "$(code 23015)" = 404 ] || { echo "profile was changed" >&2; exit 1; }
+      if ss -Hltn 'sport = :23013' | grep -q .; then echo "something listens on port 23013 now" >&2; exit 1; fi
+      echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      The task is to find the failing layer, not to make the status page green. Starting a listener
+      on the dead port or stopping a service hides the evidence the owning team needs.
