@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
-  AlertTriangle, BookOpen, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Flag, Flame, Server,
+  AlertTriangle, ArrowLeft, BookOpen, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Flag, Flame, Server,
   SquareTerminal, Trash2, XCircle,
 } from "lucide-react";
 import { api, type Config, type QuestionView, type Session, type Track } from "../api";
 import { fmtDuration, useInterval } from "../hooks";
 import { t } from "../i18n";
 import { words } from "../track";
-import { Help } from "../components/Help";
+import { Choice } from "../components/Choice";
+import { Help, TutorBox } from "../components/Help";
 import { Markdown } from "../components/Markdown";
 import { Provisioning } from "../components/Provisioning";
 import { Rating } from "../components/Rating";
@@ -37,6 +38,9 @@ export function ExamPage() {
   if (error && !session) return <Page><ErrorNote>{t("This session no longer exists.")} <Link className="underline" to="/">{t("Back to start")}</Link></ErrorNote></Page>;
   if (!session || !track) return <Page docs={null}><Spinner /></Page>;
   const w = words(track);
+  // Without a sandbox nothing is provisioned and grading is immediate, so
+  // these states pass in an instant and have no log to show.
+  if (!w.sandbox && (session.status === "provisioning" || session.status === "grading")) return <Page docs={null}><Spinner /></Page>;
 
   switch (session.status) {
     case "provisioning":
@@ -130,7 +134,40 @@ function Workspace({ session, track, onSession, refresh }: {
   const [flags, setFlags] = useState<Record<string, boolean>>(() => Object.fromEntries(qs.map((q) => [q.id, q.flagged])));
   const cur = qs[idx];
   const w = words(track);
+  // A track without a sandbox is answered on the page: no terminal, and the
+  // navigator and the finish dialog know which questions have an answer.
+  const quiz = !w.sandbox;
   const scroller = useRef<HTMLDivElement>(null);
+
+  // Answers are shown at once and saved one request per change, in order.
+  const [answers, setAnswers] = useState<Record<string, string[]>>(() => Object.fromEntries(qs.map((q) => [q.id, q.answer ?? []])));
+  const saved = useRef(answers); // what the server confirmed
+  const latest = useRef<Record<string, number>>({}); // number of the newest change per question
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const [saving, setSaving] = useState(0);
+  const [saveError, setSaveError] = useState<{ id: string; message: string } | null>(null);
+  const setAnswer = (ids: string[]) => {
+    const id = cur.id, seq = (latest.current[id] ?? 0) + 1;
+    latest.current[id] = seq;
+    setAnswers((a) => ({ ...a, [id]: ids }));
+    setSaveError(null);
+    setSaving((n) => n + 1);
+    queue.current = queue.current.then(async () => {
+      try {
+        await api.patchQuestion(session.id, id, { answer: ids });
+        saved.current = { ...saved.current, [id]: ids };
+      } catch (e) {
+        // A newer change of the same question is still on its way and decides
+        // what is shown; only the newest failure falls back to the saved answer.
+        if (latest.current[id] === seq) {
+          setAnswers((a) => ({ ...a, [id]: saved.current[id] ?? [] }));
+          setSaveError({ id, message: (e as Error).message });
+        }
+      } finally {
+        setSaving((n) => n - 1);
+      }
+    });
+  };
 
   // Local countdown, anchored to the server clock.
   const skew = useMemo(() => Date.parse(session.now) - Date.now(), [session.now]);
@@ -163,6 +200,7 @@ function Workspace({ session, track, onSession, refresh }: {
   };
   const finish = async () => {
     setBusy(true);
+    await queue.current; // an answer still being saved must count
     try { onSession(await api.finish(session.id)); } catch { await refresh(); }
   };
 
@@ -170,31 +208,67 @@ function Workspace({ session, track, onSession, refresh }: {
   const flagged = Object.values(flags).filter(Boolean).length;
   const meta = session.meta[cur.id];
   const domain = track.domains.find((d) => d.id === meta?.domain);
+  const answered = (id: string) => (answers[id]?.length ?? 0) > 0;
+  const unanswered = qs.filter((q) => !answered(q.id)).length;
+  // The content of a quiz is one readable column in the middle of the page.
+  const column = quiz ? "mx-auto w-full max-w-[46rem] px-4 sm:px-6" : "";
+  const bar = quiz ? "" : "px-4"; // the column brings its own gutter
 
   const leftPane = (
     <div className="flex h-full flex-col bg-panel">
-      <nav className="flex shrink-0 flex-wrap gap-1.5 border-b px-4 py-2.5" aria-label={t("Questions")}>
-        {qs.map((q, i) => (
-          <button key={q.id} onClick={() => setIdx(i)} aria-current={i === idx}
-            className={cx("relative flex size-8 items-center justify-center rounded-lg border text-xs font-medium tabular-nums transition",
-              i === idx ? "border-accent bg-accent text-white" : "bg-panel2 text-muted hover:border-accent/60 hover:text-text")}>
-            {i + 1}
-            {flags[q.id] && <span className="absolute -right-1 -top-1 size-2.5 rounded-full border-2 border-panel bg-warn" />}
-          </button>
-        ))}
-      </nav>
+      <div className={cx("shrink-0 border-b py-2.5", bar)}>
+        <div className={cx("flex flex-wrap items-center gap-x-4 gap-y-2", column)}>
+          <nav className="flex flex-wrap gap-1.5" aria-label={t("Questions")}>
+            {qs.map((q, i) => (
+              <button key={q.id} onClick={() => setIdx(i)} aria-current={i === idx}
+                // The state is in the name and in the border, not in colour alone.
+                aria-label={quiz ? [t("Question {n}", { n: i + 1 }), answered(q.id) ? t("answered") : t("not answered"), flags[q.id] && t("flagged")].filter(Boolean).join(", ") : undefined}
+                className={cx("relative flex size-8 items-center justify-center rounded-lg border text-xs font-medium tabular-nums transition",
+                  i === idx ? "border-accent bg-accent text-white"
+                    : !quiz ? "bg-panel2 text-muted hover:border-accent/60 hover:text-text"
+                      : answered(q.id) ? "border-accent/50 bg-accent-soft font-semibold text-accent hover:border-accent"
+                        : "border-dashed border-muted/50 text-muted hover:border-accent/60 hover:text-text")}>
+                {i + 1}
+                {flags[q.id] && <span className="absolute -right-1 -top-1 size-2.5 rounded-full border-2 border-panel bg-warn" />}
+              </button>
+            ))}
+          </nav>
+          {quiz && <span className="ml-auto text-xs tabular-nums text-muted">{t("{a} of {n} answered", { a: qs.length - unanswered, n: qs.length })}</span>}
+        </div>
+      </div>
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
-        <div className="space-y-5 px-6 py-5">
+        <div className={cx("space-y-5 py-5", quiz ? "sm:py-8" : "px-6", column)}>
           <div>
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
               <Badge tone="accent">{t("Question {n} of {m}", { n: idx + 1, m: qs.length })}</Badge>
               {domain && <Badge>{domain.title}</Badge>}
-              {meta && <Badge>{t("{n} points", { n: meta.points })}</Badge>}
+              {/* Every question of a quiz counts the same, so the points say nothing. */}
+              {meta && !quiz && <Badge>{t("{n} points", { n: meta.points })}</Badge>}
               {meta?.host && <Badge><Server className="size-3" />{meta.host}</Badge>}
             </div>
             <h1 className="text-xl font-semibold tracking-tight">{meta?.title}</h1>
           </div>
-          {view ? <Markdown>{view.task}</Markdown> : <Spinner />}
+          {saveError && (
+            <div role="alert">
+              <ErrorNote>
+                <span className="font-medium">{t("The answer to question {n} was not saved.", { n: qs.findIndex((q) => q.id === saveError.id) + 1 })}</span>{" "}
+                {t("It shows the last saved answer again. Select your answer once more.")}
+                <div className="mt-1 font-mono text-xs break-words">{saveError.message}</div>
+              </ErrorNote>
+            </div>
+          )}
+          {view?.question.id === cur.id ? <Markdown className={quiz ? "md-lg" : undefined}>{view.task}</Markdown> : <Spinner />}
+          {view?.choice && view.question.id === cur.id && (
+            <div>
+              <Choice choice={view.choice} value={answers[cur.id] ?? []} onChange={setAnswer} hotkeys={!confirm} label={meta?.title} />
+              <div className="mt-2 flex min-h-8 items-center gap-2 text-xs text-muted" aria-live="polite">
+                {saving > 0 ? <span>{t("Saving ...")}</span>
+                  : answered(cur.id) ? <span className="inline-flex items-center gap-1"><Check aria-hidden className="size-3.5 text-ok" />{t("Answer saved")}</span>
+                    : <span>{t("Not answered yet")}</span>}
+                {answered(cur.id) && <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setAnswer([])}>{t("Clear answer")}</Button>}
+              </div>
+            </div>
+          )}
           <div>
             <label htmlFor="note" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted">{t("Notes")}</label>
             <textarea id="note" value={notes[cur.id] ?? ""} onChange={(e) => setNote(e.target.value)} rows={3}
@@ -203,13 +277,15 @@ function Workspace({ session, track, onSession, refresh }: {
           </div>
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2 border-t px-4 py-2.5">
-        <Button size="sm" disabled={idx === 0} onClick={() => setIdx(idx - 1)} icon={<ChevronLeft className="size-4" />}>{t("Previous")}</Button>
-        <Button size="sm" variant={flags[cur.id] ? "secondary" : "ghost"} onClick={toggleFlag}
-          icon={<Flag className={cx("size-3.5", flags[cur.id] && "fill-warn text-warn")} />}>
-          {flags[cur.id] ? t("Flagged") : t("Flag for review")}
-        </Button>
-        <Button size="sm" className="ml-auto" disabled={idx === qs.length - 1} onClick={() => setIdx(idx + 1)}>{t("Next")}<ChevronRight className="size-4" /></Button>
+      <div className={cx("shrink-0 border-t py-2.5", bar)}>
+        <div className={cx("flex items-center gap-2", column)}>
+          <Button size="sm" disabled={idx === 0} onClick={() => setIdx(idx - 1)} icon={<ChevronLeft className="size-4" />}>{t("Previous")}</Button>
+          <Button size="sm" variant={flags[cur.id] ? "secondary" : "ghost"} onClick={toggleFlag}
+            icon={<Flag className={cx("size-3.5", flags[cur.id] && "fill-warn text-warn")} />}>
+            {flags[cur.id] ? t("Flagged") : t("Flag for review")}
+          </Button>
+          <Button size="sm" className="ml-auto" disabled={idx === qs.length - 1} onClick={() => setIdx(idx + 1)}>{t("Next")}<ChevronRight className="size-4" /></Button>
+        </div>
       </div>
     </div>
   );
@@ -217,10 +293,10 @@ function Workspace({ session, track, onSession, refresh }: {
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-bg px-4">
-        <Brand />
-        <span className="text-line">/</span>
-        <span className="text-sm text-muted">{track.short} · {w.assessment}</span>
-        <div className={cx("ml-auto flex items-center gap-2 rounded-lg border px-3 py-1 font-mono text-sm font-semibold tabular-nums",
+        {/* A quiz is also taken on a phone, where the header has room for the timer and the button only. */}
+        <span className={cx("items-center gap-3", quiz ? "hidden sm:flex" : "flex")}><Brand /><span className="text-line">/</span></span>
+        <span className="min-w-0 truncate text-sm text-muted">{track.short}<span className={quiz ? "hidden sm:inline" : undefined}> · {w.assessment}</span></span>
+        <div className={cx("ml-auto shrink-0 flex items-center gap-2 rounded-lg border px-3 py-1 font-mono text-sm font-semibold tabular-nums",
           critical ? "border-bad/50 bg-bad-soft text-bad" : low ? "border-warn/50 bg-warn-soft text-warn" : "bg-panel2")}
           role="timer" aria-label={t("Time remaining")}>
           {critical && <AlertTriangle className="size-3.5" />}{fmtDuration(left)}
@@ -233,11 +309,16 @@ function Workspace({ session, track, onSession, refresh }: {
         <ThemeToggle />
         <Button size="sm" variant="primary" onClick={() => setConfirm(true)}>{w.finishAssessment}</Button>
       </header>
-      <Split left={leftPane} right={<TerminalTabs sessionId={session.id} />} storageKey="kubedojo.split.exam" />
+      {quiz
+        ? <div className="min-h-0 flex-1">{leftPane}</div>
+        : <Split left={leftPane} right={<TerminalTabs sessionId={session.id} />} storageKey="kubedojo.split.exam" />}
       {confirm && (
         <Modal title={w.finishTitle} onClose={() => !busy && setConfirm(false)}
           footer={<><Button disabled={busy} onClick={() => setConfirm(false)}>{t("Keep working")}</Button><Button variant="primary" loading={busy} onClick={finish}>{t("Finish and grade")}</Button></>}>
           <p>{t("You still have {time} left. After finishing you cannot change your answers.", { time: fmtDuration(left) })}</p>
+          {quiz && (unanswered > 0
+            ? <p className="mt-2 font-medium text-warn">{t("{n} of {m} questions are unanswered. An unanswered question scores no points.", { n: unanswered, m: qs.length })}</p>
+            : <p className="mt-2">{t("Every question is answered.")}</p>)}
           {flagged > 0 && <p className="mt-2 text-warn">{w.flagged(flagged)}</p>}
         </Modal>
       )}
@@ -255,12 +336,13 @@ function ReportView({ session, track, tutor }: { session: Session; track: Track;
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
         <Page docs={w.docs} crumbs={[{ label: track.short, to: `/t/${track.id}` }, { label: w.assessmentReport }]}>
-          <Card className={cx("mb-6 flex flex-wrap items-center gap-7 p-7", r.passed ? "border-ok/40" : "border-bad/40")}>
+          <Card className={cx("mb-6 flex flex-wrap items-center gap-x-7 gap-y-5 p-5 sm:p-7", r.passed ? "border-ok/40" : "border-bad/40")}>
             <Ring value={r.percent} size={140} stroke={12} tone={r.passed ? "ok" : "bad"}>
               <span className="text-3xl font-bold tabular-nums">{r.percent}%</span>
               <span className="text-[11px] text-muted">{t("{a} / {b} pts", { a: r.score, b: r.max })}</span>
             </Ring>
-            <div className="min-w-0 flex-1">
+            {/* The basis lets the text wrap below the ring on a narrow screen. */}
+            <div className="min-w-0 flex-1 basis-64">
               <div className={cx("mb-1 inline-flex items-center gap-1.5 text-sm font-semibold", r.passed ? "text-ok" : "text-bad")}>
                 {r.passed ? <CheckCircle2 className="size-4" /> : <XCircle className="size-4" />}
                 {r.passed ? t("Passed") : t("Not passed")}
@@ -271,10 +353,16 @@ function ReportView({ session, track, tutor }: { session: Session; track: Track;
               <p className="mt-1.5 text-muted">
                 {w.reportSummary(r.passPercent, solved, qs.length, fmtDuration(r.usedSeconds))}
               </p>
+              {/* With a sandbox the way back is its "Remove sandbox" button. */}
+              {!w.sandbox && (
+                <Link to={`/t/${track.id}`} className="mt-4 inline-block">
+                  <Button icon={<ArrowLeft className="size-4" />}>{t("Back to {track}", { track: track.short })}</Button>
+                </Link>
+              )}
             </div>
           </Card>
 
-          <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
             <div className="space-y-6">
               <Card className="p-5">
                 <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted">{t("Score by domain")}</h2>
@@ -326,6 +414,7 @@ function ReportQuestion({ n, session, track, qid, tutor }: { n: number; session:
   const [view, setView] = useState<QuestionView | null>(null);
   useEffect(() => { if (open && !view) api.question(session.id, qid).then(setView).catch(() => undefined); }, [open, view, session.id, qid]);
   const full = track.questions?.find((q) => q.id === qid);
+  const choice = full?.type === "choice";
   const tone = !res ? "muted" : res.passed ? "ok" : res.score > 0 ? "warn" : "bad";
   return (
     <Card className="overflow-hidden">
@@ -343,14 +432,17 @@ function ReportQuestion({ n, session, track, qid, tutor }: { n: number; session:
       {open && (
         <div className="space-y-5 border-t px-5 py-5">
           {view ? <Markdown>{view.task}</Markdown> : <Spinner />}
+          {/* A choice question has no checks: its review is the feedback. */}
+          {view?.choice && <Choice choice={view.choice} value={view.choice.answer} passed={res?.passed} />}
           {state.note && (
             <div>
               <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted">{t("Your notes")}</div>
               <pre className="rounded-lg border bg-code px-3 py-2 font-mono text-xs whitespace-pre-wrap">{state.note}</pre>
             </div>
           )}
-          {res && <Results result={res} />}
-          {full && <Help sid={session.id} q={full} result={res} tutor={tutor} track={track} confirmSolution={false} />}
+          {res && !choice && <Results result={res} />}
+          {full && !choice && <Help sid={session.id} q={full} result={res} tutor={tutor} track={track} confirmSolution={false} />}
+          {choice && tutor && <TutorBox sid={session.id} qid={qid} result={res} w={words(track)} />}
           <Rating track={track.id} question={qid} />
         </div>
       )}

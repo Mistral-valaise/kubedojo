@@ -1,7 +1,7 @@
 // Wording per track kind. Pages take every track-dependent string from
 // words(track), so a new kind is one more entry here and no page decides by
 // track id.
-import type { Link, Progress, Track } from "./api";
+import type { Link, Progress, QuestionMeta, Track } from "./api";
 import { t } from "./i18n";
 
 export type Kind = "certification" | "skills" | "theory";
@@ -278,4 +278,20 @@ export function quickRound(track: Track): { questions: number; minutes: number }
 /** Whether the learner passed at least one assessment of the track. */
 export function assessmentPassed(progress: Progress | null | undefined): boolean {
   return !!progress?.exams?.some((e) => e.passed);
+}
+
+/** Whether a question can be practised here: choice questions need no sandbox, tasks need the local one. */
+export function practicable(q: QuestionMeta): boolean {
+  return q.type === "choice" || q.driver === "kind";
+}
+
+/**
+ * The learner's standing on a question, 0..1, or undefined before the first
+ * attempt. A choice question counts by its latest attempt (a right pick after
+ * seeing the answer proves little), a task by its best.
+ */
+export function standing(progress: Progress | null | undefined, q: QuestionMeta): number | undefined {
+  const p = progress?.questions[q.id];
+  if (!p) return undefined;
+  return q.type === "choice" ? p.latest : p.best;
 }

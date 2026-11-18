@@ -3,6 +3,8 @@
 export interface Domain { id: string; title: string; weight: number; summary: string }
 export interface QuestionMeta {
   id: string; title: string; domain: string; difficulty: "easy" | "medium" | "hard";
+  // A task is solved in the terminal, a choice question by picking options.
+  type: "task" | "choice";
   minutes: number; environment: string; driver: string; tags: string[] | null;
   track: string; points: number; hints: number;
 }
@@ -30,6 +32,8 @@ export interface Result { questionId: string; score: number; max: number; passed
 export interface QState {
   id: string; status: "pending" | "preparing" | "ready" | "error" | ""; error?: string;
   flagged: boolean; note: string; hintsUsed: number; solutionViewed: boolean; last?: Result;
+  // Choice questions only: the order the options are shown in and the learner's picks.
+  order?: string[]; answer?: string[];
 }
 export interface DomainScore { id: string; title: string; weight: number; score: number; max: number }
 export interface Report {
@@ -44,14 +48,30 @@ export interface Session {
   report?: Report; remainingSeconds?: number; now: string;
   meta: Record<string, { title: string; domain: string; points: number; host: string }>;
 }
-export interface QuestionView { question: QuestionMeta; task: string; host: string; state: QState }
+/** The answer key of a choice question. The server sends it only once the question is revealed. */
+export interface ChoiceReview {
+  correct: string[]; explanation: string;
+  // Option id -> why it is right or wrong. Options without a text are missing.
+  options: Record<string, string>;
+  references: Link[] | null;
+}
+export interface ChoiceView {
+  multiple: boolean;
+  // In the order drawn for this session.
+  options: { id: string; text: string }[];
+  answer: string[];
+  review?: ChoiceReview;
+}
+/** For a choice question `task` is the stem and `choice` is set. */
+export interface QuestionView { question: QuestionMeta; task: string; host: string; state: QState; choice?: ChoiceView }
 export interface DomainProgress {
   id: string; title: string; weight: number; questions: number; attempted: number; solved: number; mastery: number;
 }
 export interface Progress {
   track: string; readiness: number; passPercent: number; attempts: number;
   domains: DomainProgress[];
-  questions: Record<string, { best: number; attempts: number; last: string }>;
+  // `latest` is what counts for a choice question, `best` for a task.
+  questions: Record<string, { best: number; latest: number; attempts: number; last: string }>;
   exams: { sessionId: string; score: number; max: number; percent: number; passed: boolean; finishedAt: string }[];
   recommendations: { domain: string; title: string; reason: string; next?: string }[] | null;
 }
@@ -91,11 +111,13 @@ export const api = {
   start: (id: string) => call<Session>("POST", `/sessions/${id}/start`),
   finish: (id: string) => call<Session>("POST", `/sessions/${id}/finish`),
   question: (sid: string, q: string) => call<QuestionView>("GET", `/sessions/${sid}/questions/${q}`),
-  patchQuestion: (sid: string, q: string, body: { flagged?: boolean; note?: string }) =>
+  patchQuestion: (sid: string, q: string, body: { flagged?: boolean; note?: string; answer?: string[] }) =>
     call<unknown>("PATCH", `/sessions/${sid}/questions/${q}`, body),
   prepare: (sid: string, q: string, reset = false) =>
     call<unknown>("POST", `/sessions/${sid}/questions/${q}/prepare${reset ? "?reset=1" : ""}`),
-  check: (sid: string, q: string) => call<Result>("POST", `/sessions/${sid}/questions/${q}/check`),
+  // A choice question is submitted and graded in one call by passing the answer.
+  check: (sid: string, q: string, answer?: string[]) =>
+    call<Result>("POST", `/sessions/${sid}/questions/${q}/check`, answer && { answer }),
   hint: (sid: string, q: string, n: number) => call<{ n: number; markdown: string }>("GET", `/sessions/${sid}/questions/${q}/hints/${n}`),
   solution: (sid: string, q: string) => call<{ markdown: string }>("GET", `/sessions/${sid}/questions/${q}/solution`),
   rate: (track: string, q: string, stars: number, comment: string) =>
