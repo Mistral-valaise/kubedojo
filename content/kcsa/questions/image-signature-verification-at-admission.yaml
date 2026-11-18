@@ -1,0 +1,37 @@
+title: Enforcing signed images in a cluster
+domain: platform-security
+difficulty: medium
+tags: [supply-chain, image-signing, admission-control]
+stem: |-
+  A pipeline signs every release image with Cosign and pushes it to the team's registry. The cluster
+  must refuse any Pod whose image does not carry a valid signature from the pipeline's identity.
+
+  What has to be added to the cluster to enforce this?
+options:
+  - text: An `imagePullSecrets` entry that holds the public key of the pipeline's identity
+    explain: >-
+      Pull secrets hold the credentials with which images are pulled from a private registry. They
+      decide who may pull and are never used to verify a signature.
+  - text: An admission controller that verifies each image's signature against a policy
+    correct: true
+  - text: The `imagePullPolicy` `Always`, so that the kubelet checks the signature at every pull
+    explain: >-
+      The pull policy only decides when the kubelet asks the container runtime to pull. `Always`
+      resolves the image name again at every container start; it does not look at signatures.
+  - text: Pod Security admission at the `restricted` level, which rejects unsigned images
+    explain: >-
+      The Pod Security Standards restrict fields of the Pod spec such as privileges, capabilities
+      and volume types. Where an image comes from and who signed it is not part of any profile.
+explanation: >-
+  Signing by itself enforces nothing: somebody has to verify the signature before the image runs, and
+  in Kubernetes that place is admission. Sigstore's policy-controller is an admission controller that
+  enforces policy based on supply chain metadata from Cosign and validates signatures on container
+  images; a policy engine such as Kyverno can do the same with rules that check the image signature
+  against a public key, a certificate or a keyless identity. The Kubernetes documentation describes
+  this as enforcing a measure of the Distribute phase at Deploy time: verifying the cryptographic
+  identity of container image artifacts.
+references:
+  - title: Sigstore policy-controller, admission controller
+    url: https://docs.sigstore.dev/policy-controller/overview/
+  - title: Cloud Native Security and Kubernetes - Deploy lifecycle phase
+    url: https://kubernetes.io/docs/concepts/security/cloud-native-security/#lifecycle-phase-deploy

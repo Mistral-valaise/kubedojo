@@ -3,8 +3,8 @@ domain: kubernetes-cluster-component-security
 difficulty: hard
 tags: [container-runtime, seccomp, kubelet]
 stem: |-
-  A Pod sets no `seccompProfile` anywhere in its spec. It runs on a Linux node whose kubelet uses the
-  default configuration.
+  A Pod sets no `seccompProfile` anywhere in its spec. It runs on a Linux node whose kubelet has
+  neither the `--seccomp-default` flag nor the `seccompDefault` configuration setting enabled.
 
   Which seccomp profile do its containers get?
 options:
@@ -23,10 +23,11 @@ options:
       Pod Security Admission only validates Pods and never changes them, and there is no seccomp
       profile type of that name. The Restricted level rejects a Pod without a profile.
 explanation: >-
-  Unless a Pod sets a profile, its containers run `Unconfined`, with seccomp disabled. Running the
-  kubelet with `--seccomp-default` changes the default for that node to `RuntimeDefault`, the profile
-  defined by the container runtime, which aims at strong security defaults that keep workloads
-  working. This is a kubelet setting, so it has to be enabled on every node where it should apply.
+  When neither the Pod nor the kubelet says otherwise, containers run `Unconfined`, with seccomp
+  disabled. Running the kubelet with `--seccomp-default` changes the default for that node to
+  `RuntimeDefault`, the profile defined by the container runtime. This is a kubelet setting, so it
+  has to be enabled on every node where it should apply; some distributions and managed services
+  switch it on for you, so check the nodes instead of assuming either state.
 references:
   - title: Restrict a Container's Syscalls with seccomp - RuntimeDefault as the default profile
     url: https://kubernetes.io/docs/tutorials/security/seccomp/#enable-the-use-of-runtimedefault-as-the-default-seccomp-profile-for-all-workloads

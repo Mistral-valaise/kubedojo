@@ -9,7 +9,7 @@ the checking. You are asked to match a need to a framework or a tool, not to quo
 
 | Kind | Says | Examples |
 |---|---|---|
-| Regulation or standard with audits | what an organization must achieve | PCI DSS, HIPAA, GDPR, ISO/IEC 27001, SOC 2 |
+| Regulation or industry standard | what an organization must achieve | GDPR (an EU regulation), PCI DSS (payment card industry); also named often: HIPAA, ISO/IEC 27001, SOC 2 |
 | Control catalog | which controls exist to choose from | NIST SP 800-53 |
 | Technology guidance | which risks a technology has and what to do about them | NIST SP 800-190 |
 | Benchmark | which concrete settings a product should have | CIS Benchmarks |

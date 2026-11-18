@@ -16,8 +16,9 @@ supply chain. The questions are about *where* a control belongs and *what kind* 
 
 - Every layer builds on the one around it. You **cannot** make up for a weak outer layer by working
   on an inner one: perfect code on a cluster with a public, unauthenticated API is still lost.
-- The current Kubernetes documentation no longer shows the 4C diagram; it follows the CNCF white
-  paper's lifecycle phases instead. The exam curriculum still names the 4Cs: know both.
+- The Kubernetes documentation contained the 4C model up to v1.28. Later releases dropped it and
+  follow the CNCF white paper's lifecycle phases instead. The exam curriculum still names the 4Cs:
+  know both.
 
 ### Lifecycle phases (CNCF cloud native security white paper)
 
@@ -33,8 +34,9 @@ and the signature is verified in Deploy.
 
 ### Cloud provider and infrastructure
 
-- **Shared responsibility.** The provider secures what it operates (with managed Kubernetes that
-  includes the control plane); you secure what you configure: identities, network exposure, workloads.
+- **Shared responsibility.** The provider secures what it operates, you secure what you configure:
+  identities, network exposure, workloads. Where the line runs depends on the provider and the
+  service; Amazon EKS, for example, puts the control plane nodes and etcd on the provider's side.
 - The control plane should not be reachable from the internet; nodes accept connections only from the
   control plane and on the ports they need; etcd is reachable by the API servers only.
 - Give the cluster's cloud identity the least privilege that works. The **instance metadata service**
