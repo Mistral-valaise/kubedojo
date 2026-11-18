@@ -46,6 +46,7 @@ sandbox:
   kubernetesVersion: v1.37.0
   nodeImage: ""      # defaults to kubedojo/node:<kubernetesVersion> (preloaded in the sandbox host image)
   terminalImage: ""  # defaults to kubedojo/terminal:<kubernetesVersion>
+  linuxImage: ""     # host of tracks without a cluster; defaults to kubedojo/linux:trixie (preloaded as well)
   resources:
     cpuRequest: "1"
     memoryRequest: 3Gi

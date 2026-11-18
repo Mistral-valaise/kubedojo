@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -17,11 +18,13 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// Kind is the container-based driver: every node is a kindest/node container
-// running real systemd + kubeadm + kubelet + etcd.
+// Kind is the container-based driver: every cluster node is a kindest/node
+// container running real systemd + kubeadm + kubelet + etcd, and a container
+// environment is one plain Linux container (see container.go).
 type Kind struct {
 	NodeImage     string
 	TerminalImage string
+	LinuxImage    string // image of container environments
 	KindBin       string // defaults to "kind"
 
 	// RegistryCache starts a pull-through cache for Docker Hub next to the
@@ -71,14 +74,18 @@ func (k *Kind) kind() string {
 func terminalName(sessionID string) string { return "kd-" + sessionID + "-terminal" }
 
 // containerFor maps a Target to a container name. kind names nodes
-// <cluster>-control-plane, <cluster>-worker, <cluster>-worker2, ...
+// <cluster>-control-plane, <cluster>-worker, <cluster>-worker2, ...; the
+// container of a container environment is named like its alias.
 func containerFor(sessionID string, t Target) string {
-	if t.Role == "terminal" || t.Alias == "" {
+	if t.Role == RoleTerminal || t.Alias == "" {
 		return terminalName(sessionID)
+	}
+	if t.Role == RoleHost {
+		return t.Alias
 	}
 	role := t.Role
 	if role == "" {
-		role = "control-plane"
+		role = RoleControlPlane
 	}
 	return t.Alias + "-" + role
 }
@@ -127,6 +134,9 @@ func lastLines(s string, n int) string {
 }
 
 func (k *Kind) CreateEnv(ctx context.Context, h dockerhost.Host, sessionID, alias string, spec EnvSpec, keys KeyPair, logf func(string, ...any)) error {
+	if spec.Type == EnvContainer {
+		return k.createLab(ctx, h, sessionID, alias, keys, logf)
+	}
 	cfg := spec.KindConfig
 	if cfg == "" {
 		var b strings.Builder
@@ -196,29 +206,32 @@ func (k *Kind) nodes(ctx context.Context, h dockerhost.Host, alias string) ([]st
 	return strings.Fields(out), nil
 }
 
-func (k *Kind) EnsureTerminal(ctx context.Context, h dockerhost.Host, sessionID string, aliases []string, keys KeyPair) error {
+func (k *Kind) EnsureTerminal(ctx context.Context, h dockerhost.Host, sessionID string, envs []Env, keys KeyPair) error {
 	name := terminalName(sessionID)
 	state, _ := run(h.Command(ctx, "docker", "inspect", "-f", "{{.State.Running}}", name), "")
 	if strings.TrimSpace(state) != "true" {
 		_, _ = run(h.Command(ctx, "docker", "rm", "-f", name), "")
+		network := terminalNetwork(sessionID, envs)
+		if network != kindNetwork {
+			if err := ensureNetwork(ctx, h, sessionID); err != nil {
+				return err
+			}
+		}
 		// --init: shells of closed terminals leave orphans behind; without an
 		// init process as PID 1 nobody reaps them and they stay as zombies.
 		if _, err := run(h.Command(ctx, "docker", "run", "-d", "--init", "--name", name, "--hostname", "terminal",
-			"--network", "kind", "--label", "kubedojo.session="+sessionID, "--restart", "unless-stopped",
+			"--network", network, "--label", sessionLabel+"="+sessionID, "--restart", "unless-stopped",
 			k.TerminalImage), ""); err != nil {
 			return err
 		}
 	}
-	// ssh identity + host aliases: `ssh cka1234` lands on that cluster's control plane.
-	var sshCfg strings.Builder
-	for _, a := range aliases {
-		fmt.Fprintf(&sshCfg, "Host %s\n  HostName %s-control-plane\n\n", a, a)
-	}
-	sshCfg.WriteString("Host *\n  User candidate\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\n")
 	// kubeconfig with one context per cluster, for convenience on the terminal.
 	var kcs []string
-	for _, a := range aliases {
-		out, err := run(h.Command(ctx, k.kind(), "get", "kubeconfig", "--internal", "--name", a), "")
+	for _, e := range envs {
+		if e.Type == EnvContainer {
+			continue
+		}
+		out, err := run(h.Command(ctx, k.kind(), "get", "kubeconfig", "--internal", "--name", e.Alias), "")
 		if err != nil {
 			return err
 		}
@@ -231,7 +244,7 @@ printf '%s\n' "$KD_PRIV" > ~/.ssh/id_ed25519
 printf '%s\n' "$KD_SSHCFG" > ~/.ssh/config
 chmod 600 ~/.ssh/id_ed25519 ~/.ssh/config
 `
-	env := []string{"-e", "KD_PRIV=" + strings.TrimRight(keys.Private, "\n"), "-e", "KD_SSHCFG=" + sshCfg.String()}
+	env := []string{"-e", "KD_PRIV=" + strings.TrimRight(keys.Private, "\n"), "-e", "KD_SSHCFG=" + sshConfig(envs)}
 	for i, kc := range kcs {
 		env = append(env, "-e", fmt.Sprintf("KD_KC_%d=%s", i, kc))
 		script += fmt.Sprintf("printf '%%s\\n' \"$KD_KC_%d\" > ~/.kube/parts/%d.yaml\n", i, i)
@@ -248,18 +261,45 @@ sudo mkdir -p /opt/course && sudo chown candidate:candidate /opt/course
 	return err
 }
 
-func (k *Kind) Exec(ctx context.Context, h dockerhost.Host, sessionID string, t Target, user, script string, env map[string]string) (ExecResult, error) {
+// sshConfig is the terminal's ssh client configuration with one alias per
+// environment: `ssh cka1234` lands on that cluster's control plane,
+// `ssh linux1234` on that container.
+func sshConfig(envs []Env) string {
+	var b strings.Builder
+	for _, e := range envs {
+		role := EnvSpec{Type: e.Type}.DefaultRole()
+		fmt.Fprintf(&b, "Host %s\n  HostName %s\n\n", e.Alias, containerFor("", Target{Alias: e.Alias, Role: role}))
+	}
+	b.WriteString("Host *\n  User candidate\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\n")
+	return b.String()
+}
+
+// execArgs builds the `docker exec` arguments that run a script on a machine.
+func execArgs(sessionID string, t Target, user, script string, env map[string]string) []string {
 	args := []string{"exec"}
 	if user != "" {
 		args = append(args, "-u", user)
 	}
-	for key, v := range env {
-		args = append(args, "-e", key+"="+v)
+	// A learner who logs in to a Linux host starts in the home directory; a
+	// solution that runs as that learner starts there too.
+	if t.Role == RoleHost && user == UserCandidate {
+		args = append(args, "-w", "/home/"+UserCandidate)
+	}
+	names := make([]string, 0, len(env))
+	for name := range env {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		args = append(args, "-e", name+"="+env[name])
 	}
 	// The script is passed as an argument, not on stdin: commands inside it
 	// that read stdin (ssh, kubectl exec -i) would otherwise swallow the rest.
-	args = append(args, containerFor(sessionID, t), "bash", "-c", script)
-	cmd := h.Command(ctx, "docker", args...)
+	return append(args, containerFor(sessionID, t), "bash", "-c", script)
+}
+
+func (k *Kind) Exec(ctx context.Context, h dockerhost.Host, sessionID string, t Target, user, script string, env map[string]string) (ExecResult, error) {
+	cmd := h.Command(ctx, "docker", execArgs(sessionID, t, user, script, env)...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
@@ -372,18 +412,28 @@ func hangUp(ctx context.Context, cli *client.Client, container, marker string) {
 	_, _ = cli.ExecStart(ctx, ex.ID, client.ExecStartOptions{Detach: true})
 }
 
-func (k *Kind) DeleteEnv(ctx context.Context, h dockerhost.Host, alias string) error {
-	_, err := run(h.Command(ctx, k.kind(), "delete", "cluster", "--name", alias), "")
+func (k *Kind) DeleteEnv(ctx context.Context, h dockerhost.Host, env Env) error {
+	if env.Type == EnvContainer {
+		_, err := run(h.Command(ctx, "docker", "rm", "-f", "-v", env.Alias), "")
+		return err
+	}
+	_, err := run(h.Command(ctx, k.kind(), "delete", "cluster", "--name", env.Alias), "")
 	return err
 }
 
-func (k *Kind) Destroy(ctx context.Context, h dockerhost.Host, sessionID string, aliases []string) error {
+func (k *Kind) Destroy(ctx context.Context, h dockerhost.Host, sessionID string, envs []Env) error {
 	var errs []error
-	for _, a := range aliases {
-		if err := k.DeleteEnv(ctx, h, a); err != nil {
+	for _, e := range envs {
+		if e.Type == EnvContainer {
+			continue // carries the session label, removed below
+		}
+		if err := k.DeleteEnv(ctx, h, e); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	_, _ = run(h.Command(ctx, "docker", "rm", "-f", terminalName(sessionID)), "")
+	if err := removeLabelled(ctx, h, sessionID); err != nil {
+		errs = append(errs, err)
+	}
 	return errors.Join(errs...)
 }

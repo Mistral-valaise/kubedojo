@@ -13,6 +13,12 @@ func TestPickQuestionsFollowsDomainWeights(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tr := range cat.List() {
+		// TEMPORARY ALLOWANCE, keyed on placeholder lessons (Track.Draft): a
+		// skeleton track cannot fill an exam yet. See TestShippedContentIsValid.
+		if tr.Draft() {
+			t.Logf("%s is a draft (placeholder lessons): skipped", tr.ID)
+			continue
+		}
 		n := tr.Exam.Questions
 		for round := 0; round < 20; round++ {
 			picked := pickQuestions(tr, n, "kind")

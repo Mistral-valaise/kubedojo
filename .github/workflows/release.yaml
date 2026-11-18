@@ -62,16 +62,27 @@ jobs:
           push: true
           build-args: K8S_VERSION=${{ env.K8S_VERSION }}
           tags: ${{ env.REGISTRY }}/kubedojo-terminal:${{ env.K8S_VERSION }}
-      # The sandbox host carries the node and terminal images as tarballs.
+      # The tag names the Debian release; the image knows no Kubernetes version.
+      - name: Linux image
+        uses: docker/build-push-action@v7
+        with:
+          context: images/linux
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.REGISTRY }}/kubedojo-linux:trixie
+      # The sandbox host carries the node, terminal and linux images as tarballs.
       # It is built for amd64 only; build it yourself with `make sandbox-host`
       # for arm64 sandbox nodes.
       - name: Sandbox host image (amd64)
         run: |
           docker pull --platform linux/amd64 $REGISTRY/kubedojo-node:$K8S_VERSION
           docker pull --platform linux/amd64 $REGISTRY/kubedojo-terminal:$K8S_VERSION
+          docker pull --platform linux/amd64 $REGISTRY/kubedojo-linux:trixie
           docker tag $REGISTRY/kubedojo-node:$K8S_VERSION kubedojo/node:$K8S_VERSION
           docker tag $REGISTRY/kubedojo-terminal:$K8S_VERSION kubedojo/terminal:$K8S_VERSION
+          docker tag $REGISTRY/kubedojo-linux:trixie kubedojo/linux:trixie
           docker save -o images/sandbox-host/node.tar kubedojo/node:$K8S_VERSION
           docker save -o images/sandbox-host/terminal.tar kubedojo/terminal:$K8S_VERSION
+          docker save -o images/sandbox-host/linux.tar kubedojo/linux:trixie
           docker build --platform linux/amd64 -t $REGISTRY/kubedojo-sandbox-host:${{ github.ref_name }} images/sandbox-host
           docker push $REGISTRY/kubedojo-sandbox-host:${{ github.ref_name }}

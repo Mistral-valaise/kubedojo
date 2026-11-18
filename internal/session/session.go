@@ -105,13 +105,36 @@ func (s *Session) q(id string) *QState {
 	return nil
 }
 
-func (s *Session) aliases() []string {
-	out := make([]string, 0, len(s.Envs))
-	for _, a := range s.Envs {
-		out = append(out, a)
+// envSpec returns the definition of an environment of a track. A session can
+// outlive the content it was created from; what is unknown by now counts as a
+// cluster, which is all there was before environments had a type.
+func (m *Manager) envSpec(track, env string) sandbox.EnvSpec {
+	if t := m.cat.Tracks[track]; t != nil {
+		if e := t.Environments[env]; e != nil {
+			return *e
+		}
 	}
-	sort.Strings(out)
+	return sandbox.EnvSpec{Name: env, Type: sandbox.EnvCluster}
+}
+
+// envs lists the environments a session has created, ordered by alias.
+func (m *Manager) envs(s *Session) []sandbox.Env {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]sandbox.Env, 0, len(s.Envs))
+	for name, alias := range s.Envs {
+		out = append(out, sandbox.Env{Alias: alias, Type: m.envSpec(s.Track, name).Type})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Alias < out[j].Alias })
 	return out
+}
+
+// noun names an environment in progress messages.
+func noun(spec sandbox.EnvSpec) string {
+	if spec.Type == sandbox.EnvContainer {
+		return "host"
+	}
+	return "cluster"
 }
 
 // HostProvider decides which Docker endpoint a session's sandbox lives on.
@@ -495,8 +518,8 @@ func (m *Manager) provisionExam(s *Session, t *catalog.Track) {
 	})
 }
 
-// ensureEnv creates the cluster for an environment if the session lacks it and
-// rewires the terminal. Callers must hold s.op.
+// ensureEnv creates an environment (a cluster or a Linux host) if the session
+// lacks it and rewires the terminal. Callers must hold s.op.
 func (m *Manager) ensureEnv(ctx context.Context, s *Session, t *catalog.Track, env string, logf func(string, ...any)) error {
 	m.mu.Lock()
 	_, ok := s.Envs[env]
@@ -517,25 +540,32 @@ func (m *Manager) ensureEnv(ctx context.Context, s *Session, t *catalog.Track, e
 	m.mu.Unlock()
 	start := time.Now()
 	if err := m.drv.CreateEnv(ctx, host, s.ID, alias, *spec, s.Keys, logf); err != nil {
-		_ = m.drv.Destroy(context.Background(), host, "none", []string{alias})
+		_ = m.drv.DeleteEnv(context.Background(), host, sandbox.Env{Alias: alias, Type: spec.Type})
 		return err
 	}
 	m.update(s, func() { s.Envs[env] = alias })
 	logf("Connecting the terminal to %s ...", alias)
-	if err := m.drv.EnsureTerminal(ctx, host, s.ID, s.aliases(), s.Keys); err != nil {
+	if err := m.drv.EnsureTerminal(ctx, host, s.ID, m.envs(s), s.Keys); err != nil {
 		return err
 	}
-	logf("Cluster %s is ready (%s).", alias, time.Since(start).Round(time.Second))
+	if spec.Type == sandbox.EnvContainer {
+		logf("Host %s is ready (%s).", alias, time.Since(start).Round(100*time.Millisecond))
+	} else {
+		logf("Cluster %s is ready (%s).", alias, time.Since(start).Round(time.Second))
+	}
 	return nil
 }
 
 func (m *Manager) runner(s *Session, q *catalog.Question) checker.Runner {
 	return func(ctx context.Context, role, script string) (sandbox.ExecResult, error) {
-		return m.exec(ctx, s, q, role, script)
+		return m.exec(ctx, s, q, role, "", script)
 	}
 }
 
-func (m *Manager) exec(ctx context.Context, s *Session, q *catalog.Question, role, script string) (sandbox.ExecResult, error) {
+// exec runs a script for a question. An empty role is the main machine of the
+// question's environment; an empty user is the account scripts and checks use
+// on that role.
+func (m *Manager) exec(ctx context.Context, s *Session, q *catalog.Question, role, user, script string) (sandbox.ExecResult, error) {
 	host, err := m.hosts.Acquire(ctx, s.ID, func(string, ...any) {})
 	if err != nil {
 		return sandbox.ExecResult{}, err
@@ -543,11 +573,15 @@ func (m *Manager) exec(ctx context.Context, s *Session, q *catalog.Question, rol
 	m.mu.Lock()
 	alias := s.Envs[q.Environment]
 	m.mu.Unlock()
+	spec := m.envSpec(s.Track, q.Environment)
+	if role == "" {
+		role = spec.DefaultRole()
+	}
+	if user == "" {
+		user = spec.ScriptUser(role)
+	}
 	env := map[string]string{"KD_HOST": alias, "KD_QUESTION": q.ID}
-	user := "root"
-	if role == "terminal" {
-		user = "candidate"
-	} else {
+	if spec.Type != sandbox.EnvContainer && role != sandbox.RoleTerminal {
 		env["KUBECONFIG"] = "/etc/kubernetes/admin.conf"
 	}
 	return m.drv.Exec(ctx, host, s.ID, sandbox.Target{Alias: alias, Role: role}, user, script, env)
@@ -558,14 +592,14 @@ func (m *Manager) setup(ctx context.Context, s *Session, q *catalog.Question, re
 	ctx, cancel := context.WithTimeout(ctx, 6*time.Minute)
 	defer cancel()
 	if reset && q.Cleanup != "" {
-		if _, err := m.exec(ctx, s, q, "control-plane", q.Cleanup); err != nil {
+		if _, err := m.exec(ctx, s, q, "", "", q.Cleanup); err != nil {
 			return err
 		}
 	}
 	if strings.TrimSpace(q.Setup) == "" {
 		return nil
 	}
-	res, err := m.exec(ctx, s, q, "control-plane", q.Setup)
+	res, err := m.exec(ctx, s, q, "", "", q.Setup)
 	if err != nil {
 		return err
 	}
@@ -657,7 +691,7 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 	return nil
 }
 
-// dropEnv deletes the cluster of an environment so it can be created afresh.
+// dropEnv deletes an environment so it can be created afresh.
 // Every question that lived on it goes back to pending.
 func (m *Manager) dropEnv(ctx context.Context, s *Session, t *catalog.Track, env string, logf func(string, ...any)) error {
 	m.mu.Lock()
@@ -670,8 +704,9 @@ func (m *Manager) dropEnv(ctx context.Context, s *Session, t *catalog.Track, env
 	if err != nil {
 		return err
 	}
-	logf("Recreating cluster %s for a clean start ...", alias)
-	if err := m.drv.DeleteEnv(ctx, host, alias); err != nil {
+	spec := m.envSpec(s.Track, env)
+	logf("Recreating %s %s for a clean start ...", noun(spec), alias)
+	if err := m.drv.DeleteEnv(ctx, host, sandbox.Env{Alias: alias, Type: spec.Type}); err != nil {
 		return err
 	}
 	m.update(s, func() {
@@ -685,8 +720,8 @@ func (m *Manager) dropEnv(ctx context.Context, s *Session, t *catalog.Track, env
 	return nil
 }
 
-// healOthers restores the cluster from disruptive questions that were left
-// open, so that the question being prepared starts on a healthy cluster.
+// healOthers restores the environment from disruptive questions that were
+// left open, so that the question being prepared starts on a healthy one.
 func (m *Manager) healOthers(ctx context.Context, s *Session, t *catalog.Track, q *catalog.Question, logf func(string, ...any)) error {
 	m.mu.Lock()
 	var open []*QState
@@ -699,9 +734,9 @@ func (m *Manager) healOthers(ctx context.Context, s *Session, t *catalog.Track, 
 	m.mu.Unlock()
 	for _, x := range open {
 		o := t.Question(x.ID)
-		logf("Restoring the cluster from %q ...", o.Title)
+		logf("Restoring the %s from %q ...", noun(m.envSpec(s.Track, o.Environment)), o.Title)
 		cctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
-		res, err := m.exec(cctx, s, o, "control-plane", o.Cleanup)
+		res, err := m.exec(cctx, s, o, "", "", o.Cleanup)
 		cancel()
 		if err != nil {
 			return err
@@ -933,7 +968,7 @@ func (m *Manager) Destroy(ctx context.Context, id string) error {
 	m.terms.closeAll(s.ID)
 	host, err := m.hosts.Acquire(ctx, s.ID, func(string, ...any) {})
 	if err == nil {
-		if derr := m.drv.Destroy(ctx, host, s.ID, s.aliases()); derr != nil {
+		if derr := m.drv.Destroy(ctx, host, s.ID, m.envs(s)); derr != nil {
 			m.log.Warn("destroy sandbox", "session", s.ID, "err", derr)
 		}
 	}
@@ -992,7 +1027,9 @@ func (m *Manager) ActiveCount() (practice, exam int) {
 	return
 }
 
-// Exec runs a script for a question (used by `kubedojo content test`).
+// Exec runs a script for a question the way its setup and checks run: as the
+// script account of the role. An empty role is the main machine of the
+// question's environment.
 func (m *Manager) Exec(ctx context.Context, id, qid, role, script string) (sandbox.ExecResult, error) {
 	s, err := m.get(id)
 	if err != nil {
@@ -1002,5 +1039,21 @@ func (m *Manager) Exec(ctx context.Context, id, qid, role, script string) (sandb
 	if q == nil {
 		return sandbox.ExecResult{}, ErrNotFound
 	}
-	return m.exec(ctx, s, q, role, script)
+	return m.exec(ctx, s, q, role, "", script)
+}
+
+// Solve runs a solution of a question (solution.sh or a variant) on the main
+// machine of its environment, as the account the environment says solutions
+// use. `kubedojo content test` proves questions with it.
+func (m *Manager) Solve(ctx context.Context, id, qid, script string) (sandbox.ExecResult, error) {
+	s, err := m.get(id)
+	if err != nil {
+		return sandbox.ExecResult{}, err
+	}
+	q := m.cat.Tracks[s.Track].Question(qid)
+	if q == nil {
+		return sandbox.ExecResult{}, ErrNotFound
+	}
+	spec := m.envSpec(s.Track, q.Environment)
+	return m.exec(ctx, s, q, spec.DefaultRole(), spec.SolveUser(), script)
 }

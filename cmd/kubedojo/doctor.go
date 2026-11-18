@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Mistral-valaise/kubedojo/images"
+	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/dockerhost"
 	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 )
@@ -19,15 +21,66 @@ import (
 // publishedImages is where the release workflow pushes the sandbox images.
 const publishedImages = "ghcr.io/mistral-valaise"
 
+// defaultLinuxImage is the lab host of container environments. Its tag names
+// the Debian release: it has nothing to do with the Kubernetes version.
+const defaultLinuxImage = "kubedojo/linux:trixie"
+
+// needs says which kinds of sandbox a command is going to create, and with
+// that what the machine must provide. A track without clusters runs on a
+// machine that has Docker and nothing else.
+type needs struct {
+	cluster   bool // kind, the node image
+	container bool // the linux image
+}
+
+// everything is what a server needs: it may be asked for any track.
+var everything = needs{cluster: true, container: true}
+
+// needsOf reports what the sandboxes of the given tracks need.
+func needsOf(tracks []*catalog.Track) needs {
+	var n needs
+	for _, t := range tracks {
+		n.cluster = n.cluster || t.NeedsCluster()
+		n.container = n.container || t.NeedsContainer()
+	}
+	return n
+}
+
+// imagesFor lists the images to check as {tag, build context} pairs. The
+// terminal is part of every sandbox.
+func imagesFor(drv *sandbox.Kind, n needs) [][2]string {
+	var out [][2]string
+	if n.cluster {
+		out = append(out, [2]string{drv.NodeImage, "node"})
+	}
+	if n.cluster || n.container {
+		out = append(out, [2]string{drv.TerminalImage, "terminal"})
+	}
+	if n.container {
+		out = append(out, [2]string{drv.LinuxImage, "linux"})
+	}
+	return out
+}
+
 func cmdDoctor(ctx context.Context, args []string) error {
 	fl := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	var c common
 	c.register(fl)
 	build := fl.Bool("build", false, "build missing sandbox images")
+	track := fl.String("track", "", "check only what this track needs")
 	if err := fl.Parse(args); err != nil {
 		return err
 	}
-	return preflight(ctx, c.driver(), *build)
+	n := everything
+	if *track != "" {
+		cat, _ := catalog.Load(c.contentFS())
+		t := cat.Tracks[*track]
+		if t == nil {
+			return fmt.Errorf("unknown track %q", *track)
+		}
+		n = needsOf([]*catalog.Track{t})
+	}
+	return preflight(ctx, c.driver(), *build, n)
 }
 
 func out(ctx context.Context, name string, args ...string) (string, error) {
@@ -35,9 +88,9 @@ func out(ctx context.Context, name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(b)), err
 }
 
-// preflight verifies the machine can run sandboxes and (optionally) builds the
-// sandbox images when they are missing.
-func preflight(ctx context.Context, drv *sandbox.Kind, build bool) error {
+// preflight verifies the machine can run the sandboxes n asks for and
+// (optionally) builds their images when they are missing.
+func preflight(ctx context.Context, drv *sandbox.Kind, build bool, n needs) error {
 	ok := func(msg string) { fmt.Println("  ✓", msg) }
 	warn := func(msg string) { fmt.Println("  !", msg) }
 
@@ -55,6 +108,9 @@ func preflight(ctx context.Context, drv *sandbox.Kind, build bool) error {
 		mem, _ := strconv.ParseFloat(f[2], 64)
 		gb := mem / (1 << 30)
 		switch {
+		case !n.cluster:
+			// The warnings below are about clusters; a Linux host is capped at 1 GB.
+			ok(fmt.Sprintf("Docker has %.1f GB memory and %d CPUs", gb, cpus))
 		case gb < 3.5:
 			warn(fmt.Sprintf("Docker has only %.1f GB memory. Sandboxes need at least 4 GB; 8 GB is recommended for exams", gb))
 		case gb < 7:
@@ -63,24 +119,27 @@ func preflight(ctx context.Context, drv *sandbox.Kind, build bool) error {
 			ok(fmt.Sprintf("Docker has %.1f GB memory and %d CPUs", gb, cpus))
 		}
 	}
-	if _, err := exec.LookPath("kind"); err != nil {
-		return fmt.Errorf("kind not found. Install it: `brew install kind` (macOS) or see https://kind.sigs.k8s.io/docs/user/quick-start/#installation")
-	}
-	v, _ := out(ctx, "kind", "version")
-	ok(v)
+	if n.cluster {
+		if _, err := exec.LookPath("kind"); err != nil {
+			return fmt.Errorf("kind not found. Install it: `brew install kind` (macOS) or see https://kind.sigs.k8s.io/docs/user/quick-start/#installation")
+		}
+		v, _ := out(ctx, "kind", "version")
+		ok(v)
 
-	// Several kind clusters need more inotify instances than most Linux
-	// distributions allow by default; the symptom is a second cluster that
-	// fails to start.
-	if b, err := os.ReadFile("/proc/sys/fs/inotify/max_user_instances"); err == nil {
-		if n, _ := strconv.Atoi(strings.TrimSpace(string(b))); n > 0 && n < 512 {
-			warn(fmt.Sprintf("fs.inotify.max_user_instances is %d. Exams create several clusters; run: sudo sysctl -w fs.inotify.max_user_instances=512 fs.inotify.max_user_watches=524288", n))
-		} else {
-			ok("inotify limits are sufficient")
+		// Several kind clusters need more inotify instances than most Linux
+		// distributions allow by default; the symptom is a second cluster that
+		// fails to start.
+		if b, err := os.ReadFile("/proc/sys/fs/inotify/max_user_instances"); err == nil {
+			if n, _ := strconv.Atoi(strings.TrimSpace(string(b))); n > 0 && n < 512 {
+				warn(fmt.Sprintf("fs.inotify.max_user_instances is %d. Exams create several clusters; run: sudo sysctl -w fs.inotify.max_user_instances=512 fs.inotify.max_user_watches=524288", n))
+			} else {
+				ok("inotify limits are sufficient")
+			}
 		}
 	}
 
-	for _, img := range []struct{ tag, dir string }{{drv.NodeImage, "node"}, {drv.TerminalImage, "terminal"}} {
+	for _, pair := range imagesFor(drv, n) {
+		img := struct{ tag, dir string }{pair[0], pair[1]}
 		// Only kubedojo's own tags have a revision and a published copy: an
 		// image passed with --node-image is the user's business.
 		own := strings.HasPrefix(img.tag, "kubedojo/"+img.dir+":")
@@ -140,14 +199,20 @@ func buildImage(ctx context.Context, tag, dir string) error {
 		return err
 	}
 	_ = os.Chmod(filepath.Join(tmp, "kubedojo-node-init"), 0o755)
-	k8s := tag[strings.LastIndex(tag, ":")+1:]
-	cmd := dockerhost.Local().Command(ctx, "docker", "build", "-t", tag, "--build-arg", "K8S_VERSION="+k8s, tmp)
+	args := []string{"build", "-t", tag}
+	// The tag of the node and terminal images is the Kubernetes version they
+	// are built for; the linux image has no such argument.
+	if df, _ := fs.ReadFile(sub, "Dockerfile"); bytes.Contains(df, []byte("ARG K8S_VERSION")) {
+		args = append(args, "--build-arg", "K8S_VERSION="+tag[strings.LastIndex(tag, ":")+1:])
+	}
+	cmd := dockerhost.Local().Command(ctx, "docker", append(args, tmp)...)
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	return cmd.Run()
 }
 
 // cmdDown removes every sandbox: kind clusters whose nodes carry kubedojo's
-// image, and terminal containers.
+// image, and the containers and networks that carry a session label
+// (terminals, Linux hosts and the bridges between them).
 func cmdDown(ctx context.Context, args []string) error {
 	fl := flag.NewFlagSet("down", flag.ContinueOnError)
 	var c common
@@ -160,7 +225,12 @@ func cmdDown(ctx context.Context, args []string) error {
 	for _, id := range strings.Fields(ids) {
 		_, _ = out(ctx, "docker", "rm", "-f", id)
 	}
-	fmt.Printf("removed %d terminal container(s)\n", len(strings.Fields(ids)))
+	fmt.Printf("removed %d sandbox container(s)\n", len(strings.Fields(ids)))
+	// After the containers: Docker keeps a network that still has endpoints.
+	nets, _ := out(ctx, "docker", "network", "ls", "-q", "--filter", "label=kubedojo.session")
+	for _, id := range strings.Fields(nets) {
+		_, _ = out(ctx, "docker", "network", "rm", id)
+	}
 	// The cache container goes too; its volume (the downloaded images) stays.
 	_, _ = out(ctx, "docker", "rm", "-f", "kubedojo-registry-cache")
 	names, _ := out(ctx, "docker", "ps", "-a", "--filter", "ancestor="+drv.NodeImage, "--format", `{{.Label "io.x-k8s.kind.cluster"}}`)

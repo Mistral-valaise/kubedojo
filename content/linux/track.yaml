@@ -1,0 +1,64 @@
+id: linux
+title: Linux & Vim Essentials
+short: Linux
+description: >-
+  The shell skills every hands-on Kubernetes exam takes for granted: finding your way around a
+  Linux host, working with files, text and processes, and editing in Vim. Hands-on exercises on a
+  real Linux host; no cluster involved.
+kind: skills
+docs:
+  - title: Debian manual pages
+    url: https://manpages.debian.org/
+  - title: GNU Bash manual
+    url: https://www.gnu.org/software/bash/manual/
+  - title: Vim documentation
+    url: https://vimhelp.org/
+exam:
+  durationMinutes: 60
+  passPercent: 70
+  questions: 15
+domains:
+  - id: shell-navigation
+    title: Shell & Navigation
+    weight: 8
+    summary: Move around the file system, find files by name, size and age, and read the manual.
+  - id: files-directories
+    title: Files & Directories
+    weight: 8
+    summary: Copy, move, link, archive and compress files and directory trees.
+  - id: text-search-logs
+    title: Text Search & Logs
+    weight: 10
+    summary: Find the lines that matter in files and logs with grep, less, head and tail.
+  - id: pipes-transformations
+    title: Pipes & Transformations
+    weight: 12
+    summary: Combine sort, uniq, cut, tr, sed, awk and jq into pipelines; redirect input and output.
+  - id: vim
+    title: Vim
+    weight: 20
+    summary: Edit quickly and safely in Vim - modes, motions, search and replace, blocks and YAML indentation.
+  - id: permissions-identity
+    title: Permissions & Identity
+    weight: 8
+    summary: Users and groups, file modes and ownership, sudo, and why access is denied.
+  - id: processes-services
+    title: Processes & Services
+    weight: 10
+    summary: Inspect, signal and control processes and jobs; start and stop services.
+  - id: networking-ssh
+    title: Networking & SSH
+    weight: 8
+    summary: Addresses, ports and listeners, name resolution, curl, and working over ssh and scp.
+  - id: bash-automation
+    title: Bash Automation
+    weight: 8
+    summary: Variables, loops, conditions and exit codes; small scripts that are safe to run twice.
+  - id: incident-troubleshooting
+    title: Incident Troubleshooting
+    weight: 8
+    summary: Put it together under time pressure - full disks, runaway processes, broken configuration.
+environments:
+  base:
+    type: container
+    description: One Debian host without Kubernetes, reached from the terminal with ssh.

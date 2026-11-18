@@ -45,6 +45,7 @@ type testEnvironment struct {
 	KubernetesVersion string `json:"kubernetesVersion"`
 	NodeImage         string `json:"nodeImage"`
 	TerminalImage     string `json:"terminalImage"`
+	LinuxImage        string `json:"linuxImage,omitempty"`
 	Driver            string `json:"driver"`
 	OS                string `json:"os"`
 	Arch              string `json:"arch"`
@@ -132,7 +133,13 @@ func cmdTest(ctx context.Context, args []string) error {
 		return fmt.Errorf("content is invalid:\n%w", err)
 	}
 	drv := c.driver()
-	if err := preflight(ctx, drv, true); err != nil {
+	var selected []*catalog.Track
+	for _, t := range cat.List() {
+		if *track == "" || t.ID == *track {
+			selected = append(selected, t)
+		}
+	}
+	if err := preflight(ctx, drv, true, needsOf(selected)); err != nil {
 		return err
 	}
 	tmp, err := os.MkdirTemp("", "kubedojo-test-*")
@@ -158,7 +165,7 @@ func cmdTest(ctx context.Context, args []string) error {
 	defer mgr.Close()
 
 	rep := &testReport{GeneratedAt: time.Now().UTC(), Summary: map[string]int{}, Environment: testEnvironment{
-		Kubedojo: version, KubernetesVersion: c.k8sVersion, NodeImage: c.nodeImage, TerminalImage: c.termImage,
+		Kubedojo: version, KubernetesVersion: c.k8sVersion, NodeImage: c.nodeImage, TerminalImage: c.termImage, LinuxImage: c.linuxImage,
 		Driver: drv.Name(), OS: runtime.GOOS, Arch: runtime.GOARCH, Repeat: *repeat, Quick: *quick, SettleSeconds: int(settle.Seconds())}}
 	writeReport := func() error {
 		if *reportPath == "" {
@@ -373,7 +380,7 @@ func proveRun(ctx context.Context, mgr *session.Manager, sid string, q *catalog.
 	if free := unsolvedPasses(before); len(free) > 0 {
 		return stop(statusFalsePositive, "passes before the task is solved: %s (fix the check, or mark it guard: true if it protects against a shortcut)", strings.Join(free, ", "))
 	}
-	res, err := mgr.Exec(ctx, sid, q.ID, "control-plane", script)
+	res, err := mgr.Solve(ctx, sid, q.ID, script)
 	if err != nil {
 		return stop(statusSolutionError, "%s: %v", name, err)
 	}
@@ -527,7 +534,7 @@ func testExam(ctx context.Context, mgr *session.Manager, t *catalog.Track, keep 
 	var broken []string
 	for _, qs := range v.Questions {
 		q := t.Question(qs.ID)
-		res, err := mgr.Exec(ctx, ses.ID, q.ID, "control-plane", q.SolutionSh)
+		res, err := mgr.Solve(ctx, ses.ID, q.ID, q.SolutionSh)
 		if err != nil {
 			return stop(statusSolutionError, err)
 		}
