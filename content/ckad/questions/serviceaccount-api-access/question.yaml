@@ -48,7 +48,7 @@ checks:
     retry: 30s
     run: |-
       kubectl -n app-seal exec deploy/job-watcher -- true >/dev/null || { echo "cannot run a command in deploy/job-watcher: is a Pod running?" >&2; exit 1; }
-      kubectl -n app-seal exec deploy/job-watcher -- sh -c 'wget -qO- -T 5 --no-check-certificate --header "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" "https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/apis/batch/v1/namespaces/app-seal/jobs"' 2>/dev/null | grep -q nightly-export && echo listed
+      kubectl -n app-seal exec deploy/job-watcher -- sh -c 'curl -sk -m 5 -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" "https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/apis/batch/v1/namespaces/app-seal/jobs"' | grep -q nightly-export && echo listed
     expect: {equals: listed}
     explain: >-
       This is what the application does: it sends the token mounted at /var/run/secrets/kubernetes.io/serviceaccount/token. `auth can-i` proves the rule, the request from inside the Pod proves that the Pod really uses the identity.

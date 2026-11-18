@@ -27,7 +27,8 @@ spec:
       terminationGracePeriodSeconds: 1
       containers:
         - name: watcher
-          image: busybox:1.36
+          # nginx:1.27-alpine for its curl: busybox wget cannot do HTTPS on amd64.
+          image: nginx:1.27-alpine
           command:
             - sh
             - -c
@@ -35,7 +36,7 @@ spec:
               sa=/var/run/secrets/kubernetes.io/serviceaccount
               url="https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/apis/batch/v1/namespaces/$(cat $sa/namespace)/jobs"
               while true; do
-                if wget -qO /dev/null -T 5 --no-check-certificate --header "Authorization: Bearer $(cat $sa/token)" "$url" 2>/dev/null; then
+                if curl -sfk -m 5 -o /dev/null -H "Authorization: Bearer $(cat $sa/token)" "$url"; then
                   echo "jobs: access ok"
                 else
                   echo "jobs: access denied"
