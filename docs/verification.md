@@ -122,6 +122,9 @@ warnings into errors; CI uses it.
 - **uses a fixed sleep** — poll for the state in a loop, or set `retry`.
 - **expects "0" from a pipeline that cannot fail** — `... | wc -l` prints 0 when the command in front
   failed. Assert the precondition first and `exit 1`.
+- **starts a throwaway Pod with kubectl run --rm** — when the command in the Pod finishes before
+  kubectl has attached, its output is lost and the check fails although the cluster is fine. Probe
+  with `kubectl exec` in a Pod the setup created, or with `curl` from the node.
 
 ## CI and the supported matrix
 

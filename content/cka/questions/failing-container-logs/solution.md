@@ -16,23 +16,33 @@ In the `Containers:` section each container has its own state. Two are `Running`
       Exit Code:    42
 ```
 
-The reason is in the log of the **previous** run:
+The reason is in the container's own log. `transform` is waiting to be restarted, so `logs` shows
+the run that just crashed:
 
 ```bash
-k -n team-magpie logs batch-worker -c transform --previous
+k -n team-magpie logs batch-worker -c transform
 # loading schema
 # FATAL: unsupported schema version 7
 ```
 
-If `--previous` reports that the old container is gone, the current run prints the same line a few
-seconds after it starts — `k -n team-magpie logs batch-worker -c transform` works as well.
+If you only see `loading schema`, the container has just been started again and has not failed yet.
+Read the run before it with `--previous`, or wait a few seconds:
+
+```bash
+k -n team-magpie logs batch-worker -c transform --previous
+```
+
+`--previous` always means "the run before the one `logs` shows". While the container is waiting,
+that older run has usually been removed already and kubectl answers
+`unable to retrieve container logs` — then leave `--previous` away.
 
 Write the answers:
 
 ```bash
 echo transform > /opt/course/magpie/container
 echo 42 > /opt/course/magpie/exit-code
-k -n team-magpie logs batch-worker -c transform --previous | tail -1 > /opt/course/magpie/reason
+k -n team-magpie logs batch-worker -c transform | tail -1 > /opt/course/magpie/reason
+cat /opt/course/magpie/reason     # must be the FATAL line
 ```
 
 Or, for the exit code, without reading:
