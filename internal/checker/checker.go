@@ -74,6 +74,23 @@ func Run(ctx context.Context, q *catalog.Question, run Runner) Result {
 	return RunSettled(ctx, q, run, 0)
 }
 
+// RunOnce grades like Run, but looks only once at the checks once selects,
+// whatever their retry says. The content proof uses it for checks it expects
+// to fail: waiting out a retry there only delays a known answer.
+func RunOnce(ctx context.Context, q *catalog.Question, run Runner, once func(*catalog.Check) bool) Result {
+	res := Result{QuestionID: q.ID, Max: q.Points, At: time.Now().UTC()}
+	for _, c := range q.Checks {
+		if once != nil && once(c) && c.RetryD > 0 {
+			single := *c
+			single.RetryD = 0
+			c = &single
+		}
+		res.Checks = append(res.Checks, runCheck(ctx, c, run))
+	}
+	score(q, &res)
+	return res
+}
+
 // RunSettled grades all checks of q and then keeps re-running the ones that
 // failed until they pass or settle has elapsed.
 func RunSettled(ctx context.Context, q *catalog.Question, run Runner, settle time.Duration) Result {

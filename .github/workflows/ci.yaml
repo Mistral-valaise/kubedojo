@@ -11,6 +11,14 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request makes the run for the older one pointless.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  K8S_VERSION: v1.37.0
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -31,47 +39,51 @@ jobs:
       - run: ./bin/kubedojo content lint --strict
       - uses: azure/setup-helm@v5
       - run: helm lint deploy/helm/kubedojo
-      - name: Cross-compile
-        run: |
+
+  # Its own job: it takes as long as everything else in build together.
+  cross-compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: {go-version-file: go.mod}
+      - run: |
+          mkdir -p internal/webui/dist && touch internal/webui/dist/.gitkeep
           for target in darwin/arm64 darwin/amd64 linux/arm64 windows/amd64; do
             GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null ./cmd/kubedojo
           done
 
-  # Which parts of the content proof does this change need?
+  # Which questions does this change need proven? See .github/content-matrix.sh.
   changes:
     runs-on: ubuntu-latest
     outputs:
-      content: ${{ steps.filter.outputs.content }}
+      matrix: ${{ steps.filter.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
         with: {fetch-depth: 0}
       - id: filter
-        if: github.event_name == 'pull_request'
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          ALL: ${{ contains(github.event.pull_request.labels.*.name, 'content') }}
         run: |
-          if git diff --name-only "$BASE"...HEAD | grep -qE '^(content/|images/|internal/(checker|catalog|session|sandbox)/|cmd/kubedojo/test\.go$|\.github/workflows/ci\.yaml$)'; then
-            echo "content=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "content=false" >> "$GITHUB_OUTPUT"
-          fi
+          matrix=$(.github/content-matrix.sh)
+          echo "$matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
-  # Proves every question against real clusters: unsolved fails, the reference
+  # Proves questions against real clusters: unsolved fails, the reference
   # solution passes, the grade is stable, variants get the declared grade.
-  # Slow, so it runs on main and on pull requests that touch content, the
-  # grader or the sandbox (or carry the "content" label). See docs/verification.md.
+  # Pull requests and pushes prove what they changed, with --quick; the nightly
+  # job proves everything in full. See docs/verification.md.
   content:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    needs: [build, changes]
-    if: >-
-      github.event_name == 'push' ||
-      (github.event_name == 'pull_request' &&
-        (needs.changes.outputs.content == 'true' || contains(github.event.pull_request.labels.*.name, 'content')))
+    needs: [changes]
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch' && needs.changes.outputs.matrix != '[]'
     strategy:
       fail-fast: false
       matrix:
-        track: [cka, cks]
+        include: ${{ fromJSON(needs.changes.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -80,8 +92,29 @@ jobs:
         with: {install_only: true, version: v0.33.0}
       # Several kind clusters need more inotify instances than the runner allows.
       - run: sudo sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_user_watches=1048576
-      - run: make images go
-      - run: ./bin/kubedojo content test --track ${{ matrix.track }} --report content-${{ matrix.track }}.json
+      - uses: docker/setup-buildx-action@v4
+      - name: Node image
+        uses: docker/build-push-action@v7
+        with:
+          context: images/node
+          load: true
+          build-args: K8S_VERSION=${{ env.K8S_VERSION }}
+          tags: kubedojo/node:${{ env.K8S_VERSION }}
+          cache-from: type=gha,scope=node
+          cache-to: type=gha,scope=node,mode=max
+      - name: Terminal image
+        uses: docker/build-push-action@v7
+        with:
+          context: images/terminal
+          load: true
+          build-args: K8S_VERSION=${{ env.K8S_VERSION }}
+          tags: kubedojo/terminal:${{ env.K8S_VERSION }}
+          cache-from: type=gha,scope=terminal
+          cache-to: type=gha,scope=terminal,mode=max
+      - run: make go
+      - env:
+          QUESTIONS: ${{ matrix.questions }}
+        run: ./bin/kubedojo content test --track ${{ matrix.track }} ${QUESTIONS:+--question "$QUESTIONS"} --quick --report content-${{ matrix.track }}.json
       - uses: actions/upload-artifact@v7
         if: always()
         with:
