@@ -1,0 +1,61 @@
+title: Find large, old log files
+domain: shell-navigation
+difficulty: easy
+minutes: 5
+tags: [find, sort, redirection]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A disk is filling up. Below `/opt/course/find-large-logs/logs` there are log files of very different
+  sizes and ages.
+
+  Find every **regular file** below that directory
+
+  - whose name ends in `.log`,
+  - that is **larger than 100 KiB**, and
+  - that was last modified **more than 30 days ago**.
+
+  Write the absolute paths of these files to `/opt/course/find-large-logs/result.txt`, one per line,
+  sorted alphabetically.
+
+  Do not change anything below `logs`.
+hints:
+  - "`find` can test name, type, size and age in one command: see `man find`, section TESTS."
+  - "`-type f` matches regular files only, `-size +100k` means larger than 100 KiB and `-mtime +30` means last modified more than 30 days ago."
+  - "`find /opt/course/find-large-logs/logs -type f -name '*.log' -size +100k -mtime +30 | sort > /opt/course/find-large-logs/result.txt`"
+checks:
+  - id: paths
+    title: result.txt lists exactly the large, old log files
+    type: file
+    path: /opt/course/find-large-logs/result.txt
+    expect:
+      sameLines:
+        - /opt/course/find-large-logs/logs/app/server.log
+        - /opt/course/find-large-logs/logs/app/archive/server-2023.log
+        - /opt/course/find-large-logs/logs/db/slow query.log
+    explain: >-
+      All three tests must hold at once, and for regular files only. The usual slips: `-size +100`
+      without a unit counts 512-byte blocks, `-mtime 30` without the plus means exactly 30 days, and
+      without `-type f` a directory or a symbolic link whose name ends in .log is listed too.
+  - id: sorted
+    title: The paths are sorted
+    type: exec
+    run: |-
+      f=/opt/course/find-large-logs/result.txt
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      LC_ALL=C sort -c "$f" && echo sorted
+    expect: {equals: sorted}
+    explain: >-
+      `find` prints files in the order the directory returns them, which looks random. Pipe the
+      result through `sort` whenever an order is asked for.
+  - id: untouched
+    title: The log files are untouched
+    type: exec
+    guard: true
+    run: |-
+      cd /opt/course/find-large-logs/logs || exit 1
+      find . -printf '%y %s %p\n' | LC_ALL=C sort | sha256sum | cut -d' ' -f1 | diff -q - ../.manifest >/dev/null && echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      The task is to report, not to clean up: deleting or truncating files to make the list shorter
+      is not a solution. Type, size and path of every entry are compared with the starting state.

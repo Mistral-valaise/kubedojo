@@ -11,27 +11,51 @@ import (
 	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 )
 
-// Driver is a sandbox.Driver whose clusters come up instantly and whose
-// terminals echo what is typed into them.
+// ExecCall is one script the driver was asked to run.
+type ExecCall struct {
+	Session string
+	Target  sandbox.Target
+	User    string
+	Script  string
+	Env     map[string]string
+}
+
+// Driver is a sandbox.Driver whose environments come up instantly and whose
+// terminals echo what is typed into them. It records what it was asked to do.
 type Driver struct {
 	mu        sync.Mutex
 	ttys      []*TTY
+	created   []sandbox.Env
+	deleted   []sandbox.Env
+	wired     [][]sandbox.Env
+	execs     []ExecCall
 	Destroyed []string
+	// DestroyedEnvs holds the environments passed to each Destroy call.
+	DestroyedEnvs [][]sandbox.Env
 	// AttachErr, when set, makes Attach fail.
 	AttachErr error
 }
 
 func (d *Driver) Name() string { return "kind" }
 
-func (d *Driver) CreateEnv(context.Context, dockerhost.Host, string, string, sandbox.EnvSpec, sandbox.KeyPair, func(string, ...any)) error {
+func (d *Driver) CreateEnv(_ context.Context, _ dockerhost.Host, _, alias string, spec sandbox.EnvSpec, _ sandbox.KeyPair, _ func(string, ...any)) error {
+	d.mu.Lock()
+	d.created = append(d.created, sandbox.Env{Alias: alias, Type: spec.Type})
+	d.mu.Unlock()
 	return nil
 }
 
-func (d *Driver) EnsureTerminal(context.Context, dockerhost.Host, string, []string, sandbox.KeyPair) error {
+func (d *Driver) EnsureTerminal(_ context.Context, _ dockerhost.Host, _ string, envs []sandbox.Env, _ sandbox.KeyPair) error {
+	d.mu.Lock()
+	d.wired = append(d.wired, append([]sandbox.Env(nil), envs...))
+	d.mu.Unlock()
 	return nil
 }
 
-func (d *Driver) Exec(context.Context, dockerhost.Host, string, sandbox.Target, string, string, map[string]string) (sandbox.ExecResult, error) {
+func (d *Driver) Exec(_ context.Context, _ dockerhost.Host, sessionID string, t sandbox.Target, user, script string, env map[string]string) (sandbox.ExecResult, error) {
+	d.mu.Lock()
+	d.execs = append(d.execs, ExecCall{Session: sessionID, Target: t, User: user, Script: script, Env: env})
+	d.mu.Unlock()
 	return sandbox.ExecResult{}, nil
 }
 
@@ -47,13 +71,50 @@ func (d *Driver) Attach(_ context.Context, _ dockerhost.Host, _ string, cols, ro
 	return t, nil
 }
 
-func (d *Driver) DeleteEnv(context.Context, dockerhost.Host, string) error { return nil }
-
-func (d *Driver) Destroy(_ context.Context, _ dockerhost.Host, sessionID string, _ []string) error {
+func (d *Driver) DeleteEnv(_ context.Context, _ dockerhost.Host, env sandbox.Env) error {
 	d.mu.Lock()
-	d.Destroyed = append(d.Destroyed, sessionID)
+	d.deleted = append(d.deleted, env)
 	d.mu.Unlock()
 	return nil
+}
+
+func (d *Driver) Destroy(_ context.Context, _ dockerhost.Host, sessionID string, envs []sandbox.Env) error {
+	d.mu.Lock()
+	d.Destroyed = append(d.Destroyed, sessionID)
+	d.DestroyedEnvs = append(d.DestroyedEnvs, append([]sandbox.Env(nil), envs...))
+	d.mu.Unlock()
+	return nil
+}
+
+// Created returns every environment that was created, in order.
+func (d *Driver) Created() []sandbox.Env {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]sandbox.Env(nil), d.created...)
+}
+
+// Deleted returns every environment that was deleted on its own, in order.
+func (d *Driver) Deleted() []sandbox.Env {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]sandbox.Env(nil), d.deleted...)
+}
+
+// Wired returns the environments of the most recent EnsureTerminal call.
+func (d *Driver) Wired() []sandbox.Env {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.wired) == 0 {
+		return nil
+	}
+	return d.wired[len(d.wired)-1]
+}
+
+// Execs returns every script that was run, in order.
+func (d *Driver) Execs() []ExecCall {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]ExecCall(nil), d.execs...)
 }
 
 // TTYs returns every terminal that was ever attached, in order.

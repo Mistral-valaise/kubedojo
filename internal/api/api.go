@@ -17,6 +17,7 @@ import (
 
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/checker"
+	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 	"github.com/Mistral-valaise/kubedojo/internal/session"
 	"github.com/Mistral-valaise/kubedojo/internal/store"
 	"github.com/coder/websocket"
@@ -545,8 +546,9 @@ func (s *Server) tutor(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	state := ""
 	if qs.Status == "ready" && q.Type != catalog.TypeChoice {
-		// A compact, read-only snapshot of what the learner built.
-		res, err := s.Sessions.Exec(ctx, v.ID, q.ID, "control-plane", tutorSnapshot)
+		// A compact, read-only snapshot of what the learner built, taken on
+		// the main machine of the question's environment.
+		res, err := s.Sessions.Exec(ctx, v.ID, q.ID, "", s.tutorSnapshot(q))
 		if err == nil {
 			state = res.Stdout
 		}
@@ -560,11 +562,29 @@ func (s *Server) tutor(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"markdown": text})
 }
 
-const tutorSnapshot = `
+const clusterSnapshot = `
 echo "## nodes"; kubectl get nodes -o wide 2>&1 | head -10
 echo "## non-running pods"; kubectl get pods -A --field-selector=status.phase!=Running 2>&1 | head -20
 echo "## recent warning events"; kubectl get events -A --field-selector=type=Warning --sort-by=.lastTimestamp 2>&1 | tail -15
 `
+
+// hostSnapshot describes a Linux host: there is no kubectl on it. It looks at
+// what an exercise owns by convention, /opt/course/<question id>/.
+const hostSnapshot = `
+echo "## exercise directory /opt/course/$KD_QUESTION"; ls -la "/opt/course/$KD_QUESTION" 2>&1 | head -30
+echo "## processes"; ps -eo user,pid,ppid,stat,args --sort=pid 2>&1 | head -30
+echo "## listening sockets"; ss -ltnp 2>&1 | head -15
+`
+
+// tutorSnapshot picks the snapshot script that fits the question's environment.
+func (s *Server) tutorSnapshot(q *catalog.Question) string {
+	if t := s.Catalog.Tracks[q.Track]; t != nil {
+		if e := t.Environments[q.Environment]; e != nil && e.Type == sandbox.EnvContainer {
+			return hostSnapshot
+		}
+	}
+	return clusterSnapshot
+}
 
 // CloseTerminalLimit is the WebSocket close code sent when a session already
 // has the maximum number of terminals open (application range 4000–4999).

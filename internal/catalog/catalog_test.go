@@ -11,30 +11,23 @@ import (
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 )
 
-// TEMPORARY, remove together with the last placeholder lesson: a track whose
-// lessons still carry this marker is a skeleton that is being filled. It must
-// load and lint, but it is not yet held to the size of a full exam.
-const placeholderLesson = "<!-- kubedojo:placeholder -->"
-
-func skeleton(tr *catalog.Track) bool {
-	for _, d := range tr.Domains {
-		if strings.Contains(d.Lesson, placeholderLesson) {
-			return true
-		}
-	}
-	return false
-}
-
 // The shipped content must always be valid.
 func TestShippedContentIsValid(t *testing.T) {
 	cat, err := catalog.Load(content.FS)
 	if err != nil {
 		t.Fatalf("content is invalid:\n%v", err)
 	}
-	for _, id := range []string{"cka", "ckad", "cks", "kcna", "kcsa"} {
+	for _, id := range []string{"cka", "ckad", "cks", "kcna", "kcsa", "linux"} {
 		tr := cat.Tracks[id]
 		if tr == nil {
 			t.Fatalf("track %s is missing", id)
+		}
+		// TEMPORARY ALLOWANCE, keyed on placeholder lessons (Track.Draft): a
+		// track that is still a skeleton is held to everything except its
+		// size. It ends by itself when the last placeholder lesson is replaced.
+		draft := tr.Draft()
+		if draft {
+			t.Logf("%s is a draft (placeholder lessons): questions per domain and exam size are not checked yet", id)
 		}
 		perDomain := map[string]int{}
 		for _, q := range tr.Questions {
@@ -46,8 +39,7 @@ func TestShippedContentIsValid(t *testing.T) {
 		if len(tr.Questions) == 0 {
 			t.Errorf("%s has no questions", id)
 		}
-		if skeleton(tr) {
-			t.Logf("%s is a skeleton (placeholder lessons, %d of %d questions for one exam): size checks skipped", id, len(tr.Questions), tr.Exam.Questions)
+		if draft {
 			continue
 		}
 		for _, d := range tr.Domains {
@@ -58,6 +50,25 @@ func TestShippedContentIsValid(t *testing.T) {
 		if len(tr.Questions) < tr.Exam.Questions {
 			t.Errorf("%s has %d questions, fewer than one exam (%d)", id, len(tr.Questions), tr.Exam.Questions)
 		}
+	}
+}
+
+// A track is a draft exactly as long as one of its lessons is a placeholder.
+func TestDraftTrack(t *testing.T) {
+	fsys := questionFS(fmt.Sprintf(baseQuestion, "", ""), nil)
+	cat, err := catalog.Load(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cat.Tracks["t"].Draft() {
+		t.Error("a track with a written lesson is a draft")
+	}
+	fsys["t/lessons/d.md"] = &fstest.MapFile{Data: []byte("# D\n\n" + catalog.PlaceholderLesson + ": the real one is being written.\n")}
+	if cat, err = catalog.Load(fsys); err != nil {
+		t.Fatal(err)
+	}
+	if !cat.Tracks["t"].Draft() {
+		t.Error("a track with a placeholder lesson is not a draft")
 	}
 }
 

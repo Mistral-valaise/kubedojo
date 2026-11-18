@@ -64,7 +64,9 @@ Every check runs a command inside the sandbox and compares its output. `points` 
 | `exec` | any shell command | `run` |
 
 `on:` selects the machine: `control-plane` (default), `worker`, `worker2` or `terminal`. Commands run as
-root with `KUBECONFIG` set; `$KD_HOST` holds the cluster's ssh name.
+root with `KUBECONFIG` set; `$KD_HOST` holds the cluster's ssh name. In a container environment the
+machines are `host` (default) and `terminal`, and there is no `resource` check; see
+[Container exercises](#container-exercises).
 
 `expect:` matchers (all must hold): `equals`, `notEquals`, `contains: [..]`, `notContains: [..]`,
 `matches: <regex>`, `oneOf: [..]`, `sameLines: [..]`, `sameItems: [..]`, `gte`, `lte`, `notEmpty`,
@@ -116,6 +118,86 @@ Guidelines:
 - A check never starts a throwaway Pod with `kubectl run --rm`: its output can be lost and the check
   fails at random. Let `setup.sh` create a long-lived client Pod and probe with `kubectl exec`, or use
   `curl` from the node against a ClusterIP. `content lint` warns about it.
+
+## Container exercises
+
+Tracks that teach the shell (`content/linux/`) run on one Linux container instead of a cluster: the
+track's environment has `type: container`. A question looks the same; what differs is listed here.
+`linux/find-large-logs` is the model, including its `variants/`.
+
+**Machines.** `host` is the Linux container the learner reaches with `ssh {{host}}`; it is the
+default for checks and scripts. `terminal` is the jump host, for tasks about `ssh`, `scp` or `rsync`
+between two machines. `{{worker}}` does not exist. Checks are `file` and `exec`; a `resource` check is
+rejected by the loader.
+
+**Users.**
+
+| What | Runs on | As | Environment |
+|---|---|---|---|
+| `setup.sh`, `cleanup.sh` | `host` | root | `KD_HOST`, `KD_QUESTION` |
+| checks | `host` (or `on: terminal`) | root (`candidate` on the terminal) | the same |
+| `solution.sh`, `variants/*.sh` | `host` | **`candidate`**, starting in `/home/candidate` | the same |
+| the learner | `ssh {{host}}` | `candidate`, passwordless `sudo` | a login shell: no `KD_*` |
+
+The solution runs as `candidate` so that what it leaves behind is owned as a learner's work would be.
+Consequences: `setup.sh` must give `candidate` access to what the task changes (`chown`), or the task
+must need `sudo` on purpose and the solution must use it; and a check about ownership or modes
+grades what a learner really produces. There is no `KUBECONFIG` and no `kubectl` on the host.
+
+**One container for all exercises.** In an assessment every setup of the track runs in the same
+container, about forty of them. So each exercise keeps to itself:
+
+- it owns **`/opt/course/<question-id>/`** and nothing else in the file system that another
+  exercise could want; `setup.sh` starts with `rm -rf` of that directory and recreates it,
+- every **user, group, process name, service or file under `/etc`** it creates is prefixed with the
+  question id (or a short form of it: user names end at 32 characters),
+- every **port** it listens on is one from 20000 to 29999 that no other exercise uses,
+- it does not change what is shared: `candidate`'s shell startup files, `/etc/hosts` entries of
+  others, sshd, the system-wide Vim configuration.
+
+Check that names and ports are free before you pick them:
+
+```bash
+ls content/linux/questions                                   # ids, and with them directories and prefixes
+grep -rhoE '\b2[0-9]{4}\b' content/linux/questions | sort | uniq -c   # ports in use
+```
+
+`content test --exam` proves that the exercises do not disturb each other.
+
+**No systemd.** PID 1 is an init that only reaps processes; `systemctl` does not work. For exercises
+about processes and services use real processes, signals, jobs, `/proc`, `ss`, and Debian's
+`service <name> start|stop|status` with the scripts in `/etc/init.d` (`nginx`, `cron` and `ssh` are
+installed; only sshd runs).
+
+**`kd-fixture`** starts and removes the background processes of an exercise:
+
+```bash
+kd-fixture reset                                              # first line of a setup.sh that starts processes
+kd-fixture start web -- python3 -m http.server 20080 --bind 127.0.0.1 --directory /opt/course/my-id/www
+kd-fixture start --user my-id-app worker -- /opt/course/my-id/worker.sh
+kd-fixture pid web                                            # for a check: is that very process gone?
+kd-fixture log web                                            # path of the file its output goes to
+```
+
+`start` detaches the command (own session, output to a log file), so `setup.sh` returns, and fails
+if the command exits at once. `reset` ends the fixtures of the current question and every other
+process that carries `KD_QUESTION=<id>` in its environment, whoever owns it: that is what makes a
+setup idempotent, and it also removes what a solution left running. A plain `cmd &` in `setup.sh`
+keeps `docker exec` from returning; use `kd-fixture start`.
+
+**Things that differ from a real machine.**
+
+- `/etc/hosts`, `/etc/resolv.conf` and `/etc/hostname` are bind mounts. They can be edited in place
+  (`vim`, `echo ... >>`, `sed -i` **fails**: it replaces the file by renaming, which a mount point
+  does not allow). Use `sed ... > tmp && cat tmp > /etc/hosts` in scripts, and do not ask the learner
+  for `sed -i` on these files.
+- DNS is Docker's resolver at `127.0.0.11`: `dig` and `getent hosts` resolve the terminal
+  (`kd-<session>-terminal`) and internet names; there is no local zone to manage.
+- The container has 1 GB of memory, 512 processes and 2 CPUs. An exercise that needs a "runaway"
+  process should make it obvious, not heavy.
+- Kernel-level tasks do not work: `sysctl -w`, `mount`, `modprobe`, `iptables`, changing the clock.
+- Time moves: ages in `setup.sh` are relative (`touch -d '45 days ago'`), and checks do not compare
+  against a date.
 
 ## Test it
 

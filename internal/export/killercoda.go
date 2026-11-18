@@ -5,7 +5,8 @@
 // worked solution becomes the finish page. Killercoda environments have one
 // control plane ("controlplane") and at most one worker ("node01"), so
 // questions that need more, or that depend on how kubedojo's own nodes are
-// built, are skipped and reported.
+// built, are skipped and reported. So are questions that are not cluster
+// tasks at all: those on a plain Linux host and multiple-choice questions.
 package export
 
 import (
@@ -18,6 +19,7 @@ import (
 
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/checker"
+	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 )
 
 // Skipped explains why a question was not exported.
@@ -31,15 +33,22 @@ type Result struct {
 	Skipped  []Skipped
 }
 
-// reason returns why q cannot run on Killercoda, or "".
-func reason(q *catalog.Question, workers int) string {
+// reason returns why q cannot run on Killercoda, or "". env is the question's
+// environment; choice questions have none.
+func reason(q *catalog.Question, env *sandbox.EnvSpec) string {
 	all := q.Task + q.Setup + q.Cleanup + q.SolutionSh
 	for _, c := range q.Checks {
 		all += c.Run + c.On
 	}
+	workers := 0
+	if env != nil {
+		workers = env.Workers
+	}
 	switch {
 	case q.Type == catalog.TypeChoice:
-		return "is a multiple-choice question: there is nothing to set up or verify"
+		return "multiple-choice question: a scenario needs a task to solve in a terminal"
+	case env != nil && env.Type == sandbox.EnvContainer:
+		return "runs on a plain Linux host; the export targets Killercoda's Kubernetes environment"
 	case q.Driver != "kind":
 		return "needs a VM driver"
 	case q.FreshEnvironment:
@@ -230,11 +239,7 @@ func Killercoda(cat *catalog.Catalog, dir, onlyTrack, sourceURL string) (*Result
 			continue
 		}
 		for _, q := range t.Questions {
-			workers := 0
-			if env := t.Environments[q.Environment]; env != nil {
-				workers = env.Workers
-			}
-			if why := reason(q, workers); why != "" {
+			if why := reason(q, t.Environments[q.Environment]); why != "" {
 				res.Skipped = append(res.Skipped, Skipped{t.ID, q.ID, why})
 				continue
 			}

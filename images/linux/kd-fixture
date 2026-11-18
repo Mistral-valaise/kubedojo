@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# kd-fixture: background processes for exercises, on a host without systemd.
+#
+#   kd-fixture start [--user <name>] <name> -- <command> [args...]
+#       Starts the command detached (own session, no terminal), so that the
+#       setup script returns. Output goes to the log file. Starting a name that
+#       is already running replaces it.
+#   kd-fixture pid <name>     prints the pid of a started fixture
+#   kd-fixture log <name>     prints the path of its log file
+#   kd-fixture reset          ends every process of the current question
+#
+# Everything is keyed on $KD_QUESTION, which kubedojo sets for setup.sh,
+# cleanup.sh, solution.sh and checks. Call `kd-fixture reset` first in a
+# setup.sh that starts processes: it makes the setup idempotent.
+set -euo pipefail
+
+die() { echo "kd-fixture: $*" >&2; exit 1; }
+
+q=${KD_QUESTION:-}
+[ -n "$q" ] || die "KD_QUESTION is not set"
+dir=/run/kd-fixture/$q
+
+# end <pid>: kill a fixture together with everything it started.
+end() {
+  pkill -KILL -s "$1" 2>/dev/null || true
+  kill -KILL "$1" 2>/dev/null || true
+}
+
+# marked: pids of the caller's own processes that carry KD_QUESTION=<id>. The
+# environment of another user's process is unreadable, even for root, in a
+# container without CAP_SYS_PTRACE; reset therefore asks once per user.
+marked() {
+  local e p
+  for e in /proc/[0-9]*/environ; do
+    # The braces silence the shell too: a process may be gone or not ours.
+    if { tr '\0' '\n' < "$e"; } 2>/dev/null | grep -qxF "KD_QUESTION=$q"; then
+      p=${e#/proc/}; echo "${p%/environ}"
+    fi
+  done
+}
+
+# lineage: this process and its ancestors. reset must spare them: the setup
+# script that called it carries KD_QUESTION too.
+lineage() {
+  local p=$$
+  while [ "${p:-0}" -gt 0 ]; do
+    echo "$p"
+    # /proc/<pid>/stat: "pid (comm) state ppid ..."; comm may contain spaces.
+    p=$(sed 's/^.*) //' "/proc/$p/stat" 2>/dev/null | cut -d' ' -f2)
+  done
+}
+
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+case "$cmd" in
+start)
+  user=
+  if [ "${1:-}" = "--user" ]; then user=${2:?--user needs a name}; shift 2; fi
+  name=${1:?fixture name required}; shift
+  [ "${1:-}" = "--" ] || die "usage: kd-fixture start [--user <name>] <name> -- <command> [args...]"
+  shift
+  [ $# -gt 0 ] || die "start: no command given"
+  mkdir -p "$dir"
+  if [ -f "$dir/$name.pid" ]; then end "$(cat "$dir/$name.pid")"; fi
+  rm -f "$dir/$name.pid"
+  : > "$dir/$name.log"
+  run=("$@")
+  if [ -n "$user" ]; then
+    id "$user" >/dev/null 2>&1 || die "unknown user $user"
+    home=$(getent passwd "$user" | cut -d: -f6)
+    run=(setpriv --reuid "$user" --regid "$(id -g "$user")" --init-groups env "HOME=$home" "USER=$user" "$@")
+  fi
+  # The session leader writes its own pid before it becomes the command, so
+  # the pidfile holds the command's pid whatever setsid had to do to get there.
+  setsid bash -c 'echo $$ > "$0"; exec "$@"' "$dir/$name.pid" "${run[@]}" </dev/null >>"$dir/$name.log" 2>&1 &
+  for _ in $(seq 50); do [ -s "$dir/$name.pid" ] && break; sleep 0.1; done
+  [ -s "$dir/$name.pid" ] || die "$name did not start"
+  sleep 0.3
+  if ! kill -0 "$(cat "$dir/$name.pid")" 2>/dev/null; then
+    tail -n 5 "$dir/$name.log" >&2
+    die "$name exited right after it was started"
+  fi
+  ;;
+pid)
+  cat "$dir/${1:?fixture name required}.pid" 2>/dev/null || die "no fixture $1"
+  ;;
+log)
+  echo "$dir/${1:?fixture name required}.log"
+  ;;
+reset)
+  if [ -d "$dir" ]; then
+    for f in "$dir"/*.pid; do
+      if [ -f "$f" ]; then end "$(cat "$f")"; fi
+    done
+    rm -rf "$dir"
+  fi
+  keep=" $(lineage | tr '\n' ' ')"
+  pids=$(marked)
+  if [ "$(id -u)" = 0 ]; then
+    while read -r uid gid; do
+      [ "$uid" = 0 ] && continue
+      pids="$pids $(setpriv --reuid "$uid" --regid "$gid" --clear-groups env "KD_QUESTION=$q" "$0" marked 2>/dev/null || true)"
+    done < <(ps -eo uid=,gid= | sort -u)
+  fi
+  for p in $pids; do
+    case "$keep" in *" $p "*) continue ;; esac
+    kill -KILL "$p" 2>/dev/null || true
+  done
+  ;;
+marked)
+  marked
+  ;;
+*)
+  die "usage: kd-fixture start|pid|log|reset (see the head of $0)"
+  ;;
+esac

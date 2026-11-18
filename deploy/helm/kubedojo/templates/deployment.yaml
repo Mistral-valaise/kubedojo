@@ -52,6 +52,10 @@ spec:
               value: {{ default (printf "kubedojo/node:%s" $k8s) .Values.sandbox.nodeImage | quote }}
             - name: KUBEDOJO_TERMINAL_IMAGE
               value: {{ default (printf "kubedojo/terminal:%s" $k8s) .Values.sandbox.terminalImage | quote }}
+            {{- with .Values.sandbox.linuxImage }}
+            - name: KUBEDOJO_LINUX_IMAGE
+              value: {{ . | quote }}
+            {{- end }}
             # Each sandbox has its own Docker daemon, so a cache inside it would be useless.
             - name: KUBEDOJO_REGISTRY_CACHE
               value: "false"

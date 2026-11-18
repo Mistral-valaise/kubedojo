@@ -60,6 +60,34 @@ func (t *Track) NeedsCluster() bool {
 	return false
 }
 
+// NeedsContainer reports whether any environment of the track is a Linux
+// container.
+func (t *Track) NeedsContainer() bool {
+	for _, e := range t.Environments {
+		if e.Type == sandbox.EnvContainer {
+			return true
+		}
+	}
+	return false
+}
+
+// PlaceholderLesson is the sentence a lesson consists of while the real one
+// is still being written.
+const PlaceholderLesson = "This lesson is a placeholder"
+
+// Draft reports whether the track is a skeleton: at least one of its lessons
+// is still a placeholder. `content lint` says so, and the tests that hold a
+// finished track to its size (questions per domain, enough for an exam) wait
+// for the lessons before they apply.
+func (t *Track) Draft() bool {
+	for _, d := range t.Domains {
+		if strings.Contains(d.Lesson, PlaceholderLesson) {
+			return true
+		}
+	}
+	return false
+}
+
 type ExamSpec struct {
 	DurationMinutes int `yaml:"durationMinutes" json:"durationMinutes"`
 	PassPercent     int `yaml:"passPercent" json:"passPercent"`

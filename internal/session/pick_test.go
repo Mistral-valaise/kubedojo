@@ -1,23 +1,11 @@
 package session
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/Mistral-valaise/kubedojo/content"
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 )
-
-// TEMPORARY, remove together with the last placeholder lesson: a track whose
-// lessons still carry the marker has too few questions for an exam yet.
-func skeleton(tr *catalog.Track) bool {
-	for _, d := range tr.Domains {
-		if strings.Contains(d.Lesson, "<!-- kubedojo:placeholder -->") {
-			return true
-		}
-	}
-	return false
-}
 
 func TestPickQuestionsFollowsDomainWeights(t *testing.T) {
 	cat, err := catalog.Load(content.FS)
@@ -25,8 +13,10 @@ func TestPickQuestionsFollowsDomainWeights(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tr := range cat.List() {
-		if skeleton(tr) {
-			t.Logf("%s is a skeleton with %d questions: skipped", tr.ID, len(tr.Questions))
+		// TEMPORARY ALLOWANCE, keyed on placeholder lessons (Track.Draft): a
+		// skeleton track cannot fill an exam yet. See TestShippedContentIsValid.
+		if tr.Draft() {
+			t.Logf("%s is a draft (placeholder lessons): skipped", tr.ID)
 			continue
 		}
 		n := tr.Exam.Questions

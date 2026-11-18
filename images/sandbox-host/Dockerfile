@@ -1,10 +1,10 @@
 # Sandbox host for hosted mode: one Docker-in-Docker daemon per session, with
-# the kubedojo node and terminal images preloaded so sessions start without
-# pulling gigabytes from a registry.
+# the kubedojo node, terminal and linux images preloaded so sessions start
+# without pulling gigabytes from a registry.
 #
-# Build with `make sandbox-host` (it exports the two images next to this file).
+# Build with `make sandbox-host` (it exports the three images next to this file).
 FROM docker:29-dind
-COPY node.tar terminal.tar /images/
+COPY node.tar terminal.tar linux.tar /images/
 COPY entrypoint.sh /usr/local/bin/kubedojo-sandbox-host
 RUN chmod 0755 /usr/local/bin/kubedojo-sandbox-host
 # The daemon is reachable only inside the cluster and fenced by a NetworkPolicy

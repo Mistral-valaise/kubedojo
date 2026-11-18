@@ -3,5 +3,5 @@ package content
 
 import "embed"
 
-//go:embed path.yaml all:cka all:ckad all:cks all:kcna all:kcsa
+//go:embed path.yaml all:cka all:ckad all:cks all:kcna all:kcsa all:linux
 var FS embed.FS
