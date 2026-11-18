@@ -37,9 +37,10 @@ func hostProvider(ctx context.Context, kind string, log *slog.Logger) (session.H
 				sel[k] = v
 			}
 		}
+		image := env("KUBEDOJO_SANDBOX_IMAGE", "ghcr.io/mistral-valaise/kubedojo-sandbox-host:v"+strings.TrimPrefix(version, "v"))
 		p, err := k8shost.New(k8shost.Config{
 			Namespace:    os.Getenv("KUBEDOJO_SANDBOX_NAMESPACE"),
-			Image:        env("KUBEDOJO_SANDBOX_IMAGE", "ghcr.io/mistral-valaise/kubedojo-sandbox-host:v"+strings.TrimPrefix(version, "v")),
+			Image:        image,
 			CPURequest:   env("KUBEDOJO_SANDBOX_CPU_REQUEST", "1"),
 			MemRequest:   env("KUBEDOJO_SANDBOX_MEMORY_REQUEST", "3Gi"),
 			MemLimit:     env("KUBEDOJO_SANDBOX_MEMORY_LIMIT", "8Gi"),
@@ -50,7 +51,7 @@ func hostProvider(ctx context.Context, kind string, log *slog.Logger) (session.H
 		if err != nil {
 			return nil, err
 		}
-		log.Info("sandboxes run as pods", "image", env("KUBEDOJO_SANDBOX_IMAGE", ""))
+		log.Info("sandboxes run as pods", "image", image)
 		return p, nil
 	}
 	return nil, fmt.Errorf("unknown sandbox host %q (use local or kubernetes)", kind)

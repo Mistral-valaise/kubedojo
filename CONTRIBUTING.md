@@ -14,7 +14,7 @@ Thank you for helping people pass their exams. The most valuable contributions a
 
 ## Set up
 
-You need Go 1.26+, Node 22+, Docker and [kind](https://kind.sigs.k8s.io/).
+You need Go 1.26+, Node 24+, Docker and [kind](https://kind.sigs.k8s.io/).
 
 ```bash
 make build            # UI + binary

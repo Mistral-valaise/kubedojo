@@ -4,7 +4,7 @@
 
 | Package | Responsibility |
 |---|---|
-| `cmd/kubedojo` | CLI: `up`, `serve`, `doctor`, `down`, `content lint/test` |
+| `cmd/kubedojo` | CLI: `up`, `serve`, `doctor`, `down`, `ratings`, `content lint/test/export` |
 | `internal/api` | REST API, terminal WebSocket, embedded UI |
 | `internal/session` | lifecycle of practice and exam sessions, grading, reports |
 | `internal/sandbox` | `Driver` interface and the kind driver |
@@ -29,9 +29,10 @@ same code. Nothing above `dockerhost` knows the difference.
 ## A sandbox
 
 - `kd-<session>-terminal` — the `candidate@terminal` container the browser attaches to, with kubectl,
-  helm, kustomize, trivy, etcdctl and an ssh identity for the session.
+  helm, kustomize, trivy and an ssh identity for the session.
 - One kind cluster per environment, named like an exam host (`cka3827`). Nodes are `kindest/node`
-  containers plus sshd and a `candidate` user, so `ssh cka3827` works as in the exam.
+  containers plus sshd and a `candidate` user, so `ssh cka3827` works as in the exam. They also
+  carry what tasks need on the host: etcdctl, helm, kustomize, trivy, podman and buildah.
 
 Checks, setup and solution scripts run through `docker exec` on the nodes.
 
