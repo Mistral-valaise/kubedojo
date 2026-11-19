@@ -8,9 +8,8 @@ ss -ltnp | grep :22110
 ```
 
 `ss` options: `-l` listening sockets, `-t` TCP, `-n` numbers instead of service names, `-p` the
-owning process. The process column is only filled for processes whose details you may read. These
-workers are your own, so run `ss` **without** `sudo`; on a normal machine `sudo ss -ltnp` shows the
-processes of all users (in this sandbox root is not allowed to look into other users' processes).
+owning process. The process column is only filled for processes whose details you may read: your
+own without `sudo`, those of every user with `sudo ss -ltnp`. These workers are your own.
 
 **Record, then act** (use the pid from your output):
 

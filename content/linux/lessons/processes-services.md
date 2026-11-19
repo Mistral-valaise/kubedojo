@@ -23,8 +23,8 @@ STAT column: `R` running, `S` sleeping (normal), `T` stopped, `Z` zombie (ended,
 collected it: signal the parent, not the zombie).
 
 A name is often not unique. Identify a process by what is: its port, its arguments, its pidfile.
-`ss -p` and `lsof` show only processes you may inspect: on a real host use `sudo` to see all of them;
-in this sandbox root may not look into other users' processes, so run them without `sudo` for your own.
+`ss -p` and `lsof` show only processes you may inspect: your own without `sudo`, those of every
+user with `sudo`.
 
 ### Signals
 

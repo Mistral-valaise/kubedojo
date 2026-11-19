@@ -17,13 +17,17 @@ func TestLabRunArgs(t *testing.T) {
 		"--label", "kubedojo.session=abcd2345",
 		"--memory", "1g", "--memory-swap", "1g", "--pids-limit", "512", "--cpus", "2",
 		"--restart", "unless-stopped",
+		"--cap-add", "SYS_PTRACE",
 		"-e", "KD_PUBKEY=ssh-ed25519 AAAA kubedojo",
 		"kubedojo/linux:trixie"}
 	if !slices.Equal(got, want) {
 		t.Errorf("labRunArgs =\n  %q\nwant\n  %q", got, want)
 	}
+	if n := strings.Count(strings.Join(got, " "), "--cap-add"); n != 1 {
+		t.Errorf("the lab container gets %d capabilities added, want only SYS_PTRACE", n)
+	}
 	for _, a := range got {
-		if a == "--privileged" || strings.HasPrefix(a, "--cap-add") || strings.HasPrefix(a, "--security-opt") ||
+		if a == "--privileged" || strings.HasPrefix(a, "--cap-add=") || strings.HasPrefix(a, "--security-opt") ||
 			a == "-v" || strings.HasPrefix(a, "--volume") || strings.HasPrefix(a, "--mount") || a == "--pid" || strings.HasPrefix(a, "--pid=") {
 			t.Errorf("the lab container must not get %q", a)
 		}

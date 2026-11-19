@@ -51,6 +51,11 @@ func labRunArgs(sessionID, alias, image, pubKey string) []string {
 		"--label", sessionLabel + "=" + sessionID,
 		"--memory", "1g", "--memory-swap", "1g", "--pids-limit", "512", "--cpus", "2",
 		"--restart", "unless-stopped",
+		// The one capability beyond Docker's defaults: without it not even root
+		// can see which process owns another user's socket or open file, and
+		// `sudo ss -ltnp` and `sudo lsof` show less than on a real host. It
+		// reaches the processes of this container only.
+		"--cap-add", "SYS_PTRACE",
 		// Read by the image's entrypoint on every start, so sshd and the key
 		// survive a restart of the container or of Docker.
 		"-e", "KD_PUBKEY=" + pubKey,

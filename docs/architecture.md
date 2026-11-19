@@ -64,8 +64,10 @@ has a container environment (`Track.NeedsContainer`). A track uses one type; the
   after the container or Docker restarts. Exercises about services use real processes,
   `service`/`/etc/init.d` and the `kd-fixture` helper (see [writing-questions.md](writing-questions.md)).
 - **Isolation.** The learner is root in the lab (through sudo), so the container is the boundary:
-  not privileged, Docker's default capabilities and seccomp profile, no host mounts, no Docker
-  socket, no host PID or network namespace. Each session has its own bridge network, so labs of
+  not privileged, Docker's default seccomp profile, no host mounts, no Docker socket, no host PID
+  or network namespace. It has Docker's default capabilities plus one, `SYS_PTRACE`: without it
+  not even root sees which process owns another user's socket, and `sudo ss -ltnp` shows less
+  than on a real host. The capability reaches the processes of the lab container only. Each session has its own bridge network, so labs of
   different sessions cannot reach each other; the lab can reach the internet like any container.
   This is the isolation of a container, not of a VM: the boundary the terminal container has always
   had. (The kind nodes of the cluster tracks are privileged containers, a weaker boundary than this.)
