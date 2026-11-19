@@ -37,7 +37,7 @@ practice that need no Kubernetes cluster.
 - Guard checks score only once another check of the task has passed. An untouched task used to
   earn the points of its guards in an exam.
 
-## [0.3.0] - unreleased
+## [0.3.0] - 2026-11-19
 
 ### Added
 
