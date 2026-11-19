@@ -23,3 +23,6 @@ images/sandbox-host/*.tar
 /package.json
 /package-lock.json
 /killercoda/
+
+# Local source of the tour video; only the rendered file under docs/media is tracked.
+/media/
