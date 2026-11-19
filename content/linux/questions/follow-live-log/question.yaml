@@ -1,0 +1,86 @@
+title: Catch your own lines in a log that keeps growing
+domain: text-search-logs
+difficulty: medium
+minutes: 7
+tags: [tail, grep, follow, less]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  A service writes several lines a second to `/opt/course/follow-live-log/log/service.log`, and it
+  will not stop while you work. You have to prove that a configuration reload goes through.
+
+  1. Request a reload with `/opt/course/follow-live-log/bin/request-reload`. The service takes a few
+     seconds for it and reports every step in its log, each line tagged `reload#<number>`, between
+     the lines of its other components. The log already contains older reloads; yours gets the next
+     number.
+  2. Write exactly the log lines of **your** reload, complete and in order, from `started` to
+     `finished`, to `/opt/course/follow-live-log/reload.log`. No lines of other reloads or other
+     components.
+  3. The `finished` line of your reload ends in `token=<value>`. Write that value to
+     `/opt/course/follow-live-log/token.txt`.
+
+  The service must keep running, and its log must not be edited or emptied.
+hints:
+  - "`cat` and `less` show a file as it was when they read it. `tail -f` keeps printing what is added (Ctrl-C ends it), and `less +F` does the same inside less (Ctrl-C stops following, `F` resumes)."
+  - "Start watching, then trigger: `bin/request-reload; tail -f log/service.log | grep --line-buffered 'reload#'` shows only reload lines as they arrive. Once you know the number of your reload, an ordinary `grep` on the file collects its lines: the file keeps everything."
+  - "After the `finished` line appeared, with N being your reload number: `grep -F ' reload#N ' log/service.log > reload.log`, then `grep -o 'token=.*' reload.log | cut -d= -f2 > token.txt`."
+checks:
+  - id: reload-lines
+    title: reload.log holds exactly the lines of one reload you requested
+    type: exec
+    run: |-
+      b=/opt/course/follow-live-log
+      [ -s "$b/reload.log" ] || { echo "$b/reload.log is missing or empty" >&2; exit 1; }
+      id=$(sed -n '1s/.* reload#\([0-9][0-9]*\) started$/\1/p' "$b/reload.log")
+      [ -n "$id" ] || { echo "the first line is not the 'started' line of a reload" >&2; exit 1; }
+      [ "$id" -gt 3 ] || { echo "reload#$id is from the history, not one you requested" >&2; exit 1; }
+      grep -qE " reload#$id finished token=[0-9a-f]+\$" "$b/log/service.log" || { echo "reload#$id has not finished in the service log" >&2; exit 1; }
+      grep -F " reload#$id " "$b/log/service.log" | diff -B - "$b/reload.log" >/dev/null || { echo "reload.log is not exactly the lines of reload#$id" >&2; exit 1; }
+      echo exact
+    expect: {equals: exact}
+    explain: >-
+      The word reload also appears in scheduler lines and in three older reloads, so the search
+      has to include the number of your own reload. Following the log while you trigger the action
+      is how you learn that number and see when the last line has arrived.
+  - id: token
+    title: token.txt holds the token of a reload you requested
+    type: exec
+    run: |-
+      b=/opt/course/follow-live-log
+      [ -s "$b/token.txt" ] || { echo "$b/token.txt is missing or empty" >&2; exit 1; }
+      t=$(tr -d '[:space:]' < "$b/token.txt")
+      [[ $t =~ ^[0-9a-f]{16}$ ]] || { echo "not a token: write only the value after token=" >&2; exit 1; }
+      grep -E " reload#[0-9]+ finished token=$t\$" "$b/log/service.log" | grep -qvE ' reload#[123] ' || { echo "this is not the token of a reload you requested" >&2; exit 1; }
+      echo match
+    expect: {equals: match}
+    explain: >-
+      The token is new for every reload, so it cannot be copied from an older line: the first
+      `finished` in the file belongs to reload#1. Take it from the line with your number, and
+      write the value only, without `token=`.
+  - id: running
+    title: The service is still running
+    type: exec
+    guard: true
+    run: |-
+      pid=$(kd-fixture pid svc) || { echo "the service was never started" >&2; exit 1; }
+      kill -0 "$pid" 2>/dev/null || { echo "the service process is gone" >&2; exit 1; }
+      echo running
+    expect: {equals: running}
+    explain: >-
+      Watching a log must not disturb the writer. Ctrl-C in `tail -f` ends only `tail`; stopping
+      or restarting the service to get a quiet file loses the very event you are waiting for.
+  - id: history
+    title: The existing log lines are untouched
+    type: exec
+    guard: true
+    run: |-
+      b=/opt/course/follow-live-log
+      n=$(cat "$b/.history-lines") || exit 1
+      [ "$(wc -l < "$b/log/service.log")" -ge "$n" ] || { echo "the log is shorter than it was at the start" >&2; exit 1; }
+      [ "$(head -n "$n" "$b/log/service.log" | sha256sum | cut -d' ' -f1)" = "$(cat "$b/.history-sum")" ] || { echo "old log lines were changed" >&2; exit 1; }
+      echo intact
+    expect: {equals: intact}
+    explain: >-
+      Emptying or editing a log to find your lines more easily destroys what others need, and a
+      process that holds the file open keeps writing at its old position. Filter a growing file
+      with `tail` and `grep`; never rewrite it.

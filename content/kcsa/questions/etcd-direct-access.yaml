@@ -1,0 +1,35 @@
+title: A second client for etcd
+domain: kubernetes-cluster-component-security
+difficulty: medium
+tags: [etcd, control-plane]
+stem: |-
+  A backup agent on a control plane node is given a client certificate that etcd accepts, with
+  read and write access to the full keyspace of the etcd cluster that the API server uses.
+
+  What does this access amount to?
+options:
+  - text: Read-only access, because etcd accepts writes only from the API server
+    explain: >-
+      etcd does not know which client is the API server. Every client whose certificate it accepts
+      can write, unless etcd's own access control restricts it.
+  - text: Access to everything except Secrets, because etcd stores those encrypted
+    explain: >-
+      By default the API server writes Secrets to etcd in plain text. And a client that can write
+      could still change any other object, such as RBAC bindings.
+  - text: The same access as cluster-admin, without passing through the API server
+    correct: true
+  - text: The access that RBAC grants to the common name of the certificate
+    explain: >-
+      RBAC is evaluated by the API server for requests to the Kubernetes API. A direct connection
+      to etcd never reaches it.
+explanation: >-
+  Authentication, authorization, admission control and audit logging all happen in the API server. A
+  client that talks to etcd directly bypasses them: the documentation calls write access to etcd
+  equivalent to root on the entire cluster, and access to the full keyspace equivalent to
+  cluster-admin. Therefore etcd should accept only the API servers, with mutual TLS (client
+  certificates) and ideally a firewall around the etcd servers.
+references:
+  - title: Securing a Cluster - Restrict access to etcd
+    url: https://kubernetes.io/docs/tasks/administer-cluster/securing-a-cluster/#restrict-access-to-etcd
+  - title: Operating etcd clusters for Kubernetes - Securing etcd clusters
+    url: https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/#securing-etcd-clusters

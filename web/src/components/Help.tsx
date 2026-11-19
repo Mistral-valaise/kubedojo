@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { Bot, Eye, Lightbulb, Send } from "lucide-react";
-import { api, type QuestionMeta, type Result } from "../api";
+import { api, type QuestionMeta, type Result, type Track } from "../api";
 import { t } from "../i18n";
+import { words, type Words } from "../track";
 import { Markdown } from "./Markdown";
 import { Button, ErrorNote, Modal } from "./ui";
 
 /** Tiered hints, the worked solution and the optional AI tutor for one question. */
-export function Help({ sid, q, result, tutor, initialHints = 0, confirmSolution = true }: {
-  sid: string; q: QuestionMeta; result?: Result | null; tutor: boolean; initialHints?: number; confirmSolution?: boolean;
+export function Help({ sid, q, result, tutor, track, initialHints = 0, confirmSolution = true }: {
+  sid: string; q: QuestionMeta; result?: Result | null; tutor: boolean; track: Track | null; initialHints?: number; confirmSolution?: boolean;
 }) {
   const [hints, setHints] = useState<string[]>([]);
   const [solution, setSolution] = useState<string | null>(null);
@@ -59,7 +60,8 @@ export function Help({ sid, q, result, tutor, initialHints = 0, confirmSolution 
               {hints.length === 0 ? t("Show a hint") : t("Next hint ({n} of {m})", { n: hints.length + 1, m: q.hints })}
             </Button>
           )}
-          <Button size="sm" variant="ghost" icon={<Eye className="size-3.5" />} onClick={() => (confirmSolution ? setConfirm(true) : void showSolution())}>
+          {/* Once every check has passed there is no attempt left to protect: the solution opens without asking. */}
+          <Button size="sm" variant="ghost" icon={<Eye className="size-3.5" />} onClick={() => (confirmSolution && !result?.passed ? setConfirm(true) : void showSolution())}>
             {t("Show solution")}
           </Button>
         </div>
@@ -70,7 +72,7 @@ export function Help({ sid, q, result, tutor, initialHints = 0, confirmSolution 
           <Markdown>{solution}</Markdown>
         </div>
       )}
-      {tutor && <TutorBox sid={sid} qid={q.id} result={result} />}
+      {tutor && <TutorBox sid={sid} qid={q.id} result={result} w={words(track)} />}
       {confirm && (
         <Modal title={t("Show the solution?")} onClose={() => setConfirm(false)}
           footer={<><Button onClick={() => setConfirm(false)}>{t("Keep trying")}</Button><Button variant="primary" onClick={showSolution}>{t("Show solution")}</Button></>}>
@@ -81,7 +83,8 @@ export function Help({ sid, q, result, tutor, initialHints = 0, confirmSolution 
   );
 }
 
-function TutorBox({ sid, qid, result }: { sid: string; qid: string; result?: Result | null }) {
+/** The optional AI tutor on its own, for questions that have neither hints nor a separate solution. */
+export function TutorBox({ sid, qid, result, w }: { sid: string; qid: string; result?: Result | null; w: Words }) {
   const [ask, setAsk] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -105,11 +108,11 @@ function TutorBox({ sid, qid, result }: { sid: string; qid: string; result?: Res
         <Button size="sm" variant="primary" loading={busy} className="mb-3" onClick={() => send("")}>{t("Explain what went wrong")}</Button>
       )}
       <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (ask.trim()) void send(ask.trim()); }}>
-        <input value={ask} onChange={(e) => setAsk(e.target.value)} placeholder={t("Ask about this task ...")}
+        <input value={ask} onChange={(e) => setAsk(e.target.value)} placeholder={w.tutorPlaceholder}
           className="h-9 min-w-0 flex-1 rounded-lg border bg-panel px-3 text-sm outline-none placeholder:text-muted focus:border-accent" />
         <Button size="md" loading={busy} disabled={!ask.trim()} aria-label={t("Send")}><Send className="size-4" /></Button>
       </form>
-      <p className="mt-2 text-[11px] text-muted">{t("The tutor sees the task, your check results and a summary of the cluster state.")}</p>
+      <p className="mt-2 text-[11px] text-muted">{w.tutorNote}</p>
     </div>
   );
 }

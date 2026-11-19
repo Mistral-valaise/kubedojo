@@ -1,0 +1,37 @@
+title: Where HTTP routing rules live in Gateway API
+domain: container-orchestration
+difficulty: medium
+tags: [networking, ingress, gateway-api]
+stem: |-
+  A team exposes its web shop with an Ingress: requests for `shop.example.com/cart` go to the Service
+  `cart`, all other paths go to the Service `web`. The team moves to Gateway API, which the Kubernetes
+  project recommends over the frozen Ingress API.
+
+  Which Gateway API kind holds these rules that map HTTP requests to Services?
+options:
+  - text: GatewayClass
+    explain: >-
+      A GatewayClass defines a set of Gateways with a common configuration and names the controller
+      that implements them. It plays the part that IngressClass plays for Ingress.
+  - text: Gateway
+    explain: >-
+      A Gateway defines an instance of traffic handling infrastructure, such as a cloud load balancer,
+      with its listeners. Routes attach to it; the routing rules are not in it.
+  - text: HTTPRoute
+    correct: true
+  - text: IngressClass
+    explain: >-
+      IngressClass belongs to the Ingress API: it says which Ingress controller implements an Ingress.
+      Gateway API does not use it.
+explanation: >-
+  An Ingress puts everything into one object: host and path rules, and through its class the controller
+  that fulfils them. Gateway API splits this into kinds modelled on roles. A GatewayClass describes a
+  kind of gateway and its controller, a Gateway is one instance of traffic handling infrastructure, and
+  an HTTPRoute defines the HTTP-specific rules for mapping traffic from a Gateway listener to backends,
+  usually Services. Like an Ingress without an Ingress controller, these objects do nothing without a
+  controller that implements them.
+references:
+  - title: Gateway API
+    url: https://kubernetes.io/docs/concepts/services-networking/gateway/
+  - title: Ingress
+    url: https://kubernetes.io/docs/concepts/services-networking/ingress/

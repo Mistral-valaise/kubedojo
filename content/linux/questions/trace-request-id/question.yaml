@@ -1,0 +1,84 @@
+title: Follow one request through three logs
+domain: incident-troubleshooting
+difficulty: easy
+minutes: 7
+tags: [grep, logs, correlation, request-id, jq]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  A customer reports: "My order **ORD-7731** failed around 10:15 UTC. I tried again a minute later
+  and it went through." Support wants to know what went wrong the first time.
+
+  A request to the shop passes three services: `gateway` calls `orders`, and `orders` calls
+  `payments`. Each writes its own log, in its own format, below `/opt/course/trace-request-id/logs/`.
+  The gateway gives every request an id, and all three services log it.
+
+  Write into `/opt/course/trace-request-id/`:
+
+  1. `request-id.txt`: the request id of the **failed** attempt, and nothing else.
+  2. `trace.txt`: every log line of that request from all three logs, each line exactly as it is
+     in the log, in any order. No line of any other request.
+  3. `failing-service.txt`: the name of the service in which the failure **originated**
+     (`gateway`, `orders` or `payments`): the one that did not just pass on an error it received.
+
+  Do not change the logs.
+hints:
+  - "Start with what the customer gave you: search the gateway log for the order number. It shows two attempts with different ids; the status at the end of each tells you which one failed."
+  - "Then search all three logs for that id. Look closely at what you get: an id is a short string of letters and digits and can occur inside a longer one, and `grep` over several files puts the file name in front of every line unless you tell it not to (`-h`)."
+  - "`grep ORD-7731 logs/gateway.log`, then `grep -hw <id> logs/*.log > trace.txt` (`-w` matches whole words only). Read the trace from the bottom of the call chain upwards: the service that reports an error of its own, not one 'returned' by another service, is the origin."
+checks:
+  - id: request-id
+    title: request-id.txt holds the id of the failed attempt
+    type: exec
+    run: |-
+      f=/opt/course/trace-request-id/request-id.txt
+      [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+      tr -d ' \t\r\n' < "$f"
+    expect: {equals: 7f3a9c}
+    explain: >-
+      The order number appears in two gateway requests: the failed attempt and the retry that
+      worked. Whoever takes the first or the last match without reading the status follows the
+      wrong request and finds nothing wrong.
+  - id: trace
+    title: trace.txt holds exactly the lines of that request
+    type: exec
+    run: |-
+      b=/opt/course/trace-request-id; f=$b/trace.txt; e=$b/.state/trace.expected
+      [ -f "$e" ] || { echo "$e is missing: reset the question" >&2; exit 1; }
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      got=$(sed 's/\r$//' "$f" | grep -v '^$' | LC_ALL=C sort)
+      missing=$(comm -13 <(echo "$got") <(LC_ALL=C sort "$e") | grep -c . || true)
+      extra=$(comm -23 <(echo "$got") <(LC_ALL=C sort "$e") | grep -c . || true)
+      [ "$missing" = 0 ] && [ "$extra" = 0 ] || {
+        echo "$missing lines of the request are missing, $extra lines do not belong to it or are not exactly as in the log" >&2; exit 1; }
+      echo exact
+    expect: {equals: exact}
+    explain: >-
+      A trace is only useful when it is complete and clean. Two things usually spoil it: the id
+      also matches inside a longer string of another request (use `grep -w`), and `grep` over
+      several files prefixes every line with the file name (use `-h`).
+  - id: failing-service
+    title: failing-service.txt names the service where the failure originated
+    type: exec
+    run: |-
+      f=/opt/course/trace-request-id/failing-service.txt
+      [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+      tr -d ' \t\r\n' < "$f" | tr 'A-Z' 'a-z'
+    expect: {equals: payments}
+    explain: >-
+      An error travels up the call chain: the gateway reports a 502 because orders failed, and
+      orders failed because payments answered with a 504. The origin is the deepest service that
+      logs an error of its own; the first error you happen to see is usually only the messenger.
+  - id: logs-untouched
+    title: The logs are unchanged
+    type: exec
+    guard: true
+    run: |-
+      b=/opt/course/trace-request-id
+      [ -f "$b/.state/manifest" ] || { echo "$b/.state/manifest is missing: reset the question" >&2; exit 1; }
+      cd "$b/logs" 2>/dev/null || { echo "$b/logs is missing" >&2; exit 1; }
+      sha256sum --quiet -c ../.state/manifest >&2 && echo unchanged
+    expect: {equals: unchanged}
+    explain: >-
+      Logs are evidence. Filter them into a new file; never edit, sort or trim them in place,
+      because the next question about this incident needs the lines you did not think of.

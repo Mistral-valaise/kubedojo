@@ -1,0 +1,33 @@
+title: Pod Security Admission and a Deployment
+domain: kubernetes-security-fundamentals
+difficulty: hard
+tags: [pod-security-admission]
+stem: |-
+  A namespace carries only the label `pod-security.kubernetes.io/enforce: baseline`. A user applies a
+  Deployment in it whose Pod template sets `privileged: true` for its container.
+
+  What is the result?
+options:
+  - text: The Deployment is rejected by the API server and is not stored
+    explain: >-
+      Enforce mode is not applied to workload resources such as Deployments, only to the Pods made
+      from them. The `warn` and `audit` modes are the ones that look at Pod templates.
+  - text: The Deployment is created, and its Pods run with `privileged` set to false
+    explain: >-
+      Pod Security Admission validates and never mutates. It does not repair a Pod spec; it accepts
+      or rejects it.
+  - text: The Deployment is created, and its Pods run with an audit annotation
+    explain: >-
+      That is the `audit` mode: the violation is recorded in the audit log and the Pod is allowed.
+      This namespace sets `enforce`.
+  - text: The Deployment is created, but each of its Pods is rejected
+    correct: true
+explanation: >-
+  In enforce mode a policy violation causes the Pod to be rejected, and enforce is applied to Pod
+  objects only, not to workload resources. The Deployment and its ReplicaSet are therefore stored,
+  and the failure appears where the ReplicaSet tries to create Pods: no replicas come up. To catch
+  this when the workload is applied, set the `warn` and `audit` labels too, because those modes are
+  applied to workload resources as well.
+references:
+  - title: Pod Security Admission - Workload resources and Pod templates
+    url: https://kubernetes.io/docs/concepts/security/pod-security-admission/#workload-resources-and-pod-templates

@@ -1,0 +1,95 @@
+title: Replace a value without touching its look-alikes
+domain: vim
+difficulty: medium
+minutes: 5
+environment: base
+tags: [vim, substitute, regex]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  After an upgrade the checkout service does not start: its logging library no longer accepts the
+  level name `warn`, only `warning`.
+
+  In `/opt/course/vim-replace-level/logging.conf`, give every setting whose **value** is `warn`
+  the value `warning`.
+
+  Everything else stays as it is: setting names that contain `warn`, comments, values that are
+  already `warning`, and values that merely contain the word.
+hints:
+  - "A plain replace of `warn` by `warning` turns `warning` into `warninging` and renames `warn_rate_limit`. Look at where the text you want stands on its line."
+  - "In Vim, `:%s/old/new/g` substitutes in the whole file. `\\<warn\\>` matches `warn` only as a whole word, `$` anchors a match at the end of the line, and the flag `c` asks before each replacement (`y` yes, `n` no, `q` stop)."
+  - "`:%s/= warn$/= warning/` changes exactly the lines that end in `= warn`. Or decide case by case with `:%s/\\<warn\\>/warning/gc`. Then `:wq`."
+checks:
+  - id: replaced
+    title: Every setting with the value warn now has the value warning
+    type: exec
+    run: |-
+      f=/opt/course/vim-replace-level/logging.conf
+      [ -f "$f" ] || { echo "$f does not exist" >&2; exit 1; }
+      left=$(grep -E '=[[:space:]]*warn[[:space:]]*$' "$f" | sed -E 's/[[:space:]]*=.*//' | tr '\n' ' ')
+      [ -z "$left" ] || { echo "still set to warn: $left" >&2; exit 1; }
+      for k in console.level syslog.level root.level http.access.level db.slow_query.level queue.level scheduler.level; do
+        grep -qE "^${k//./\\.}[[:space:]]*=[[:space:]]*warning[[:space:]]*$" "$f" \
+          || { echo "$k is not set to warning" >&2; exit 1; }
+      done
+      echo replaced
+    expect: {equals: replaced}
+    explain: >-
+      Seven settings carry the old level name. A substitute changes only the first match on a line
+      unless it has the flag `g`, and only the current line unless it has a range such as `%`: a
+      forgotten `%` is the usual reason why some lines are left.
+  - id: keys
+    title: No setting was renamed, added or removed
+    type: exec
+    guard: true
+    run: |-
+      d=/opt/course/vim-replace-level
+      [ -f "$d/logging.conf" ] || { echo "$d/logging.conf does not exist" >&2; exit 1; }
+      [ -f "$d/.grade/original" ] || { echo "the reference copy is gone: reset the question" >&2; exit 1; }
+      keys() { grep -vE '^[[:space:]]*(#|\[|$)' "$1" | sed -E 's/[[:space:]]*=.*//'; }
+      n=$(diff <(keys "$d/logging.conf") <(keys "$d/.grade/original") | grep -c '^[<>]')
+      [ "$n" -eq 0 ] || { echo "$n setting name(s) differ from the original" >&2; exit 1; }
+      echo same
+    expect: {equals: same}
+    explain: >-
+      `warn_rate_limit`, `prewarn_seconds` and `warnings_as_errors` contain the four letters without
+      being the level. `\<warn\>` matches only where `warn` is a whole word; letters, digits and
+      the underscore count as parts of a word.
+  - id: comments
+    title: Comments and section headers are unchanged
+    type: exec
+    guard: true
+    run: |-
+      d=/opt/course/vim-replace-level
+      [ -f "$d/logging.conf" ] || { echo "$d/logging.conf does not exist" >&2; exit 1; }
+      [ -f "$d/.grade/original" ] || { echo "the reference copy is gone: reset the question" >&2; exit 1; }
+      text() { grep -E '^[[:space:]]*(#|\[)' "$1" | sed -E 's/[[:space:]]+$//'; }
+      n=$(diff <(text "$d/logging.conf") <(text "$d/.grade/original") | grep -c '^[<>]')
+      [ "$n" -eq 0 ] || { echo "$n comment or header line(s) differ from the original" >&2; exit 1; }
+      echo same
+    expect: {equals: same}
+    explain: >-
+      The comments use "warn" as an English word, and a word boundary cannot tell that from the
+      level name. Restrict the substitute to what makes a line a setting with that value (`= warn`
+      at the end of the line), or confirm each match with the flag `c`.
+  - id: other-values
+    title: All other settings keep their value
+    type: exec
+    guard: true
+    run: |-
+      d=/opt/course/vim-replace-level
+      [ -f "$d/logging.conf" ] || { echo "$d/logging.conf does not exist" >&2; exit 1; }
+      [ -f "$d/.grade/original" ] || { echo "the reference copy is gone: reset the question" >&2; exit 1; }
+      other() {
+        grep -vE '^[[:space:]]*(#|\[|$)' "$1" \
+          | grep -vE '^(console|syslog|root|http\.access|db\.slow_query|queue|scheduler)\.level[[:space:]]*=' \
+          | sed -E 's/[[:space:]]+$//'
+      }
+      n=$(diff <(other "$d/logging.conf") <(other "$d/.grade/original") | grep -c '^[<>]')
+      [ "$n" -eq 0 ] || { echo "$n other setting(s) differ from the original" >&2; exit 1; }
+      echo same
+    expect: {equals: same}
+    explain: >-
+      `db.level = warning` was already right and becomes `warninging` with a careless pattern;
+      `message_prefix = "warn: "` and the comment behind `on_warn` contain the word without being
+      the level. Look at the result with `:g/warn/#` before you save.

@@ -1,0 +1,35 @@
+title: Where the volume for a new claim comes from
+domain: container-orchestration
+difficulty: easy
+tags: [storage, storageclass]
+stem: |-
+  A cluster uses dynamic volume provisioning. A developer creates a PersistentVolumeClaim that names
+  the StorageClass `fast`. No PersistentVolume exists yet that could satisfy the claim.
+
+  What creates the storage volume and the PersistentVolume for this claim?
+options:
+  - text: A cluster administrator, who has to create them by hand
+    explain: >-
+      That is static provisioning: administrators create volumes and PersistentVolume objects in
+      advance. Dynamic provisioning exists to remove this step.
+  - text: The kube-scheduler, when it places the Pod
+    explain: >-
+      The scheduler looks for Pods that are not yet bound to a node and assigns each to a suitable
+      node. It does not create storage.
+  - text: The provisioner named in the StorageClass
+    correct: true
+  - text: The kubelet on the node that runs the Pod
+    explain: >-
+      A kubelet makes sure that the Pods bound to its node are running. Creating volumes in the
+      storage system is not its job.
+explanation: >-
+  Dynamic volume provisioning creates storage volumes on demand. It is based on the StorageClass: each
+  class names a volume plugin, the provisioner, and the parameters to pass to it. When a claim requests
+  the class, the provisioner creates a volume in the storage system and the PersistentVolume that
+  represents it, and the claim is bound to it. Without dynamic provisioning an administrator has to
+  create both beforehand.
+references:
+  - title: Dynamic Volume Provisioning
+    url: https://kubernetes.io/docs/concepts/storage/dynamic-provisioning/
+  - title: Storage Classes
+    url: https://kubernetes.io/docs/concepts/storage/storage-classes/

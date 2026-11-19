@@ -1,0 +1,78 @@
+title: Edit many files whose names contain blanks
+domain: pipes-transformations
+difficulty: medium
+minutes: 7
+tags: [find, xargs, sed, quoting]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  The database moved: the host `db-old.internal` is now called `db-new.internal`. The site
+  configurations below `/opt/course/bulk-edit-spaced-names/sites` still point to the old name.
+  Whoever created them was generous with blanks and punctuation in file names.
+
+  In **every regular file below `sites` whose name ends in `.conf`**, replace **every** occurrence of
+  `db-old.internal` with `db-new.internal`.
+
+  Everything else stays exactly as it is: the rest of each `.conf` file, and all files with other
+  endings (backups, notes, disabled configurations), even where they mention the old host.
+hints:
+  - "First list the files you are about to change, and look at their names closely: `find ... -name '*.conf'`. A pipeline that splits file names at blanks will not reach all of them."
+  - "`find -print0` separates the names with a NUL byte and `xargs -0` reads them that way, so blanks, quotes and brackets in names are harmless. `sed -i 's/old/new/g' FILE...` edits files in place; without the `g` only the first match in a line is replaced."
+  - "`find /opt/course/bulk-edit-spaced-names/sites -type f -name '*.conf' -print0 | xargs -0 sed -i 's/db-old\\.internal/db-new.internal/g'`"
+checks:
+  - id: awkward-names
+    title: The files with blanks and quotes in their names use the new host
+    type: exec
+    run: |-
+      cd /opt/course/bulk-edit-spaced-names/sites || exit 1
+      for f in "shop/shop frontend.conf" "blog/My Blog (staging).conf" "internal tools/wiki.conf" "internal tools/O'Brien test.conf"; do
+        [ -f "$f" ] || { echo "sites/$f does not exist any more" >&2; exit 1; }
+        grep -q 'db-new\.internal' "$f" || { echo "sites/$f does not mention db-new.internal" >&2; exit 1; }
+      done
+      echo updated
+    expect: {equals: updated}
+    explain: >-
+      By default `xargs` splits its input at blanks and treats quotes specially, so
+      `find | xargs` hands `sed` the pieces `shop/shop` and `frontend.conf` and stops at the
+      apostrophe in `O'Brien`. Pass the names NUL-separated (`find -print0 | xargs -0`) or let find
+      run the command itself (`-exec ... {} +`).
+  - id: no-old-host
+    title: No .conf file mentions the old host any more
+    type: exec
+    run: |-
+      cd /opt/course/bulk-edit-spaced-names/sites || exit 1
+      n=$(find . -type f -name '*.conf' | wc -l)
+      [ "$n" -eq 7 ] || { echo "expected 7 files ending in .conf below sites, found $n: none may be deleted, renamed or added" >&2; exit 1; }
+      left=$(find . -type f -name '*.conf' -exec grep -l 'db-old\.internal' {} +)
+      [ -z "$left" ] || { echo "still mentions db-old.internal:" >&2; echo "$left" >&2; exit 1; }
+      echo clean
+    expect: {equals: clean}
+    explain: >-
+      Every file and every occurrence counts. Commonly missed: the hidden file `.cache.conf`, which a
+      shell pattern like `*/*.conf` does not match while `find -name '*.conf'` does, and the second
+      host in one line of `checkout.conf`, which needs the `g` flag of `s///`.
+  - id: only-the-host
+    title: Nothing else changed in the .conf files
+    type: exec
+    run: |-
+      cd /opt/course/bulk-edit-spaced-names/sites || exit 1
+      [ -s ../.expected-conf ] || { echo "the exercise data is damaged: reset the question" >&2; exit 1; }
+      sha256sum --check --status ../.expected-conf && echo exact
+    expect: {equals: exact}
+    explain: >-
+      The .conf files are compared with the result of replacing the host name and nothing else. It
+      fails while an occurrence is left, and when the edit damaged other text, for example a
+      pattern that is too greedy or a file that was rewritten by hand.
+  - id: others-untouched
+    title: Files with other endings are unchanged
+    type: exec
+    guard: true
+    run: |-
+      cd /opt/course/bulk-edit-spaced-names/sites || exit 1
+      [ -s ../.manifest-others ] || { echo "the exercise data is damaged: reset the question" >&2; exit 1; }
+      sha256sum --check --status ../.manifest-others && echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      `grep -rl db-old.internal . | xargs sed -i ...` changes every file that mentions the host,
+      including the backup, the audit note and the disabled configuration. Select by file name
+      first, then edit.

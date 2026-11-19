@@ -1,0 +1,82 @@
+title: Clean a workspace without collateral damage
+domain: files-directories
+difficulty: medium
+minutes: 7
+tags: [rm, globbing, find, symlink]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  The build host is short of disk space. Clean up `/opt/course/cleanup-build-cache/workspace`, but
+  remove **exactly** this and nothing else:
+
+  1. every **file** whose name ends in `.tmp`, at any depth, hidden files and files in hidden
+     directories included,
+  2. the object files (`*.o`) in `build/obj`,
+  3. the directory `build/cache` with everything in it.
+
+  What must survive:
+
+  - the prebuilt object files in `vendor/lib`, and all of `vendor` (the cache contains a symbolic
+    link to it),
+  - the directory `archive.tmp` and its content: it is a directory, not a temporary file,
+  - every other file and directory, `build/obj` itself included.
+hints:
+  - "List before you delete: run the pattern with `ls -ld` or `find ... -print` first, and only then with `rm`. Look at `ls -la build/cache` before you remove it."
+  - "`*.tmp` reaches one directory and no hidden names. `find <dir> -type f -name '*.tmp'` reaches every depth, dot files included, and `-type f` keeps directories out. `rm -r` on a symbolic link removes the link, but with a trailing slash (`link/`) it works on the directory behind it."
+  - "`cd /opt/course/cleanup-build-cache/workspace; find . -type f -name '*.tmp' -delete; rm -- build/obj/*.o; rm -r build/cache`"
+checks:
+  - id: tmp-gone
+    title: No file ending in .tmp is left
+    type: exec
+    run: |-
+      w=/opt/course/cleanup-build-cache/workspace
+      [ -d "$w/src" ] || { echo "$w/src is gone: the workspace was damaged" >&2; exit 1; }
+      left=$(find "$w" -type f -name '*.tmp')
+      [ -z "$left" ] || { echo "still there: $left" >&2; exit 1; }
+      echo clean
+    expect: {equals: clean}
+    explain: >-
+      Temporary files hide where a glob does not look: `*.tmp` skips names that start with a dot
+      and never enters subdirectories or hidden directories. `find` with `-type f -name '*.tmp'`
+      sees them all, and the quotes keep the shell from expanding the pattern first.
+  - id: objects-gone
+    title: build/obj has no object files any more
+    type: exec
+    run: |-
+      d=/opt/course/cleanup-build-cache/workspace/build/obj
+      [ -d "$d" ] || { echo "$d itself must stay" >&2; exit 1; }
+      left=$(find "$d" -name '*.o')
+      [ -z "$left" ] || { echo "still there: $left" >&2; exit 1; }
+      echo clean
+    expect: {equals: clean}
+    explain: >-
+      A glob with a directory in front, `build/obj/*.o`, is as narrow as the task: it cannot reach
+      `vendor/lib`. It also does not match `main.o.d`, which only looks like an object file.
+  - id: cache-gone
+    title: build/cache is gone
+    type: exec
+    run: |-
+      w=/opt/course/cleanup-build-cache/workspace
+      [ -d "$w/build" ] || { echo "$w/build is gone: the workspace was damaged" >&2; exit 1; }
+      [ ! -e "$w/build/cache" ] && [ ! -L "$w/build/cache" ] || { echo "build/cache still exists" >&2; exit 1; }
+      echo gone
+    expect: {equals: gone}
+    explain: >-
+      `rm -r build/cache` removes the directory and the symbolic link inside it, not what the link
+      points to. Emptying the directory with `rm -r build/cache/*` leaves the directory itself and
+      any hidden entries behind.
+  - id: survivors
+    title: Everything else is still there
+    type: exec
+    guard: true
+    run: |-
+      b=/opt/course/cleanup-build-cache
+      cd "$b/workspace" || exit 1
+      missing=$({ find . -mindepth 1 -type d -printf 'd - %P\n'; find . -type f -printf 'f %s %P\n'; } | LC_ALL=C sort | LC_ALL=C comm -13 - "$b/.keep")
+      [ -z "$missing" ] || { echo "missing or changed: $missing" >&2; exit 1; }
+      echo intact
+    expect: {equals: intact}
+    explain: >-
+      Each rule has a look-alike that must stay: `*.o` files in `vendor/lib`, the directory
+      `archive.tmp`, and `vendor` itself, which `rm -r build/cache/*/` empties through the symbolic
+      link without any message. A clean-up is only safe when the list was looked at before `rm` ran.

@@ -1,0 +1,37 @@
+title: A host-network Pod in a Namespace labelled for Pod Security
+domain: container-orchestration
+difficulty: hard
+tags: [security, pod-security]
+stem: |-
+  Namespace `apps` carries a single Pod Security label:
+  `pod-security.kubernetes.io/enforce: baseline`. A user who is allowed to create Pods there submits a
+  Pod with `hostNetwork: true`.
+
+  What happens?
+options:
+  - text: The Pod is created and the user sees a warning about the violation
+    explain: >-
+      That is the `warn` mode. It informs the user and lets the Pod through; here only `enforce` is
+      set.
+  - text: The Pod is created and the violation is noted in the audit log
+    explain: >-
+      That is the `audit` mode, which adds an annotation to the audit event and otherwise allows the
+      Pod. Here only `enforce` is set.
+  - text: The Pod is created with `hostNetwork` reset to `false`
+    explain: >-
+      Pod Security Admission validates Pods, it never changes them. A Pod either meets the level or it
+      does not.
+  - text: The API server rejects the Pod and nothing is created
+    correct: true
+explanation: >-
+  The Pod Security Standards define three levels: Privileged (no restrictions), Baseline (prevents known
+  privilege escalations, allows a default Pod) and Restricted (current hardening best practice). The
+  built-in Pod Security admission controller applies a level per Namespace through labels, in one of
+  three modes: `enforce` rejects violating Pods, `audit` records them, `warn` tells the user. Sharing
+  host namespaces such as the host network is disallowed from Baseline upwards, so with `enforce` the
+  Pod is rejected.
+references:
+  - title: Pod Security Admission
+    url: https://kubernetes.io/docs/concepts/security/pod-security-admission/
+  - title: Pod Security Standards
+    url: https://kubernetes.io/docs/concepts/security/pod-security-standards/

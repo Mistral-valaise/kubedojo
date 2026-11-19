@@ -1,0 +1,67 @@
+title: Change one setting and save
+domain: vim
+difficulty: easy
+minutes: 3
+environment: base
+tags: [vim, modes, save-quit]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  At peak time the orders database refuses new clients: its connection limit is too low.
+
+  Edit `/opt/course/vim-first-edit/db.conf` and raise the setting `max_connections` from `100`
+  to `250`. Save the file and leave the editor.
+
+  Change nothing else in the file: other lines contain the number 100 too, and they are right.
+
+  Any editor works. `vim` is the one you will find on every Kubernetes exam host, so this is a good
+  place to meet it.
+hints:
+  - "`vim /opt/course/vim-first-edit/db.conf` opens the file in normal mode: keys are commands there, not text. `i` starts inserting text, Esc gets you back."
+  - "Jump to the line with `/max_connections` and Enter. Put the cursor on `100` (`w` moves a word forward) and type `cw` to replace that word, then `250`, then Esc."
+  - "`:wq` and Enter saves and quits. If something went wrong, `:q!` leaves without saving and you start again."
+checks:
+  - id: value
+    title: max_connections is 250
+    type: exec
+    run: |-
+      f=/opt/course/vim-first-edit/db.conf
+      [ -f "$f" ] || { echo "$f does not exist" >&2; exit 1; }
+      grep -E '^[[:space:]]*max_connections[[:space:]]*=' "$f" | tr -d '[:space:]'
+    expect: {equals: "max_connections=250"}
+    explain: >-
+      The change only counts once it is written to disk: `:w` saves, `:wq` saves and quits. A typical
+      slip is to type the new value while still in normal mode, where the keys are commands, or to
+      leave with `:q!`, which throws the change away.
+  - id: nothing-else
+    title: No other line was changed
+    type: exec
+    guard: true
+    run: |-
+      d=/opt/course/vim-first-edit
+      [ -f "$d/db.conf" ] || { echo "$d/db.conf does not exist" >&2; exit 1; }
+      [ -f "$d/.grade/original" ] || { echo "the reference copy is gone: reset the question" >&2; exit 1; }
+      norm() { sed -E 's/[[:space:]]+$//; s/^[[:space:]]*max_connections[[:space:]]*=.*/max_connections = N/' "$1"; }
+      n=$(diff <(norm "$d/db.conf") <(norm "$d/.grade/original") | grep -c '^[<>]')
+      [ "$n" -eq 0 ] || { echo "$n line(s) besides max_connections differ from the original" >&2; exit 1; }
+      echo unchanged
+    expect: {equals: unchanged}
+    explain: >-
+      In normal mode every key is a command, so a stray `x`, `dd` or `J` changes the file without
+      you noticing. Undo with `u` until the file is clean again, or leave with `:q!` and start over;
+      a blind replace of every `100` also hits the comment, `shared_buffers` and the log threshold.
+  - id: closed
+    title: No editor session is left open
+    type: exec
+    guard: true
+    run: |-
+      d=/opt/course/vim-first-edit
+      [ -d "$d" ] || { echo "$d does not exist" >&2; exit 1; }
+      left=$(find "$d" -maxdepth 1 -name '.db.conf.sw?' -printf '%f ')
+      [ -z "$left" ] || { echo "swap file ${left}found: Vim is still open on the file, or it was closed without quitting" >&2; exit 1; }
+      echo closed
+    expect: {equals: closed}
+    explain: >-
+      While Vim has a file open it keeps a swap file next to it (`.db.conf.swp`). Quit with `:wq`
+      or `:q!` instead of closing the terminal; a session that is merely suspended with Ctrl-z comes
+      back with `fg`.

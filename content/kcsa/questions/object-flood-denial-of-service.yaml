@@ -1,0 +1,36 @@
+title: Limiting an object flood in a namespace
+domain: kubernetes-threat-model
+difficulty: easy
+tags: [denial-of-service, multi-tenancy]
+stem: |-
+  A compromised pipeline ServiceAccount may create ConfigMaps in the namespace `team-heron`. The
+  attacker uses it to create tens of thousands of them, hoping to exhaust etcd and degrade the
+  control plane for all tenants.
+
+  Which object in `team-heron` caps how many ConfigMaps can exist there?
+options:
+  - text: A ResourceQuota
+    correct: true
+  - text: A LimitRange
+    explain: >-
+      A LimitRange sets defaults and minimum and maximum values for the resources of single
+      containers, Pods or claims. It does not count how many objects a namespace holds.
+  - text: A PodDisruptionBudget
+    explain: >-
+      A PodDisruptionBudget limits how many Pods of an application may be down at once during
+      voluntary disruptions such as a node drain.
+  - text: A FlowSchema
+    explain: >-
+      FlowSchemas belong to API Priority and Fairness, which classifies and queues requests to
+      protect the API server from overload. They do not limit how many objects are stored.
+explanation: >-
+  A ResourceQuota constrains aggregate consumption per namespace, and besides CPU, memory and storage
+  it can limit the number of objects of a kind, for example `count/configmaps`. A request that would
+  exceed the quota is rejected with 403 Forbidden. The RBAC good practices name object count quotas
+  as the mitigation for denial of service through object creation, which matters most where
+  semi-trusted tenants share a cluster.
+references:
+  - title: Resource Quotas
+    url: https://kubernetes.io/docs/concepts/policy/resource-quotas/
+  - title: Role Based Access Control Good Practices
+    url: https://kubernetes.io/docs/concepts/security/rbac-good-practices/

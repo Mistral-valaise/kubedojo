@@ -1,0 +1,36 @@
+title: Inspecting a running container whose image has no shell
+domain: cloud-native-application-delivery
+difficulty: hard
+tags: [debugging, kubectl]
+stem: |-
+  The container `app` of Pod `api` is built from a distroless image: it contains the application
+  binary and nothing else. The application misbehaves only in this one Pod, and the team wants to look
+  at its processes with the usual tools while it keeps running.
+
+  Which command makes that possible?
+options:
+  - text: "`kubectl exec -it api -c app -- sh`"
+    explain: >-
+      `exec` starts a program that exists in the container's image. A distroless image has no shell
+      and no tools, so there is nothing to start.
+  - text: "`kubectl debug -it api --image=busybox --copy-to=api-debug`"
+    explain: >-
+      `--copy-to` creates a second Pod from the same specification and debugs that one. The copy is a
+      fresh start and does not show the state of the Pod that misbehaves.
+  - text: "`kubectl debug -it api --image=busybox --target=app`"
+    correct: true
+  - text: "`kubectl attach -it api -c app`"
+    explain: >-
+      `attach` connects to the input and output of the process that already runs in the container. It
+      shows what the application prints and offers no tools.
+explanation: >-
+  `kubectl debug` adds an ephemeral container to the running Pod: a temporary container with its own
+  image, here one that brings a shell and tools. `--target` places it in the process namespace of the
+  named container, so its processes are visible. Ephemeral containers exist for exactly the cases
+  where `kubectl exec` is not enough, a crashed container or an image without debugging utilities.
+  They are never restarted and cannot be removed from the Pod again.
+references:
+  - title: Debug Running Pods (Debugging with an ephemeral debug container)
+    url: https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/#ephemeral-container
+  - title: Ephemeral Containers
+    url: https://kubernetes.io/docs/concepts/workloads/pods/ephemeral-containers/

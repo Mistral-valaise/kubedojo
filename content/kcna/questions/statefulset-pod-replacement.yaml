@@ -1,0 +1,34 @@
+title: Replacing a Pod of a StatefulSet
+domain: kubernetes-fundamentals
+difficulty: medium
+tags: [workloads, statefulset]
+stem: |-
+  A StatefulSet named `db` has 3 replicas and a `volumeClaimTemplates` entry, so every Pod has its own
+  PersistentVolumeClaim. The node that runs `db-1` fails and the Pod is removed.
+
+  What does the StatefulSet controller create in its place?
+options:
+  - text: A Pod named `db-1` that mounts the PersistentVolumeClaim the old `db-1` used
+    correct: true
+  - text: A Pod named `db-3` that gets a new and empty PersistentVolumeClaim
+    explain: >-
+      Ordinals run from 0 to replicas-1 and are reused, not counted up. `db-3` would only appear when
+      the StatefulSet is scaled to 4 replicas.
+  - text: A Pod named `db-1` that gets a new and empty PersistentVolumeClaim
+    explain: >-
+      The name is right, the storage is not. The claim belongs to the identity `db-1` and outlives the
+      Pod; it is not even deleted when the StatefulSet itself is deleted, unless a retention policy
+      says so.
+  - text: A Pod with a random name suffix that mounts a claim shared by all replicas
+    explain: >-
+      That is how Pods of a Deployment behave: interchangeable names, and one claim referenced by the
+      template for all of them.
+explanation: >-
+  A StatefulSet Pod has an identity made of an ordinal, a stable network identity and stable storage,
+  and the identity sticks to the Pod wherever it is rescheduled. The replacement gets the same name
+  (`<statefulset>-<ordinal>`), therefore the same DNS name behind the headless Service, and when it is
+  scheduled its volume mounts use the PersistentVolume of the claim that already belongs to that
+  ordinal.
+references:
+  - title: StatefulSets
+    url: https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/

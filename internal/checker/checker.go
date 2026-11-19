@@ -126,12 +126,27 @@ func Recheck(ctx context.Context, q *catalog.Question, run Runner, prev Result) 
 	return res
 }
 
+// score adds up the points of the passed checks. Guards only count once a
+// check that needs work has passed: a guard holds on the untouched
+// environment ("the service still runs", "the base was not edited"), so on
+// its own it says nothing was broken, not that anything was done. Without
+// this an exam would pay for tasks nobody opened.
 func score(q *catalog.Question, res *Result) {
 	res.Score = 0
+	worked, guards := false, 0
 	for i, c := range q.Checks {
-		if i < len(res.Checks) && res.Checks[i].Passed {
+		if i >= len(res.Checks) || !res.Checks[i].Passed {
+			continue
+		}
+		if c.Guard {
+			guards += c.Points
+		} else {
+			worked = true
 			res.Score += c.Points
 		}
+	}
+	if worked {
+		res.Score += guards
 	}
 	res.Passed = res.Score == res.Max
 }
@@ -380,7 +395,13 @@ func describe(c *catalog.Check) string {
 	}
 	var parts []string
 	if e.Equals != nil {
-		parts = append(parts, "equals "+strconv.Quote(strings.TrimSpace(*e.Equals)))
+		if v := strings.TrimSpace(*e.Equals); strings.Contains(v, "\n") {
+			// A value of several lines is shown as it is: quoted, its line
+			// breaks would read as a literal \n.
+			parts = append(parts, "equals:\n"+v)
+		} else {
+			parts = append(parts, "equals "+strconv.Quote(v))
+		}
 	}
 	if e.NotEquals != nil {
 		parts = append(parts, "not "+strconv.Quote(*e.NotEquals))

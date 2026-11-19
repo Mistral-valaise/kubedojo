@@ -79,7 +79,11 @@ button:disabled { cursor: not-allowed; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 
 /* Markdown ---------------------------------------------------------------- */
-.md { font-size: 0.95rem; line-height: 1.65; overflow-wrap: anywhere; }
+/* Wide content (code blocks, tables) scrolls inside its own box and never widens the page. */
+.md { font-size: 0.95rem; line-height: 1.65; overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
+/* Sizes are variants here because .md is unlayered and so beats a text-* utility. */
+.md.md-sm { font-size: 0.85rem; line-height: 1.6; }
+.md.md-lg { font-size: 1.02rem; line-height: 1.7; }
 .md > *:first-child { margin-top: 0; }
 .md > *:last-child { margin-bottom: 0; }
 .md h1 { font-size: 1.7rem; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 0.6em; }
@@ -98,10 +102,10 @@ button:disabled { cursor: not-allowed; }
 .md code.copyable.copied { border-color: var(--ok); background: var(--ok-soft); }
 .md .copied-tip { position: absolute; left: 50%; bottom: calc(100% + 4px); transform: translateX(-50%); z-index: 5;
   padding: 1px 6px; border-radius: 5px; background: var(--ok); color: #04130c; font: 600 10.5px var(--font-sans); white-space: nowrap; pointer-events: none; }
-.md pre { position: relative; background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 0.85em 1em; overflow-x: auto; line-height: 1.55; }
+.md pre { position: relative; background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 0.85em 1em; max-width: 100%; overflow-x: auto; line-height: 1.55; }
 .md pre code { background: none; border: 0; padding: 0; font-size: 0.83rem; white-space: pre; }
 .md blockquote { border-left: 3px solid var(--accent); padding: 0.1em 0 0.1em 1em; color: var(--muted); }
-.md table { width: 100%; border-collapse: collapse; font-size: 0.9em; display: block; overflow-x: auto; }
+.md table { width: 100%; max-width: 100%; border-collapse: collapse; font-size: 0.9em; display: block; overflow-x: auto; }
 .md th { text-align: left; font-weight: 600; color: var(--muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; }
 .md th, .md td { padding: 0.5em 0.8em 0.5em 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 .md hr { border: 0; border-top: 1px solid var(--line); margin: 1.5em 0; }
@@ -113,4 +117,8 @@ button:disabled { cursor: not-allowed; }
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .pulse { animation: pulse-dot 1.4s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .spin, .pulse { animation: none; } }
+.ring-arc { transition: stroke-dashoffset .6s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .spin, .pulse { animation: none; }
+  .ring-arc { transition: none; }
+}

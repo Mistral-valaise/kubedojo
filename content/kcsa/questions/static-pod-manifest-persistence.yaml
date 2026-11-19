@@ -1,0 +1,34 @@
+title: A manifest dropped into the static Pod directory
+domain: kubernetes-threat-model
+difficulty: hard
+tags: [persistence, static-pods, kubelet]
+stem: |-
+  Every namespace of a cluster enforces the `restricted` Pod Security Standard. An attacker who has
+  gained write access to a node's filesystem places a manifest for a Pod with a `hostPath` volume in
+  the kubelet's static Pod directory, to keep a foothold on the node.
+
+  What happens?
+options:
+  - text: The kubelet asks the API server first and discards the manifest when admission denies it
+    explain: >-
+      The kubelet does not need the API server's consent to run a static Pod. It only tries to
+      register a mirror Pod afterwards, so that the Pod is visible in the API.
+  - text: The kubelet starts the Pod but removes the `hostPath` volume to satisfy the policy
+    explain: >-
+      Nothing rewrites the manifest. Pod Security admission validates Pods, it never changes them,
+      and static Pods may use node resources such as `hostPath` volumes.
+  - text: The kubelet ignores the manifest, because static Pods may only run in `kube-system`
+    explain: >-
+      Static Pods are not tied to `kube-system`. That namespace is merely where kubeadm's control
+      plane static Pods happen to live.
+  - text: The kubelet runs the Pod; failing admission only means no mirror Pod is registered
+    correct: true
+explanation: >-
+  Static Pods are managed by the kubelet from a directory or URL on the node, not by the API server.
+  If a static Pod fails admission control, the kubelet cannot register its mirror Pod, but the Pod
+  still runs on the node. This makes write access to the manifest directory or to the kubelet
+  configuration a persistence technique that policies inside the cluster do not stop; the defences
+  are on the node: restrict and audit access to those files, and enable static Pods only where needed.
+references:
+  - title: Kubernetes API Server Bypass Risks
+    url: https://kubernetes.io/docs/concepts/security/api-server-bypass-risks/

@@ -1,0 +1,76 @@
+title: Fix a Deployment manifest before it is applied
+domain: vim
+difficulty: hard
+minutes: 9
+environment: base
+tags: [vim, yaml, kubernetes, manifest]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  A colleague asks you to review `/opt/course/vim-fix-deployment/deployment.yaml` before it is
+  applied to the cluster. There is no cluster on this host: you fix the file. The review found:
+
+  1. The Deployment must run `3` replicas.
+  2. The image of the container `web` is misspelled. It must be `nginx:1.27-alpine`.
+  3. The container `web` must declare the container port `8080`.
+  4. The container `web` needs resource requests of `100m` CPU and `64Mi` memory, in the same form
+     as the container `log-shipper` has them.
+
+  The file must remain valid YAML. Do not change anything else: the container `log-shipper`, the
+  labels, the volume.
+hints:
+  - "Two fixes change a value, two add lines. For the new lines the column decides: a key of the container `web` starts exactly where its `image:` starts. Count on `image`, not on `- name`."
+  - "`cw` changes a word, `o` opens a new line below the cursor (autoindent keeps the column). A block that already exists elsewhere is quicker copied than typed: `V` to select the lines, `y` to yank, `p` to paste, then correct the values."
+  - "`/replicas` `$` `r3`. `/ngnix` `cw` `nginx`. On the image line `o` and type `ports:`, Enter, two spaces, `- containerPort: 8080`. Yank the four `resources` lines of log-shipper (`V3jy`), paste below the port of web (`p`), then change `10m` to `100m` and `16Mi` to `64Mi`."
+checks:
+  - id: replicas
+    title: The Deployment runs 3 replicas
+    type: exec
+    run: |-
+      python3 /opt/course/vim-fix-deployment/.grade/check.py replicas
+    expect: {equals: ok}
+    explain: >-
+      `replicas` is a number and a field of the Deployment's `spec`, two spaces deep. Written as
+      `"3"` it is a string and the API server rejects it; `r3` replaces the one character under the
+      cursor without entering insert mode.
+  - id: image
+    title: Container web uses nginx:1.27-alpine
+    type: exec
+    run: |-
+      python3 /opt/course/vim-fix-deployment/.grade/check.py image
+    expect: {equals: ok}
+    explain: >-
+      A misspelled image is valid YAML and a valid Deployment: nothing complains until the Pods sit
+      in ImagePullBackOff. Search for the typo with `/ngnix` and change the word with `cw`, or
+      swap the two letters with `xp`.
+  - id: port
+    title: Container web declares container port 8080
+    type: exec
+    run: |-
+      python3 /opt/course/vim-fix-deployment/.grade/check.py port
+    expect: {equals: ok}
+    explain: >-
+      `ports` is a list in the container: the key starts in the column of `image`, and its entry
+      `- containerPort: 8080` is indented further. Two columns too far left and the key belongs to
+      the Pod's spec, which has no such field.
+  - id: resources
+    title: Container web requests 100m CPU and 64Mi memory
+    type: exec
+    run: |-
+      python3 /opt/course/vim-fix-deployment/.grade/check.py resources
+    expect: {equals: ok}
+    explain: >-
+      The path is `resources.requests.cpu` and `resources.requests.memory`, each level indented
+      below the one before. Copying the block of the other container keeps the three levels intact;
+      remember to change the values afterwards.
+  - id: rest
+    title: The file is valid YAML and nothing else changed
+    type: exec
+    guard: true
+    run: |-
+      python3 /opt/course/vim-fix-deployment/.grade/check.py rest
+    expect: {equals: ok}
+    explain: >-
+      One line at a depth that matches no enclosing block, or one tab, makes the whole manifest
+      unreadable, and a block pasted into the wrong container changes that container. Look at the
+      file once more before saving; `u` undoes step by step.

@@ -2,39 +2,72 @@
 
 # kubedojo
 
-**Pass your Kubernetes exam by doing, not by reading.**
+**Get good at Linux and Kubernetes by doing, not by reading.**
 
-Hands-on training for the **CKA**, **CKAD** and **CKS** exams: real kubeadm clusters, a real terminal in your
-browser, tasks in exam format — graded automatically, with an explanation for every point you miss.
+A place to train for developers, SREs and anyone who runs software. Real clusters, a real terminal in
+your browser, tasks graded automatically, with an explanation for every point you miss. Use it to keep
+your skills sharp, or to prepare for the five exams on the road to Kubestronaut — **KCNA**, **CKAD**,
+**CKA**, **KCSA**, **CKS** — and the Linux and Vim skills they assume.
 
 [![CI](https://github.com/Mistral-valaise/kubedojo/actions/workflows/ci.yaml/badge.svg)](https://github.com/Mistral-valaise/kubedojo/actions/workflows/ci.yaml)
 [![Release](https://img.shields.io/github/v/release/Mistral-valaise/kubedojo)](https://github.com/Mistral-valaise/kubedojo/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.37-326ce5)
-![Questions](https://img.shields.io/badge/questions-80_verified-3ddc97)
+![Questions](https://img.shields.io/badge/questions-204_verified-3ddc97)
 
 [Quick start](#quick-start) · [What you can do](#what-you-can-do) · [How it works](#how-it-works) · [Run it for your team](#run-it-for-your-team) · [Contribute](#contributing)
 
 ![Solving a question in kubedojo: task on the left, terminal on the right, per-check feedback](docs/images/practice.gif)
 
+[Watch the 50-second tour](docs/media/kubedojo-promo.mp4) (MP4, no sound)
+
 </div>
 
 ## Why kubedojo
 
+Understanding a system and being able to operate it are different skills, and only the second one
+fades when you stop using it. That matters more now that an AI assistant can write the manifest or the
+shell one-liner for you: somebody still has to know what it does, notice when it is wrong, and fix the
+cluster at the terminal when it breaks. Linux and Kubernetes sit under most of the software that runs
+today, so they are a good place to stay in practice.
+
+kubedojo is built for that practice. The exams are one reason to use it, not the only one:
+
+- **For the job.** Open any task in any track, solve it on a real host or cluster, get graded. No exam
+  date needed.
+- **For the exam.** The same tasks, timed and weighted like the certification, with a report per domain.
+- **It keeps moving.** Questions are plain files, proven by an automated test, so they are updated as
+  Kubernetes changes. A track is a directory: new modules on other topics can be added the same way
+  ([docs/adding-a-track.md](docs/adding-a-track.md)).
+
 The CKA, CKAD and CKS are performance exams: two hours, a terminal, real clusters. Reading does not prepare
 you for that — repetition under exam conditions does. kubedojo gives you exactly that loop, on your own
-machine, for free:
+machine, for free. And it starts one step earlier and goes one step further: the shell and the editor
+the exams take for granted, and the two theory exams that complete the set.
+
+| Step | Track | Kind | What you practise |
+|---|---|---|---|
+| Foundation | **Linux & Vim Essentials** | hands-on, a Linux host | 40 exercises: pipes, logs, Vim, permissions, processes, ssh, bash |
+| 1 | **KCNA** | theory | 43 multiple-choice questions, mock exams of 30 in 45 minutes |
+| 2 | **CKAD** | hands-on, a cluster | 22 tasks: build, deploy, configure and expose applications |
+| 3 | **CKA** | hands-on, clusters | 37 tasks: install, operate and troubleshoot clusters |
+| 4 | **KCSA** | theory | 41 multiple-choice questions, mock exams of 30 in 45 minutes |
+| 5 | **CKS** | hands-on, clusters | 21 tasks: harden clusters, workloads and the supply chain |
+
+The order is a recommendation and nothing is locked. Why it is this order, and what each track leaves
+out: [docs/curriculum-design.md](docs/curriculum-design.md).
 
 | | |
 |---|---|
-| 🎯 **Exam-format tasks** | 80 original questions (37 CKA, 22 CKAD, 21 CKS) across all exam domains, weighted like the real exams. |
+| 🎯 **Exam-format tasks** | 204 original questions in six tracks, across all exam domains, weighted like the real exams. |
 | 🖥️ **Real clusters** | kubeadm, systemd, kubelet, etcd, static Pods. Break a kubelet, restore etcd, encrypt Secrets at rest, build an image with podman. |
 | ✅ **Feedback that teaches** | Every check shows what was expected, what was found, why it matters — and the command that checked it. |
 | ⏱️ **Timed simulations** | 120 minutes, no hints, a report with your score per domain and a clear pass or fail. |
 | 🔒 **Nothing leaves your machine** | Runs locally in Docker. No account, no cloud, no time limit. |
 
-Every question is **proven**: an automated test sets it up, confirms the checks fail, applies the
-reference solution and confirms they pass — on every commit.
+Every hands-on question is **proven**: an automated test sets it up, confirms the checks fail, applies
+the reference solution and confirms they pass. Every multiple-choice question cites the official page
+it was written from and was answered blind by a second reader before it shipped.
 
 ## Quick start
 
@@ -122,7 +155,9 @@ its own scrollback; up to four can be open (`--max-terminals`). `Alt+Shift+T` op
 ### Simulate — the exam, timed
 
 A full exam is 16–17 tasks in 120 minutes, weighted by domain like the real thing. CKA and CKS
-exams span two clusters, CKAD one. Flag tasks, keep notes, no feedback until you finish. Then you get the report: pass or fail, your
+exams span two clusters, CKAD one. A KCNA or KCSA mock exam is 30 questions in 45 minutes, closed
+book like the real one, and needs no cluster at all. The Linux skills assessment is 15 exercises in
+60 minutes on a Linux host that starts in a second. Flag tasks, keep notes, no feedback until you finish. Then you get the report: pass or fail, your
 score per domain, and every check of every task.
 
 ![An exam simulation and its report](docs/images/exam.gif)
@@ -237,6 +272,10 @@ Details and the metric reference: [docs/observability.md](docs/observability.md)
 - The kind driver covers everything that works on a container-based node. Tasks that need a real kernel
   boundary or a package manager on the node — AppArmor, gVisor, Falco with eBPF, `apt`-based kubeadm
   upgrades — are not included yet. They are planned for a VM driver; the driver interface is in place.
+- The Linux track runs in a container without systemd. It teaches processes, signals and `service`
+  scripts; `systemctl` appears in the lesson only. It is a foundation, not an LFCS simulator.
+- A mock exam uses kubedojo's own questions. Passing it says the material sits, not what the proctored
+  exam will ask. For KCNA and KCSA it is half the length of the real exam, at the same pace.
 - Hosted mode is single-tenant. It is not a hardened multi-tenant service.
 - Kubernetes moves fast and so do the exams. Lessons and questions target Kubernetes v1.37.
 
@@ -252,8 +291,9 @@ the real exams.
 Questions can also be exported as [Killercoda](https://killercoda.com) scenarios:
 `kubedojo content export --format killercoda`.
 
-kubedojo is not affiliated with or endorsed by the Linux Foundation or the CNCF. CKA, CKAD and CKS
-are trademarks of the Linux Foundation.
+kubedojo is an independent project, not affiliated with or endorsed by the Linux Foundation or the
+CNCF, and it awards no title or certificate. Kubestronaut is a program of the CNCF. Kubernetes, KCNA,
+KCSA, CKA, CKAD, CKS and Kubestronaut are trademarks of the Linux Foundation.
 
 ## License
 

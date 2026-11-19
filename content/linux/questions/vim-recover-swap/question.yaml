@@ -1,0 +1,68 @@
+title: Recover unsaved work from a swap file
+domain: vim
+difficulty: medium
+minutes: 5
+environment: base
+tags: [vim, swap-file, recovery]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  Your connection dropped while two files in `/opt/course/vim-recover-swap` were open in Vim.
+  Neither had been saved. Vim left a swap file for each of them.
+
+  1. `limits.conf`: the unsaved changes were an hour of work (new limits for `login` and `search`,
+     and a new section). **Recover them** so that `limits.conf` contains the edited version.
+  2. `upstream.conf`: the unsaved changes were an experiment that must not go live. **Discard
+     them**: the file stays exactly as it is on disk.
+
+  When you are done, no swap file may be left in the directory.
+hints:
+  - "`ls -a /opt/course/vim-recover-swap` shows the swap files: their names start with a dot. Open `limits.conf` in Vim and read the message that appears instead of the file; it lists your options."
+  - "`vim -r limits.conf` (or `R` at the prompt) loads the content of the swap file into the editor. It is not on disk until you write it with `:w`. Vim never deletes the old swap file after a recovery: that is your job."
+  - "`vim -r limits.conf`, check the text, `:wq`, then `rm .limits.conf.swp`. For `upstream.conf` there is nothing to recover: `rm .upstream.conf.swp`, or open the file and answer `D`."
+checks:
+  - id: recovered
+    title: limits.conf contains the recovered changes
+    type: exec
+    run: |-
+      d=/opt/course/vim-recover-swap
+      [ -f "$d/limits.conf" ] || { echo "$d/limits.conf does not exist" >&2; exit 1; }
+      [ -f "$d/.grade/limits.conf" ] || { echo "the reference copy is gone: reset the question" >&2; exit 1; }
+      norm() { sed -E 's/[[:space:]]+$//' "$1"; }
+      n=$(diff <(norm "$d/limits.conf") <(norm "$d/.grade/limits.conf") | grep -c '^[<>]')
+      [ "$n" -eq 0 ] || { echo "$n line(s) differ from the version that was being edited" >&2; exit 1; }
+      echo recovered
+    expect: {equals: recovered}
+    explain: >-
+      Recovering only fills the editor's buffer: the file on disk changes when you write it with
+      `:w`. Deleting the swap file first, or answering `E` (edit anyway) or `D` (delete) at the
+      prompt, throws the unsaved work away for good.
+  - id: swap-gone
+    title: No swap file is left
+    type: exec
+    run: |-
+      d=/opt/course/vim-recover-swap
+      [ -f "$d/limits.conf" ] && [ -f "$d/upstream.conf" ] || { echo "limits.conf or upstream.conf is missing" >&2; exit 1; }
+      left=$(find "$d" -maxdepth 1 -name '.*.sw?' -printf '%f ')
+      [ -z "$left" ] || { echo "still there: $left" >&2; exit 1; }
+      echo clean
+    expect: {equals: clean}
+    explain: >-
+      After a recovery Vim keeps the old swap file, and it will show the same warning at every
+      later start until the file is removed. A swap file that is still there can also mean that the
+      file is open in another terminal: quit that Vim instead of deleting its swap file.
+  - id: kept
+    title: upstream.conf is unchanged
+    type: exec
+    guard: true
+    run: |-
+      d=/opt/course/vim-recover-swap
+      [ -f "$d/upstream.conf" ] || { echo "$d/upstream.conf does not exist" >&2; exit 1; }
+      [ -f "$d/.grade/upstream.conf" ] || { echo "the reference copy is gone: reset the question" >&2; exit 1; }
+      cmp -s "$d/upstream.conf" "$d/.grade/upstream.conf" || { echo "upstream.conf differs from the version on disk at the start" >&2; exit 1; }
+      echo kept
+    expect: {equals: kept}
+    explain: >-
+      A swap file is not automatically better than the file: it holds whatever was in the editor
+      when the session died. Recover, look at the text, and only write it when it is what you want;
+      `:q!` leaves the file on disk untouched.

@@ -1,4 +1,4 @@
-// kubedojo — hands-on Kubernetes exam training (CKA, CKAD, CKS).
+// kubedojo — hands-on training for the Kubernetes certifications and the Linux skills they assume.
 package main
 
 import (
@@ -33,7 +33,8 @@ import (
 
 var version = "dev"
 
-const usage = `kubedojo — hands-on Kubernetes exam training (CKA, CKAD, CKS)
+const usage = `kubedojo — hands-on training for the Kubernetes certifications (KCNA, CKAD, CKA, KCSA, CKS)
+and the Linux skills they assume
 
 Usage:
   kubedojo up        Start kubedojo locally and open it in your browser
@@ -42,7 +43,7 @@ Usage:
   kubedojo down      Remove every sandbox kubedojo created
   kubedojo ratings   Show the feedback learners left on questions
   kubedojo content lint          Validate the content
-  kubedojo content test          Prove every question is solvable (needs Docker)
+  kubedojo content test          Prove every question is solvable (needs Docker, except for theory tracks)
   kubedojo content export        Export questions as Killercoda scenarios
   kubedojo version
 
@@ -105,6 +106,7 @@ type common struct {
 	k8sVersion string
 	nodeImage  string
 	termImage  string
+	linuxImage string
 	regCache   bool
 	regMirror  string
 }
@@ -139,6 +141,7 @@ func (c *common) register(fs *flag.FlagSet) {
 	fs.BoolVar(&c.regCache, "registry-cache", env("KUBEDOJO_REGISTRY_CACHE", "true") != "false", "run a local pull-through cache for Docker Hub images")
 	fs.StringVar(&c.regMirror, "registry-mirror", env("KUBEDOJO_REGISTRY_MIRROR", ""), "use this existing Docker Hub mirror instead of a local cache")
 	fs.StringVar(&c.termImage, "terminal-image", env("KUBEDOJO_TERMINAL_IMAGE", ""), "terminal image (default kubedojo/terminal:<kubernetes-version>)")
+	fs.StringVar(&c.linuxImage, "linux-image", env("KUBEDOJO_LINUX_IMAGE", defaultLinuxImage), "image of the Linux host in tracks without a cluster")
 }
 
 func (c *common) driver() *sandbox.Kind {
@@ -148,7 +151,8 @@ func (c *common) driver() *sandbox.Kind {
 	if c.termImage == "" {
 		c.termImage = "kubedojo/terminal:" + c.k8sVersion
 	}
-	return &sandbox.Kind{NodeImage: c.nodeImage, TerminalImage: c.termImage, RegistryCache: c.regCache, RegistryMirror: c.regMirror}
+	return &sandbox.Kind{NodeImage: c.nodeImage, TerminalImage: c.termImage, LinuxImage: c.linuxImage,
+		RegistryCache: c.regCache, RegistryMirror: c.regMirror}
 }
 
 func (c *common) contentFS() fs.FS {
@@ -210,7 +214,7 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 	}
 	drv := c.driver()
 	if local {
-		if err := preflight(ctx, drv, true); err != nil {
+		if err := preflight(ctx, drv, true, everything); err != nil {
 			return err
 		}
 	}
@@ -289,13 +293,18 @@ func cmdLint(args []string) error {
 		for _, q := range t.Questions {
 			perDomain[q.Domain]++
 		}
-		fmt.Printf("%s — %s: %d questions\n", t.ID, t.Title, len(t.Questions))
+		fmt.Printf("%s — %s (%s): %d questions\n", t.ID, t.Title, t.Kind, len(t.Questions))
 		for _, d := range t.Domains {
 			fmt.Printf("  %-28s %3d%%  %2d questions\n", d.ID, d.Weight, perDomain[d.ID])
 		}
 	}
 	if err != nil {
 		return fmt.Errorf("content is invalid:\n%w", err)
+	}
+	for _, t := range cat.List() {
+		if t.Draft() {
+			fmt.Printf("note: %s is a draft: it has placeholder lessons, and the size rules for a finished track are not applied to it yet\n", t.ID)
+		}
 	}
 	warnings := 0
 	for _, t := range cat.List() {

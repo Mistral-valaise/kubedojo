@@ -1,0 +1,34 @@
+title: Placing new Pods on nodes
+domain: kubernetes-fundamentals
+difficulty: easy
+tags: [control-plane, scheduling]
+stem: |-
+  A Deployment is scaled from 2 to 5 replicas. The three new Pods exist in the API server, but their
+  `spec.nodeName` is still empty.
+
+  Which component decides on which node each of them will run?
+options:
+  - text: kube-scheduler
+    correct: true
+  - text: kube-controller-manager
+    explain: >-
+      Its ReplicaSet controller created the three Pod objects. Creating a Pod and choosing a node for it
+      are separate jobs; controllers leave `spec.nodeName` empty.
+  - text: kubelet
+    explain: >-
+      A kubelet starts the containers of Pods that are already bound to its own node. It never picks
+      Pods for itself.
+  - text: kube-proxy
+    explain: >-
+      kube-proxy programs the forwarding rules for Services on every node. It takes no part in placing
+      Pods.
+explanation: >-
+  The kube-scheduler watches the API server for Pods that have no node assigned. For each one it filters
+  the nodes that can run the Pod (free resources, taints, affinity rules), scores the remaining nodes and
+  tells the API server its choice, which is called binding. Only then does the kubelet on that node see
+  the Pod and start its containers.
+references:
+  - title: Kubernetes Scheduler
+    url: https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/
+  - title: Kubernetes Components
+    url: https://kubernetes.io/docs/concepts/overview/components/

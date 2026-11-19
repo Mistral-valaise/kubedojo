@@ -1,0 +1,32 @@
+title: Noticing a shell started inside a container
+domain: platform-security
+difficulty: easy
+tags: [observability, runtime-security]
+stem: |-
+  A security team wants an alert within seconds when a process in any running container starts an
+  interactive shell or reads a sensitive file such as `/etc/shadow`, however the attacker got in.
+
+  Which source of signals can show this?
+options:
+  - text: The API server audit log, written at the `RequestResponse` level
+    explain: >-
+      The audit log records requests to the Kubernetes API. A process that an exploited application
+      starts inside its container never causes an API request.
+  - text: The system calls made on each node, which a runtime security tool checks against rules
+    correct: true
+  - text: A vulnerability scanner that examines every image stored in the registry
+    explain: >-
+      A scanner reports known vulnerabilities in the packages of an image before it runs. It does
+      not observe what running containers do.
+  - text: The resource metrics that the kubelet exposes for every container
+    explain: >-
+      These metrics describe CPU, memory, filesystem and network usage. They do not say which
+      program a container executed or which file it opened.
+explanation: >-
+  What a process does inside a container is visible at the kernel: every program start and file
+  access is a system call. Falco, a graduated CNCF project, is such a runtime security tool: it parses
+  the system calls on the host, evaluates them against rules and raises an alert when a rule matches. It detects and alerts;
+  blocking or responding is left to components that receive its alerts.
+references:
+  - title: The Falco Project documentation
+    url: https://falco.org/docs/

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/checker"
+	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 	"github.com/Mistral-valaise/kubedojo/internal/session"
 	"github.com/Mistral-valaise/kubedojo/internal/store"
 	"github.com/coder/websocket"
@@ -49,6 +51,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	mux.HandleFunc("GET /api/config", s.config)
+	mux.HandleFunc("GET /api/path", s.path)
 	mux.HandleFunc("GET /api/tracks", s.tracks)
 	mux.HandleFunc("GET /api/tracks/{track}", s.track)
 	mux.HandleFunc("GET /api/tracks/{track}/lessons/{domain}", s.lesson)
@@ -114,6 +117,8 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		writeErr(w, 404, "not found")
 	case errors.Is(err, session.ErrConflict):
 		writeErr(w, 409, err.Error())
+	case errors.Is(err, session.ErrInvalid):
+		writeErr(w, 400, err.Error())
 	case errors.Is(err, session.ErrLimit):
 		writeErr(w, 429, "Too many active sessions. End one before starting another.")
 	default:
@@ -366,12 +371,44 @@ func (s *Server) getQuestion(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, "the exam has not started yet")
 		return
 	}
-	writeJSON(w, 200, map[string]any{
+	out := map[string]any{
 		"question": questionMeta{Question: q, Hints: len(q.Hints)},
 		"task":     render(q.Task, host),
 		"host":     host,
 		"state":    qs,
-	})
+	}
+	if q.Type == catalog.TypeChoice {
+		if v.Mode == session.ModePractice && len(qs.Order) == 0 {
+			// Preparing a choice question only draws the order of its options,
+			// so a question opened for the first time is prepared on the spot.
+			if v, qs = s.prepared(w, v, q); v == nil {
+				return
+			}
+			out["state"] = qs
+		}
+		out["choice"] = viewChoice(v, q, qs)
+	}
+	writeJSON(w, 200, out)
+}
+
+// prepared prepares a choice question of a practice session and returns the
+// session and the question's state as they are afterwards.
+func (s *Server) prepared(w http.ResponseWriter, v *session.Session, q *catalog.Question) (*session.Session, *session.QState) {
+	err := s.Sessions.Prepare(v.ID, q.ID, false)
+	if err == nil {
+		v, err = s.Sessions.View(v.ID)
+	}
+	if err != nil {
+		s.fail(w, err)
+		return nil, nil
+	}
+	for _, x := range v.Questions {
+		if x.ID == q.ID {
+			return v, x
+		}
+	}
+	s.fail(w, session.ErrNotFound)
+	return nil, nil
 }
 
 func (s *Server) patchQuestion(w http.ResponseWriter, r *http.Request) {
@@ -380,16 +417,25 @@ func (s *Server) patchQuestion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Flagged *bool   `json:"flagged"`
-		Note    *string `json:"note"`
+		Flagged *bool     `json:"flagged"`
+		Note    *string   `json:"note"`
+		Answer  *[]string `json:"answer"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "invalid JSON")
 		return
 	}
-	if err := s.Sessions.Patch(v.ID, q.ID, req.Flagged, req.Note); err != nil {
-		s.fail(w, err)
-		return
+	if req.Answer != nil {
+		if err := s.Sessions.Answer(v.ID, q.ID, *req.Answer); err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
+	if req.Flagged != nil || req.Note != nil || req.Answer == nil {
+		if err := s.Sessions.Patch(v.ID, q.ID, req.Flagged, req.Note); err != nil {
+			s.fail(w, err)
+			return
+		}
 	}
 	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
@@ -410,6 +456,22 @@ func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 	v, q, _ := s.question(w, r)
 	if v == nil {
 		return
+	}
+	if q.Type == catalog.TypeChoice {
+		// The body is optional: {"answer": [ids]} submits and grades in one call.
+		var req struct {
+			Answer *[]string `json:"answer"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			writeErr(w, 400, "invalid JSON")
+			return
+		}
+		if req.Answer != nil {
+			if err := s.Sessions.Answer(v.ID, q.ID, *req.Answer); err != nil {
+				s.fail(w, err)
+				return
+			}
+		}
 	}
 	res, err := s.Sessions.Check(r.Context(), v.ID, q.ID)
 	if err != nil {
@@ -441,6 +503,21 @@ func (s *Server) solution(w http.ResponseWriter, r *http.Request) {
 	if v == nil {
 		return
 	}
+	if q.Type == catalog.TypeChoice {
+		// The solution of a choice question is its answer key. Opening it
+		// reveals the question: it can be answered again only after a reset.
+		if v.Mode == session.ModePractice {
+			if v, _ = s.prepared(w, v, q); v == nil {
+				return
+			}
+		}
+		if err := s.Sessions.Reveal(v.ID, q.ID, 0); err != nil {
+			s.fail(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"markdown": solutionMarkdown(q.Choice), "review": review(q.Choice)})
+		return
+	}
 	if err := s.Sessions.Reveal(v.ID, q.ID, 0); err != nil {
 		s.fail(w, err)
 		return
@@ -468,9 +545,10 @@ func (s *Server) tutor(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
 	state := ""
-	if qs.Status == "ready" {
-		// A compact, read-only snapshot of what the learner built.
-		res, err := s.Sessions.Exec(ctx, v.ID, q.ID, "control-plane", tutorSnapshot)
+	if qs.Status == "ready" && q.Type != catalog.TypeChoice {
+		// A compact, read-only snapshot of what the learner built, taken on
+		// the main machine of the question's environment.
+		res, err := s.Sessions.Exec(ctx, v.ID, q.ID, "", s.tutorSnapshot(q))
 		if err == nil {
 			state = res.Stdout
 		}
@@ -484,11 +562,29 @@ func (s *Server) tutor(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"markdown": text})
 }
 
-const tutorSnapshot = `
+const clusterSnapshot = `
 echo "## nodes"; kubectl get nodes -o wide 2>&1 | head -10
 echo "## non-running pods"; kubectl get pods -A --field-selector=status.phase!=Running 2>&1 | head -20
 echo "## recent warning events"; kubectl get events -A --field-selector=type=Warning --sort-by=.lastTimestamp 2>&1 | tail -15
 `
+
+// hostSnapshot describes a Linux host: there is no kubectl on it. It looks at
+// what an exercise owns by convention, /opt/course/<question id>/.
+const hostSnapshot = `
+echo "## exercise directory /opt/course/$KD_QUESTION"; ls -la "/opt/course/$KD_QUESTION" 2>&1 | head -30
+echo "## processes"; ps -eo user,pid,ppid,stat,args --sort=pid 2>&1 | head -30
+echo "## listening sockets"; ss -ltnp 2>&1 | head -15
+`
+
+// tutorSnapshot picks the snapshot script that fits the question's environment.
+func (s *Server) tutorSnapshot(q *catalog.Question) string {
+	if t := s.Catalog.Tracks[q.Track]; t != nil {
+		if e := t.Environments[q.Environment]; e != nil && e.Type == sandbox.EnvContainer {
+			return hostSnapshot
+		}
+	}
+	return clusterSnapshot
+}
 
 // CloseTerminalLimit is the WebSocket close code sent when a session already
 // has the maximum number of terminals open (application range 4000–4999).
@@ -626,7 +722,11 @@ type domainProgress struct {
 }
 
 type questionProgress struct {
-	Best     float64   `json:"best"` // 0..1
+	Best float64 `json:"best"` // 0..1
+	// Latest is the score of the most recent attempt. It is what counts for a
+	// choice question: having picked the right option once, perhaps after
+	// seeing the answer, says little about knowing it now.
+	Latest   float64   `json:"latest"`
 	Attempts int       `json:"attempts"`
 	Last     time.Time `json:"last"`
 }
@@ -636,6 +736,21 @@ type recommendation struct {
 	Title  string `json:"title"`
 	Reason string `json:"reason"`
 	Next   string `json:"next,omitempty"` // question id to practise next
+}
+
+// recommendationReason says why a domain is recommended, in the words of the
+// track's kind: a skills track has exercises and a skills assessment, not
+// questions and an exam.
+func recommendationReason(kind string, dp domainProgress, weight int) string {
+	items, whole := "questions", "exam"
+	if kind == catalog.KindSkills {
+		items, whole = "exercises", "skills assessment"
+	}
+	reason := "Not practised yet"
+	if dp.Attempted > 0 {
+		reason = strconv.Itoa(dp.Solved) + " of " + strconv.Itoa(dp.Questions) + " " + items + " solved"
+	}
+	return reason + " · worth " + strconv.Itoa(weight) + "% of the " + whole
 }
 
 func (s *Server) progress(w http.ResponseWriter, r *http.Request) {
@@ -666,9 +781,19 @@ func (s *Server) progress(w http.ResponseWriter, r *http.Request) {
 		}
 		p.Attempts++
 		p.Last = a.At
-		if ratio := float64(a.Score) / float64(a.Max); ratio > p.Best {
-			p.Best = ratio
+		p.Latest = float64(a.Score) / float64(a.Max)
+		p.Best = max(p.Best, p.Latest)
+	}
+	// score is what a question contributes to mastery and readiness.
+	score := func(q *catalog.Question) (float64, bool) {
+		p := qp[q.ID]
+		switch {
+		case p == nil:
+			return 0, false
+		case q.Type == catalog.TypeChoice:
+			return p.Latest, true
 		}
+		return p.Best, true
 	}
 	var domains []domainProgress
 	var recs []recommendation
@@ -687,15 +812,15 @@ func (s *Server) progress(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			dp.Questions++
-			p := qp[q.ID]
-			if p != nil {
+			got, attempted := score(q)
+			if attempted {
 				dp.Attempted++
-				sum += p.Best
-				if p.Best >= 1 {
+				sum += got
+				if got >= 1 {
 					dp.Solved++
 				}
 			}
-			if next == "" && (p == nil || p.Best < 1) {
+			if next == "" && got < 1 {
 				next = q.ID
 			}
 		}
@@ -705,11 +830,7 @@ func (s *Server) progress(w http.ResponseWriter, r *http.Request) {
 		overall += dp.Mastery * float64(d.Weight) / 100
 		domains = append(domains, dp)
 		if dp.Questions > 0 && dp.Mastery < 100 {
-			reason := "Not practised yet"
-			if dp.Attempted > 0 {
-				reason = strconv.Itoa(dp.Solved) + " of " + strconv.Itoa(dp.Questions) + " questions solved"
-			}
-			reason += " · worth " + strconv.Itoa(d.Weight) + "% of the exam"
+			reason := recommendationReason(t.Kind, dp, d.Weight)
 			cands = append(cands, cand{prio: float64(d.Weight) * (100 - dp.Mastery), rec: recommendation{Domain: d.ID, Title: d.Title, Reason: reason, Next: next}})
 		}
 	}

@@ -1,0 +1,79 @@
+title: What does the shell really run?
+domain: shell-navigation
+difficulty: easy
+minutes: 6
+tags: [type, which, path, alias]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  Last night's rollout was done with an outdated `deployctl`, although version 2.0 is installed. The
+  team's shells load `/opt/course/command-lookup/team-env.sh`, which changes `PATH` and defines some
+  shortcuts. Load that file into your shell (`source /opt/course/command-lookup/team-env.sh`) and find
+  out what bash really runs.
+
+  1. Write to `/opt/course/command-lookup/kinds.txt` one line for each of the names `rollout`,
+     `stage`, `kill` and `deployctl`: the name, a space, and what the name is in that shell:
+     `alias`, `function`, `builtin` or `file`.
+  2. Write to `/opt/course/command-lookup/winner.txt` the absolute path of the file that runs when
+     `deployctl` is called.
+  3. Write to `/opt/course/command-lookup/candidates.txt` the absolute path of every file bash can
+     run as `deployctl` through `PATH`, one per line, in the order bash looks them up (the first
+     line wins).
+
+  Report only: do not change `team-env.sh` or the directories next to it.
+hints:
+  - "`which` only searches PATH. bash has its own command for the question 'what would you run for this name?': see `help type`."
+  - "`type -t <name>` prints one word: alias, keyword, function, builtin or file. `type -a <name>` lists every definition in the order bash would use them; a file that is not executable is not a command."
+  - "After `source /opt/course/command-lookup/team-env.sh`: `for n in rollout stage kill deployctl; do echo \"$n $(type -t $n)\"; done`, then `type -P deployctl` and `type -aP deployctl`, each redirected to its file."
+checks:
+  - id: kinds
+    title: kinds.txt names the kind of each of the four commands
+    type: file
+    path: /opt/course/command-lookup/kinds.txt
+    expect:
+      sameLines:
+        - rollout alias
+        - stage function
+        - kill builtin
+        - deployctl file
+    explain: >-
+      bash looks a name up as alias, then function, then builtin, and only then searches PATH, so
+      `kill` runs the builtin although `/usr/bin/kill` exists. `which` knows nothing about the first
+      three: it reports a file for `kill` and nothing at all for `rollout` and `stage`.
+  - id: winner
+    title: winner.txt holds the deployctl that really runs
+    type: file
+    path: /opt/course/command-lookup/winner.txt
+    expect: {equals: /opt/course/command-lookup/legacy/bin/deployctl}
+    explain: >-
+      The first PATH directory with an executable file of that name wins, and `team-env.sh` puts
+      the legacy directory in front of the tools directory. The file in `scratch/bin` comes even
+      earlier in PATH but is not executable, so bash skips it: look with `type`, not with `ls`.
+  - id: candidates
+    title: candidates.txt lists the executable deployctl files in lookup order
+    type: exec
+    run: |-
+      f=/opt/course/command-lookup/candidates.txt
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      sed 's/[[:space:]]*$//' "$f" | grep -v '^$'
+    expect:
+      equals: |-
+        /opt/course/command-lookup/legacy/bin/deployctl
+        /opt/course/command-lookup/tools/bin/deployctl
+    explain: >-
+      `type -a` (or `which -a`) prints every match in PATH order, which shows at a glance what
+      shadows what. A sorted `find` output has the right files in the wrong order, and it includes
+      the file without execute permission that no shell would ever run.
+  - id: untouched
+    title: team-env.sh and the tool directories are untouched
+    type: exec
+    guard: true
+    run: |-
+      cd /opt/course/command-lookup || exit 1
+      { sha256sum team-env.sh; find legacy tools scratch -printf '%y %m %s %p\n' | LC_ALL=C sort; } \
+        | sha256sum | cut -d' ' -f1 | diff -q - .manifest >/dev/null && echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      The task is to find out why the wrong version ran, not to repair it: other people's shells
+      load this file. Removing the legacy tool or making the scratch copy executable changes what
+      everybody runs.

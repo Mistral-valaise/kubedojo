@@ -4,7 +4,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/Mistral-valaise/kubedojo/content"
@@ -99,20 +101,33 @@ func TestExportShippedContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	total := 0
+	total, tasks := 0, 0
+	choice := map[string]bool{}
 	for _, tr := range cat.List() {
 		total += len(tr.Questions)
+		for _, q := range tr.Questions {
+			if q.Type == catalog.TypeChoice {
+				choice[tr.ID+"/"+q.ID] = true
+			} else {
+				tasks++
+			}
+		}
 	}
 	if len(res.Exported)+len(res.Skipped) != total {
 		t.Fatalf("exported %d + skipped %d != %d questions", len(res.Exported), len(res.Skipped), total)
 	}
-	if len(res.Exported) < total/2 {
-		t.Errorf("only %d of %d questions export", len(res.Exported), total)
+	// Choice questions never export, so they do not count towards the share.
+	if len(res.Exported) < tasks/2 {
+		t.Errorf("only %d of %d tasks export", len(res.Exported), tasks)
 	}
 	for _, s := range res.Skipped {
 		if s.Reason == "" {
 			t.Errorf("%s/%s skipped without a reason", s.Track, s.Question)
 		}
+		delete(choice, s.Track+"/"+s.Question)
+	}
+	if len(choice) > 0 {
+		t.Errorf("choice questions were exported as scenarios: %v", choice)
 	}
 	if _, err := exec.LookPath("bash"); err != nil {
 		return
@@ -122,6 +137,61 @@ func TestExportShippedContent(t *testing.T) {
 			if out, err := exec.Command("bash", "-n", filepath.Join(dir, id, f)).CombinedOutput(); err != nil {
 				t.Errorf("%s/%s: %s", id, f, out)
 			}
+		}
+	}
+}
+
+// Questions that are not cluster tasks are skipped with a reason, not exported
+// as scenarios that cannot work: Killercoda's environment is a cluster.
+func TestExportSkipsWhatIsNotAClusterTask(t *testing.T) {
+	const head = "exam: {durationMinutes: 10, passPercent: 50, questions: 1}\ndomains: [{id: d, title: D, weight: 100}]\n"
+	file := func(s string) *fstest.MapFile { return &fstest.MapFile{Data: []byte(s)} }
+	cat, err := catalog.Load(fstest.MapFS{
+		"host/track.yaml":                    file("title: H\nkind: skills\n" + head + "environments: {base: {type: container}}\n"),
+		"host/lessons/d.md":                  file("# D"),
+		"host/questions/files/question.yaml": file("title: Q\ndomain: d\ntask: do\nhints: [h]\nchecks:\n  - {id: a, title: A, type: file, path: /tmp/x, explain: e}\n"),
+		"host/questions/files/solution.sh":   file("true"),
+		"host/questions/files/solution.md":   file("do it"),
+		"quiz/track.yaml":                    file("title: Q\nkind: theory\n" + head),
+		"quiz/lessons/d.md":                  file("# D"),
+		"quiz/questions/unit.yaml":           file("title: U\ndomain: d\nstem: Which?\noptions:\n  - {text: A, correct: true}\n  - {text: B}\n  - {text: C}\nexplanation: Because.\nreferences: [{title: Pods, url: \"https://kubernetes.io/docs/concepts/workloads/pods/\"}]\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	res, err := Killercoda(cat, dir, "", "https://example.invalid/kubedojo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Exported) != 0 {
+		t.Errorf("exported %v", res.Exported)
+	}
+	want := map[string]string{"host/files": "plain Linux host", "quiz/unit": "multiple-choice"}
+	for _, s := range res.Skipped {
+		id := s.Track + "/" + s.Question
+		if want[id] == "" || !strings.Contains(s.Reason, want[id]) {
+			t.Errorf("%s skipped with reason %q", id, s.Reason)
+		}
+		delete(want, id)
+	}
+	for id := range want {
+		t.Errorf("%s was not reported as skipped", id)
+	}
+	for _, id := range []string{"host/files", "quiz/unit"} {
+		if _, err := os.Stat(filepath.Join(dir, id)); err == nil {
+			t.Errorf("a scenario directory was written for %s", id)
+		}
+	}
+}
+
+// The first line of a task names the host to solve it on. Killercoda has one
+// host only, so the line goes, whichever noun the track uses.
+func TestTextDropsTheSolveOnLine(t *testing.T) {
+	for _, noun := range []string{"question", "exercise"} {
+		got := text("Solve this " + noun + " on: `ssh {{host}}`\n\nCreate a Pod on `{{host}}`.\n")
+		if got != "Create a Pod.\n" {
+			t.Errorf("%s: text = %q", noun, got)
 		}
 	}
 }

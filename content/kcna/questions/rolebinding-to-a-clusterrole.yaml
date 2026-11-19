@@ -1,0 +1,33 @@
+title: A RoleBinding that refers to a ClusterRole
+domain: kubernetes-fundamentals
+difficulty: hard
+tags: [rbac]
+stem: |-
+  A cluster has a ClusterRole `pod-reader` that allows `get`, `list` and `watch` on Pods. In the
+  namespace `dev` somebody creates a RoleBinding whose `roleRef` is the ClusterRole `pod-reader` and
+  whose subject is the user `jane`. Jane has no other permissions.
+
+  Which Pods can Jane read?
+options:
+  - text: Pods in every namespace, because a ClusterRole is not namespaced
+    explain: >-
+      The role only says what may be done. Where it applies is decided by the binding, and for all
+      namespaces that would have to be a ClusterRoleBinding.
+  - text: No Pods, because a RoleBinding can only refer to a Role
+    explain: >-
+      A RoleBinding may refer to a Role in its own namespace or to a ClusterRole. The second form is
+      common: define a set of permissions once and grant it namespace by namespace.
+  - text: Pods in `dev` and in `default`, because `default` is open to every user
+    explain: >-
+      The `default` namespace is not special for authorization. Without a binding that covers it, Jane
+      has no access there.
+  - text: Pods in `dev` only, because the binding applies in its own namespace
+    correct: true
+explanation: >-
+  A Role or ClusterRole is a set of permissions; a binding grants it to subjects. A RoleBinding grants
+  permissions within its namespace, even when it references a ClusterRole: the ClusterRole is then
+  bound to the namespace of the RoleBinding. To grant it in all namespaces you use a
+  ClusterRoleBinding. RBAC permissions are purely additive, there are no deny rules.
+references:
+  - title: Using RBAC Authorization
+    url: https://kubernetes.io/docs/reference/access-authn-authz/rbac/

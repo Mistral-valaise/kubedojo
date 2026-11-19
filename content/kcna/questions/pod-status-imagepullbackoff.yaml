@@ -1,0 +1,32 @@
+title: Reading the Pod status ImagePullBackOff
+domain: container-orchestration
+difficulty: easy
+tags: [troubleshooting, images]
+stem: |-
+  `kubectl get pods` shows a new Pod with `READY 0/1`, `STATUS ImagePullBackOff` and `RESTARTS 0`.
+  The Pod has been assigned to a node.
+
+  Which problem does this status point to?
+options:
+  - text: The container starts, exits with an error and is started again
+    explain: >-
+      That is CrashLoopBackOff, and the restart counter would rise. Here the container has never
+      started.
+  - text: The image name or tag is wrong, or registry credentials are missing
+    correct: true
+  - text: No node has enough free CPU or memory to run the Pod
+    explain: >-
+      Then the scheduler could not place the Pod: it would stay Pending without a node, and the events
+      would say so.
+  - text: The readiness probe of the container fails on every attempt
+    explain: >-
+      A failing readiness probe shows as `Running` with `0/1` ready. The container runs, it just
+      receives no traffic from Services.
+explanation: >-
+  ImagePullBackOff means that the container could not start because the kubelet could not pull its
+  image, typically because of an invalid image name or tag, or a private registry without an
+  `imagePullSecret`. "BackOff" says that Kubernetes keeps retrying with an increasing delay between
+  attempts. `kubectl describe pod` shows the exact pull error in the events.
+references:
+  - title: Images (ImagePullBackOff)
+    url: https://kubernetes.io/docs/concepts/containers/images/#imagepullbackoff

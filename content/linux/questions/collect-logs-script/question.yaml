@@ -1,0 +1,138 @@
+title: Write a script that collects log files
+domain: bash-automation
+difficulty: medium
+minutes: 10
+tags: [arguments, exit-status, loops, quoting, test]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  For every incident, the on-call engineer copies the logs of the affected service to a ticket
+  directory by hand, and forgets some. Write the script `/opt/course/collect-logs-script/collect-logs.sh`
+  that does it. It must be **executable** and is called like this:
+
+  ```
+  collect-logs.sh <source-dir> <dest-dir>
+  ```
+
+  Behaviour:
+
+  - It copies every **regular, non-empty file directly in** `<source-dir>` **whose name ends in
+    `.log`** into `<dest-dir>`. Directories, empty files and files below sub-directories are not
+    copied. `<dest-dir>` is created when it does not exist, including missing parents.
+  - It prints exactly one line to standard output: `collected <N>`, where N is the number of files
+    copied.
+  - Exit code `0` when at least one file was copied, `1` when none was (it still prints
+    `collected 0`).
+  - Not exactly two arguments: a line starting with `usage:` on standard error, nothing on standard
+    output, exit code `2`.
+  - `<source-dir>` is not an existing directory: the line `collect-logs: <source-dir>: not a directory`
+    on standard error, nothing on standard output, exit code `3`, and `<dest-dir>` is not created.
+  - It never changes anything in `<source-dir>`.
+
+  Directory and file names may contain blanks. `sample/web server` is a directory to try the script
+  with (expected: `collected 2`). The script is graded by running it against directories you have
+  not seen.
+hints:
+  - "Build it in the order the script runs: check the number of arguments (`$#`), check the source (`[ -d ... ]`), create the destination, loop over the candidates, print the count, choose the exit code. Test each step with the sample before you write the next."
+  - "`for f in \"$src\"/*.log; do ... done` loops over the matching names without splitting them at blanks. Inside the loop, `[ -f \"$f\" ]` is true for regular files only and `[ -s \"$f\" ]` only for non-empty ones; when nothing matches, the pattern stays as the literal text `*.log`, and `-f` filters that out too. Count with `n=$((n + 1))`."
+  - "`[ $# -eq 2 ] || { echo 'usage: collect-logs.sh <source-dir> <dest-dir>' >&2; exit 2; }`, then `[ -d \"$1\" ] || { echo \"collect-logs: $1: not a directory\" >&2; exit 3; }`, `mkdir -p \"$2\"`, the loop with `cp \"$f\" \"$2\"/ && n=$((n + 1))`, `echo \"collected $n\"` and finally `[ \"$n\" -gt 0 ]` as the last command: its result is the exit code. Do not forget `chmod +x`."
+checks:
+  - id: copies
+    title: The right files are copied, also with blanks in names
+    type: exec
+    run: |-
+      s=/opt/course/collect-logs-script/collect-logs.sh
+      [ -f "$s" ] && [ -x "$s" ] || { echo "$s is missing or not executable" >&2; exit 1; }
+      t=$(mktemp -d /tmp/collect-logs-script.XXXXXX) || exit 1
+      trap 'rm -rf "$t"' EXIT
+      src="$t/var log/payment api"; dst="$t/tickets/INC 4711/logs"
+      mkdir -p "$src/archive.log" "$src/old"
+      echo "payment ok" > "$src/app.log"; echo "db down" > "$src/error  report 03.log"; echo "slow" > "$src/slow query.log"
+      : > "$src/empty.log"; echo x > "$src/notes.txt"; echo x > "$src/app.log.1"; echo x > "$src/catalog"
+      echo x > "$src/archive.log/inner.log"; echo x > "$src/old/older.log"
+      chown -R candidate:candidate "$t"
+      before=$(cd "$src" && find . -printf '%y %s %p\n' | LC_ALL=C sort)
+      (cd "$t" && timeout -k 2 15 runuser -u candidate -- "$s" "$src" "$dst") > "$t/out" 2> "$t/err" < /dev/null; rc=$?
+      [ "$rc" -eq 0 ] || { echo "three matching files: expected exit code 0, got $rc" >&2; exit 1; }
+      [ "$(cat "$t/out")" = "collected 3" ] || { echo "three matching files: expected exactly 'collected 3' on standard output" >&2; exit 1; }
+      for f in app.log "error  report 03.log" "slow query.log"; do
+        cmp -s "$src/$f" "$dst/$f" || { echo "'$f' is not in the destination 'tickets/INC 4711/logs' or differs" >&2; exit 1; }
+      done
+      extra=$(cd "$dst" && find . -mindepth 1 ! -name app.log ! -name "error  report 03.log" ! -name "slow query.log" | head -5)
+      [ -z "$extra" ] || { echo "the destination holds entries that must not be copied (empty file, directory, other ending or sub-directory):" >&2; echo "$extra" >&2; exit 1; }
+      [ "$before" = "$(cd "$src" && find . -printf '%y %s %p\n' | LC_ALL=C sort)" ] || { echo "the source directory was changed" >&2; exit 1; }
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      The loop must keep each name in one piece and test what it is about to copy.
+      `for f in $(ls ...)` splits `slow query.log` in two; a loop without `[ -f ]` and `[ -s ]`
+      copies the empty file and trips over the directory that is named like a log.
+  - id: no-matches
+    title: Nothing to collect gives collected 0 and exit code 1
+    type: exec
+    run: |-
+      s=/opt/course/collect-logs-script/collect-logs.sh
+      [ -f "$s" ] && [ -x "$s" ] || { echo "$s is missing or not executable" >&2; exit 1; }
+      t=$(mktemp -d /tmp/collect-logs-script.XXXXXX) || exit 1
+      trap 'rm -rf "$t"' EXIT
+      mkdir -p "$t/quiet service/sub"
+      : > "$t/quiet service/empty.log"; echo x > "$t/quiet service/readme.txt"; echo x > "$t/quiet service/sub/deep.log"
+      chown -R candidate:candidate "$t"
+      (cd "$t" && timeout -k 2 15 runuser -u candidate -- "$s" "quiet service" "new dir/dest") > "$t/out" 2> "$t/err" < /dev/null; rc=$?
+      [ "$rc" -eq 1 ] || { echo "no matching file: expected exit code 1, got $rc" >&2; exit 1; }
+      [ "$(cat "$t/out")" = "collected 0" ] || { echo "no matching file: expected exactly 'collected 0' on standard output" >&2; exit 1; }
+      [ -d "$t/new dir/dest" ] || { echo "no matching file: the destination directory must still be created" >&2; exit 1; }
+      [ -z "$(find "$t/new dir/dest" -mindepth 1)" ] || { echo "no matching file: the destination must stay empty" >&2; exit 1; }
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      When a pattern matches nothing, bash leaves it as it is: the loop runs once with the literal
+      name `*.log`. Test the file inside the loop (or set `shopt -s nullglob`), and let the exit
+      code tell the caller that nothing was found, so that a pipeline can react to it.
+  - id: usage
+    title: A wrong number of arguments is rejected with exit code 2
+    type: exec
+    run: |-
+      s=/opt/course/collect-logs-script/collect-logs.sh
+      [ -f "$s" ] && [ -x "$s" ] || { echo "$s is missing or not executable" >&2; exit 1; }
+      t=$(mktemp -d /tmp/collect-logs-script.XXXXXX) || exit 1
+      trap 'rm -rf "$t"' EXIT
+      mkdir "$t/src"; echo x > "$t/src/a.log"; chown -R candidate:candidate "$t"
+      try() { (cd "$t" && timeout -k 2 15 runuser -u candidate -- "$s" "$@") > "$t/out" 2> "$t/err" < /dev/null; }
+      for args in "" "src" "src dst extra"; do
+        # shellcheck disable=SC2086
+        try $args; rc=$?
+        [ "$rc" -eq 2 ] || { echo "arguments '$args': expected exit code 2, got $rc" >&2; exit 1; }
+        grep -q '^usage:' "$t/err" || { echo "arguments '$args': expected a line starting with 'usage:' on standard error" >&2; exit 1; }
+        [ ! -s "$t/out" ] || { echo "arguments '$args': nothing may be written to standard output" >&2; exit 1; }
+      done
+      [ ! -e "$t/dst" ] || { echo "the script copied files although it was called with three arguments" >&2; exit 1; }
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      A script that runs on with missing arguments works on empty strings: `cp "$1"/*.log "$2"/`
+      then copies from `/`. Check `$#` first, write the complaint to standard error with `>&2` so
+      that it does not end up in a pipe, and exit with a code the caller can tell apart.
+  - id: not-a-directory
+    title: A source that is not a directory is rejected with exit code 3
+    type: exec
+    run: |-
+      s=/opt/course/collect-logs-script/collect-logs.sh
+      [ -f "$s" ] && [ -x "$s" ] || { echo "$s is missing or not executable" >&2; exit 1; }
+      t=$(mktemp -d /tmp/collect-logs-script.XXXXXX) || exit 1
+      trap 'rm -rf "$t"' EXIT
+      echo x > "$t/a file.log"; chown -R candidate:candidate "$t"
+      try() { (cd "$t" && timeout -k 2 15 runuser -u candidate -- "$s" "$@") > "$t/out" 2> "$t/err" < /dev/null; }
+      for src in "no such dir" "a file.log"; do
+        try "$src" "dst dir"; rc=$?
+        [ "$rc" -eq 3 ] || { echo "source '$src': expected exit code 3, got $rc" >&2; exit 1; }
+        grep -qxF "collect-logs: $src: not a directory" "$t/err" || { echo "source '$src': expected the line 'collect-logs: $src: not a directory' on standard error" >&2; exit 1; }
+        [ ! -s "$t/out" ] || { echo "source '$src': nothing may be written to standard output" >&2; exit 1; }
+        [ ! -e "$t/dst dir" ] || { echo "source '$src': the destination was created although the source is invalid" >&2; exit 1; }
+      done
+      echo ok
+    expect: {equals: ok}
+    explain: >-
+      Validate before you act: `[ -d "$src" ]` is false for a missing path and for a regular file
+      alike. Creating the destination first leaves an empty directory behind on every typo, and an
+      unquoted `[ -d $src ]` is true when the variable is empty or holds a blank.

@@ -1,0 +1,32 @@
+title: Naming a reliability target
+domain: cloud-native-architecture
+difficulty: medium
+tags: [observability, sre]
+stem: |-
+  A team measures the share of HTTP requests that its API answers successfully. It decides internally:
+  "Over any 30 days this share shall be at least 99.9%." There is no contract with customers about it.
+
+  What is the quoted statement?
+options:
+  - text: A service level indicator (SLI)
+    explain: >-
+      The SLI is the measurement itself, here the share of successful requests. The statement sets a
+      target for that measurement.
+  - text: A service level agreement (SLA)
+    explain: >-
+      An SLA is a business contract that includes consequences for missing the promised level. The
+      stem rules a contract out.
+  - text: An error budget
+    explain: >-
+      The error budget follows from the target: 100% minus 99.9%, so 0.1% of the requests in 30 days
+      may fail. It is the tolerance, not the statement.
+  - text: A service level objective (SLO)
+    correct: true
+explanation: >-
+  An SLI is a carefully defined quantitative measure of some aspect of the service, such as error rate
+  or tail latency. An SLO is a target value or range for an SLI. An SLA is a business contract with
+  consequences for violating the SLO, or a slightly relaxed version of it. The error budget is the
+  tolerance the SLO leaves, 100% minus the SLO over a time frame, and a recommended basis for alerts.
+references:
+  - title: CNCF TAG Observability whitepaper (Implementing SLIs, SLOs and SLAs)
+    url: https://github.com/cncf/tag-observability/blob/main/whitepaper.md#implementing-slis-slos-and-slas

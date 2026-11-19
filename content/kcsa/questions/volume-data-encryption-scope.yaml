@@ -1,0 +1,32 @@
+title: What encryption at rest of the API server covers
+domain: kubernetes-cluster-component-security
+difficulty: medium
+tags: [storage, encryption]
+stem: |-
+  An administrator configures the kube-apiserver with `--encryption-provider-config` so that Secrets
+  are encrypted at rest. A database Pod writes customer records to a PersistentVolume.
+
+  Are those records encrypted at rest by this configuration?
+options:
+  - text: Yes, because the kubelet encrypts every volume of a Pod with the same key
+    explain: >-
+      The kubelet mounts volumes and does not encrypt them. The key of the encryption configuration
+      is used by the API server only.
+  - text: Yes, as soon as the PersistentVolume resource is added to the configuration
+    explain: >-
+      That would encrypt the PersistentVolume object in etcd, which is a description of the volume.
+      The data on the volume never passes through the API server.
+  - text: No, it covers API data in etcd; volume data needs encrypted storage
+    correct: true
+  - text: No, it covers Secrets only; no other kind of data can be encrypted
+    explain: >-
+      The encryption configuration lists resources, and other API resources than Secrets can be
+      listed too. Volume contents are not API resources at all.
+explanation: >-
+  The encryption configuration controls how the API server encrypts resource data that is stored
+  through the Kubernetes API, that is, in etcd. Data in filesystems that are mounted into containers
+  is outside its reach: for that you use a storage integration that provides encrypted volumes, or
+  encrypt the data in the application itself.
+references:
+  - title: Encrypting Confidential Data at Rest
+    url: https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/

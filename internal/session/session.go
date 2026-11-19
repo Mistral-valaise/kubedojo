@@ -54,6 +54,10 @@ type QState struct {
 	HintsUsed      int             `json:"hintsUsed"`
 	SolutionViewed bool            `json:"solutionViewed"`
 	Last           *checker.Result `json:"last,omitempty"`
+	// Choice questions: the order the options are shown in and the options
+	// the learner picked. Never the correct ones; see quiz.go.
+	Order  []string `json:"order,omitempty"`
+	Answer []string `json:"answer,omitempty"`
 }
 
 type DomainScore struct {
@@ -105,13 +109,36 @@ func (s *Session) q(id string) *QState {
 	return nil
 }
 
-func (s *Session) aliases() []string {
-	out := make([]string, 0, len(s.Envs))
-	for _, a := range s.Envs {
-		out = append(out, a)
+// envSpec returns the definition of an environment of a track. A session can
+// outlive the content it was created from; what is unknown by now counts as a
+// cluster, which is all there was before environments had a type.
+func (m *Manager) envSpec(track, env string) sandbox.EnvSpec {
+	if t := m.cat.Tracks[track]; t != nil {
+		if e := t.Environments[env]; e != nil {
+			return *e
+		}
 	}
-	sort.Strings(out)
+	return sandbox.EnvSpec{Name: env, Type: sandbox.EnvCluster}
+}
+
+// envs lists the environments a session has created, ordered by alias.
+func (m *Manager) envs(s *Session) []sandbox.Env {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]sandbox.Env, 0, len(s.Envs))
+	for name, alias := range s.Envs {
+		out = append(out, sandbox.Env{Alias: alias, Type: m.envSpec(s.Track, name).Type})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Alias < out[j].Alias })
 	return out
+}
+
+// noun names an environment in progress messages.
+func noun(spec sandbox.EnvSpec) string {
+	if spec.Type == sandbox.EnvContainer {
+		return "host"
+	}
+	return "cluster"
 }
 
 // HostProvider decides which Docker endpoint a session's sandbox lives on.
@@ -265,6 +292,24 @@ func (m *Manager) update(s *Session, fn func()) {
 	m.mu.Unlock()
 }
 
+// logWords are the nouns of the progress log a learner reads while a session
+// is set up or graded. They follow the kind of the track, like the UI does.
+type logWords struct{ item, assessment string }
+
+func wordsOf(t *catalog.Track) logWords {
+	if t != nil && t.Kind == catalog.KindSkills {
+		return logWords{item: "exercise", assessment: "assessment"}
+	}
+	return logWords{item: "question", assessment: "exam"}
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
 func (m *Manager) logf(s *Session) func(string, ...any) {
 	return func(format string, a ...any) {
 		msg := fmt.Sprintf(format, a...)
@@ -316,7 +361,8 @@ func (m *Manager) newAlias(track string) string {
 func (m *Manager) activeCount() int {
 	n := 0
 	for _, s := range m.byID {
-		if s.Status != StatusDestroyed {
+		// Sessions without a sandbox cost nothing and are not limited.
+		if s.Status != StatusDestroyed && !m.sandboxless(s) {
 			n++
 		}
 	}
@@ -325,7 +371,8 @@ func (m *Manager) activeCount() int {
 
 // Practice returns the active practice session of a track, creating it if needed.
 func (m *Manager) Practice(track, owner string) (*Session, error) {
-	if m.cat.Tracks[track] == nil {
+	t := m.cat.Tracks[track]
+	if t == nil {
 		return nil, ErrNotFound
 	}
 	m.mu.Lock()
@@ -335,12 +382,15 @@ func (m *Manager) Practice(track, owner string) (*Session, error) {
 			return s, nil
 		}
 	}
-	if m.activeCount() >= m.max {
-		return nil, ErrLimit
-	}
-	keys, err := sandbox.NewKeyPair()
-	if err != nil {
-		return nil, err
+	var keys sandbox.KeyPair
+	if !t.Sandboxless() {
+		if m.activeCount() >= m.max {
+			return nil, ErrLimit
+		}
+		var err error
+		if keys, err = sandbox.NewKeyPair(); err != nil {
+			return nil, err
+		}
 	}
 	s := &Session{ID: newID(), Mode: ModePractice, Track: track, Status: StatusReady, CreatedAt: time.Now().UTC(),
 		TouchedAt: time.Now().UTC(), Envs: map[string]string{}, Keys: keys, Owner: owner}
@@ -371,6 +421,9 @@ func (m *Manager) NewExam(track string, opt ExamOptions) (*Session, error) {
 	if len(picked) == 0 {
 		return nil, fmt.Errorf("track %s has no questions for driver %s", track, m.drv.Name())
 	}
+	if t.Sandboxless() {
+		return m.newQuizExam(t, opt, picked), nil
+	}
 	keys, err := sandbox.NewKeyPair()
 	if err != nil {
 		return nil, err
@@ -399,7 +452,7 @@ func pickQuestions(t *catalog.Track, n int, driver string) []*catalog.Question {
 	byDomain := map[string][]*catalog.Question{}
 	total := 0
 	for _, q := range t.Questions {
-		if q.Driver == driver {
+		if q.RunsOn(driver) {
 			byDomain[q.Domain] = append(byDomain[q.Domain], q)
 			total++
 		}
@@ -471,7 +524,7 @@ func (m *Manager) provisionExam(s *Session, t *catalog.Track) {
 			return !t.Question(order[i].ID).Disruptive && t.Question(order[j].ID).Disruptive
 		})
 		for i, qs := range order {
-			logf("Preparing question %d of %d ...", i+1, len(order))
+			logf("Preparing %s %d of %d ...", wordsOf(t).item, i+1, len(order))
 			if err := m.setup(ctx, s, t.Question(qs.ID), false); err != nil {
 				return fmt.Errorf("question %s: %w", qs.ID, err)
 			}
@@ -487,7 +540,7 @@ func (m *Manager) provisionExam(s *Session, t *catalog.Track) {
 		m.update(s, func() { s.Status, s.Error = StatusError, err.Error() })
 		return
 	}
-	logf("Environment ready in %s. Start the exam when you are.", time.Since(start).Round(time.Second))
+	logf("Environment ready in %s. Start the %s when you are.", time.Since(start).Round(time.Second), wordsOf(t).assessment)
 	m.update(s, func() {
 		if s.Status == StatusProvisioning {
 			s.Status = StatusReady
@@ -495,8 +548,8 @@ func (m *Manager) provisionExam(s *Session, t *catalog.Track) {
 	})
 }
 
-// ensureEnv creates the cluster for an environment if the session lacks it and
-// rewires the terminal. Callers must hold s.op.
+// ensureEnv creates an environment (a cluster or a Linux host) if the session
+// lacks it and rewires the terminal. Callers must hold s.op.
 func (m *Manager) ensureEnv(ctx context.Context, s *Session, t *catalog.Track, env string, logf func(string, ...any)) error {
 	m.mu.Lock()
 	_, ok := s.Envs[env]
@@ -517,25 +570,32 @@ func (m *Manager) ensureEnv(ctx context.Context, s *Session, t *catalog.Track, e
 	m.mu.Unlock()
 	start := time.Now()
 	if err := m.drv.CreateEnv(ctx, host, s.ID, alias, *spec, s.Keys, logf); err != nil {
-		_ = m.drv.Destroy(context.Background(), host, "none", []string{alias})
+		_ = m.drv.DeleteEnv(context.Background(), host, sandbox.Env{Alias: alias, Type: spec.Type})
 		return err
 	}
 	m.update(s, func() { s.Envs[env] = alias })
 	logf("Connecting the terminal to %s ...", alias)
-	if err := m.drv.EnsureTerminal(ctx, host, s.ID, s.aliases(), s.Keys); err != nil {
+	if err := m.drv.EnsureTerminal(ctx, host, s.ID, m.envs(s), s.Keys); err != nil {
 		return err
 	}
-	logf("Cluster %s is ready (%s).", alias, time.Since(start).Round(time.Second))
+	if spec.Type == sandbox.EnvContainer {
+		logf("Host %s is ready (%s).", alias, time.Since(start).Round(100*time.Millisecond))
+	} else {
+		logf("Cluster %s is ready (%s).", alias, time.Since(start).Round(time.Second))
+	}
 	return nil
 }
 
 func (m *Manager) runner(s *Session, q *catalog.Question) checker.Runner {
 	return func(ctx context.Context, role, script string) (sandbox.ExecResult, error) {
-		return m.exec(ctx, s, q, role, script)
+		return m.exec(ctx, s, q, role, "", script)
 	}
 }
 
-func (m *Manager) exec(ctx context.Context, s *Session, q *catalog.Question, role, script string) (sandbox.ExecResult, error) {
+// exec runs a script for a question. An empty role is the main machine of the
+// question's environment; an empty user is the account scripts and checks use
+// on that role.
+func (m *Manager) exec(ctx context.Context, s *Session, q *catalog.Question, role, user, script string) (sandbox.ExecResult, error) {
 	host, err := m.hosts.Acquire(ctx, s.ID, func(string, ...any) {})
 	if err != nil {
 		return sandbox.ExecResult{}, err
@@ -543,11 +603,15 @@ func (m *Manager) exec(ctx context.Context, s *Session, q *catalog.Question, rol
 	m.mu.Lock()
 	alias := s.Envs[q.Environment]
 	m.mu.Unlock()
+	spec := m.envSpec(s.Track, q.Environment)
+	if role == "" {
+		role = spec.DefaultRole()
+	}
+	if user == "" {
+		user = spec.ScriptUser(role)
+	}
 	env := map[string]string{"KD_HOST": alias, "KD_QUESTION": q.ID}
-	user := "root"
-	if role == "terminal" {
-		user = "candidate"
-	} else {
+	if spec.Type != sandbox.EnvContainer && role != sandbox.RoleTerminal {
 		env["KUBECONFIG"] = "/etc/kubernetes/admin.conf"
 	}
 	return m.drv.Exec(ctx, host, s.ID, sandbox.Target{Alias: alias, Role: role}, user, script, env)
@@ -558,14 +622,14 @@ func (m *Manager) setup(ctx context.Context, s *Session, q *catalog.Question, re
 	ctx, cancel := context.WithTimeout(ctx, 6*time.Minute)
 	defer cancel()
 	if reset && q.Cleanup != "" {
-		if _, err := m.exec(ctx, s, q, "control-plane", q.Cleanup); err != nil {
+		if _, err := m.exec(ctx, s, q, "", "", q.Cleanup); err != nil {
 			return err
 		}
 	}
 	if strings.TrimSpace(q.Setup) == "" {
 		return nil
 	}
-	res, err := m.exec(ctx, s, q, "control-plane", q.Setup)
+	res, err := m.exec(ctx, s, q, "", "", q.Setup)
 	if err != nil {
 		return err
 	}
@@ -593,6 +657,9 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 	q := t.Question(qid)
 	if q == nil {
 		return ErrNotFound
+	}
+	if q.Type == catalog.TypeChoice {
+		return m.prepareChoice(s, q, reset)
 	}
 	m.mu.Lock()
 	qs := s.q(qid)
@@ -638,7 +705,7 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 			err = m.healOthers(ctx, s, t, q, logf)
 		}
 		if err == nil {
-			logf("Setting up question %q ...", q.Title)
+			logf("Setting up %s %q ...", wordsOf(t).item, q.Title)
 			err = m.setup(ctx, s, q, (reset || wasReady) && !recreated)
 		}
 		m.update(s, func() {
@@ -649,15 +716,15 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 			}
 		})
 		if err != nil {
-			logf("Could not prepare question: %v", err)
+			logf("Could not prepare %s: %v", wordsOf(t).item, err)
 		} else {
-			logf("Question %q is ready.", q.Title)
+			logf("%s %q is ready.", capitalize(wordsOf(t).item), q.Title)
 		}
 	}()
 	return nil
 }
 
-// dropEnv deletes the cluster of an environment so it can be created afresh.
+// dropEnv deletes an environment so it can be created afresh.
 // Every question that lived on it goes back to pending.
 func (m *Manager) dropEnv(ctx context.Context, s *Session, t *catalog.Track, env string, logf func(string, ...any)) error {
 	m.mu.Lock()
@@ -670,8 +737,9 @@ func (m *Manager) dropEnv(ctx context.Context, s *Session, t *catalog.Track, env
 	if err != nil {
 		return err
 	}
-	logf("Recreating cluster %s for a clean start ...", alias)
-	if err := m.drv.DeleteEnv(ctx, host, alias); err != nil {
+	spec := m.envSpec(s.Track, env)
+	logf("Recreating %s %s for a clean start ...", noun(spec), alias)
+	if err := m.drv.DeleteEnv(ctx, host, sandbox.Env{Alias: alias, Type: spec.Type}); err != nil {
 		return err
 	}
 	m.update(s, func() {
@@ -685,8 +753,8 @@ func (m *Manager) dropEnv(ctx context.Context, s *Session, t *catalog.Track, env
 	return nil
 }
 
-// healOthers restores the cluster from disruptive questions that were left
-// open, so that the question being prepared starts on a healthy cluster.
+// healOthers restores the environment from disruptive questions that were
+// left open, so that the question being prepared starts on a healthy one.
 func (m *Manager) healOthers(ctx context.Context, s *Session, t *catalog.Track, q *catalog.Question, logf func(string, ...any)) error {
 	m.mu.Lock()
 	var open []*QState
@@ -699,9 +767,9 @@ func (m *Manager) healOthers(ctx context.Context, s *Session, t *catalog.Track, 
 	m.mu.Unlock()
 	for _, x := range open {
 		o := t.Question(x.ID)
-		logf("Restoring the cluster from %q ...", o.Title)
+		logf("Restoring the %s from %q ...", noun(m.envSpec(s.Track, o.Environment)), o.Title)
 		cctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
-		res, err := m.exec(cctx, s, o, "control-plane", o.Cleanup)
+		res, err := m.exec(cctx, s, o, "", "", o.Cleanup)
 		cancel()
 		if err != nil {
 			return err
@@ -728,6 +796,9 @@ func (m *Manager) CheckOnce(ctx context.Context, id, qid string, once func(*cata
 	}
 	t := m.cat.Tracks[s.Track]
 	q := t.Question(qid)
+	if q != nil && q.Type == catalog.TypeChoice {
+		return m.checkChoice(s, q)
+	}
 	m.mu.Lock()
 	qs := s.q(qid)
 	mode, status := s.Mode, s.Status
@@ -777,6 +848,9 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	if m.sandboxless(s) {
+		return m.finishQuiz(s)
+	}
 	m.mu.Lock()
 	if s.Mode != ModeExam || s.Status != StatusRunning {
 		m.mu.Unlock()
@@ -795,15 +869,10 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 		defer cancel()
 		t := m.cat.Tracks[s.Track]
 		logf := m.logf(s)
-		rep := Report{PassPercent: t.Exam.PassPercent}
-		dom := map[string]*DomainScore{}
-		for _, d := range t.Domains {
-			dom[d.ID] = &DomainScore{ID: d.ID, Title: d.Title, Weight: d.Weight}
-		}
 		results := make([]checker.Result, len(s.Questions))
 		for i, qs := range s.Questions {
 			q := t.Question(qs.ID)
-			logf("Grading question %d of %d ...", i+1, len(s.Questions))
+			logf("Grading %s %d of %d ...", wordsOf(t).item, i+1, len(s.Questions))
 			results[i] = checker.Run(ctx, q, m.runner(s, q))
 			res := results[i]
 			m.update(s, func() { qs.Last = &res })
@@ -835,42 +904,59 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 			case <-ctx.Done():
 			}
 		}
-		for i, qs := range s.Questions {
-			q := t.Question(qs.ID)
-			res := results[i]
-			rep.Score += res.Score
-			rep.Max += res.Max
-			dom[q.Domain].Score += res.Score
-			dom[q.Domain].Max += res.Max
-			_ = m.st.AddAttempt(store.Attempt{SessionID: s.ID, Mode: ModeExam, Track: s.Track, Domain: q.Domain,
-				QuestionID: q.ID, Score: res.Score, Max: res.Max, At: res.At, Owner: s.Owner})
-			if m.hooks.Checked != nil {
-				m.hooks.Checked(s.Track, q.ID, ModeExam, res)
-			}
-		}
-		for _, d := range t.Domains {
-			if dom[d.ID].Max > 0 {
-				rep.Domains = append(rep.Domains, *dom[d.ID])
-			}
-		}
-		if rep.Max > 0 {
-			rep.Percent = float64(int(float64(rep.Score)/float64(rep.Max)*1000+0.5)) / 10
-		}
-		rep.Passed = rep.Percent >= float64(rep.PassPercent)
-		if s.StartedAt != nil {
-			rep.UsedSeconds = int(s.FinishedAt.Sub(*s.StartedAt).Seconds())
-		}
-		m.update(s, func() { s.Report, s.Status = &rep, StatusFinished })
-		db, _ := json.Marshal(rep.Domains)
-		_ = m.st.AddExam(store.Exam{SessionID: s.ID, Track: s.Track, Score: rep.Score, Max: rep.Max,
-			Percent: rep.Percent, Passed: rep.Passed, FinishedAt: *s.FinishedAt, Domains: db, Owner: s.Owner})
-		if m.hooks.ExamDone != nil {
-			m.hooks.ExamDone(s.Track, rep)
-		}
-		logf("Exam graded: %d/%d points (%.1f%%).", rep.Score, rep.Max, rep.Percent)
+		m.conclude(s, t, results)
 	}()
 	_ = ctx
 	return nil
+}
+
+// conclude turns the results of a graded exam into its report, records the
+// attempts and marks the session finished.
+func (m *Manager) conclude(s *Session, t *catalog.Track, results []checker.Result) {
+	rep := Report{PassPercent: t.Exam.PassPercent}
+	dom := map[string]*DomainScore{}
+	for _, d := range t.Domains {
+		dom[d.ID] = &DomainScore{ID: d.ID, Title: d.Title, Weight: d.Weight}
+	}
+	for i, qs := range s.Questions {
+		q := t.Question(qs.ID)
+		res := results[i]
+		rep.Score += res.Score
+		rep.Max += res.Max
+		dom[q.Domain].Score += res.Score
+		dom[q.Domain].Max += res.Max
+		_ = m.st.AddAttempt(store.Attempt{SessionID: s.ID, Mode: ModeExam, Track: s.Track, Domain: q.Domain,
+			QuestionID: q.ID, Score: res.Score, Max: res.Max, At: res.At, Owner: s.Owner})
+		if m.hooks.Checked != nil {
+			m.hooks.Checked(s.Track, q.ID, ModeExam, res)
+		}
+	}
+	for _, d := range t.Domains {
+		if dom[d.ID].Max > 0 {
+			rep.Domains = append(rep.Domains, *dom[d.ID])
+		}
+	}
+	if rep.Max > 0 {
+		rep.Percent = float64(int(float64(rep.Score)/float64(rep.Max)*1000+0.5)) / 10
+	}
+	rep.Passed = rep.Percent >= float64(rep.PassPercent)
+	if s.StartedAt != nil {
+		rep.UsedSeconds = int(s.FinishedAt.Sub(*s.StartedAt).Seconds())
+	}
+	m.update(s, func() {
+		for i, qs := range s.Questions {
+			qs.Last = &results[i]
+		}
+		s.Report, s.Status = &rep, StatusFinished
+	})
+	db, _ := json.Marshal(rep.Domains)
+	_ = m.st.AddExam(store.Exam{SessionID: s.ID, Track: s.Track, Score: rep.Score, Max: rep.Max,
+		Percent: rep.Percent, Passed: rep.Passed, FinishedAt: *s.FinishedAt, Domains: db, Owner: s.Owner,
+		Questions: len(s.Questions), Minutes: s.DurationMinutes})
+	if m.hooks.ExamDone != nil {
+		m.hooks.ExamDone(s.Track, rep)
+	}
+	m.logf(s)("%s graded: %d/%d points (%.1f%%).", capitalize(wordsOf(t).assessment), rep.Score, rep.Max, rep.Percent)
 }
 
 // Patch updates candidate-owned fields of a question.
@@ -926,6 +1012,11 @@ func (m *Manager) Destroy(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	if m.sandboxless(s) {
+		// Nothing was created. Acquiring a host here would create one in hosted mode.
+		m.update(s, func() { s.Status = StatusDestroyed })
+		return nil
+	}
 	s.op.Lock()
 	defer s.op.Unlock()
 	// End the shells first: their slots are freed and the WebSockets close
@@ -933,7 +1024,7 @@ func (m *Manager) Destroy(ctx context.Context, id string) error {
 	m.terms.closeAll(s.ID)
 	host, err := m.hosts.Acquire(ctx, s.ID, func(string, ...any) {})
 	if err == nil {
-		if derr := m.drv.Destroy(ctx, host, s.ID, s.aliases()); derr != nil {
+		if derr := m.drv.Destroy(ctx, host, s.ID, m.envs(s)); derr != nil {
 			m.log.Warn("destroy sandbox", "session", s.ID, "err", derr)
 		}
 	}
@@ -992,7 +1083,9 @@ func (m *Manager) ActiveCount() (practice, exam int) {
 	return
 }
 
-// Exec runs a script for a question (used by `kubedojo content test`).
+// Exec runs a script for a question the way its setup and checks run: as the
+// script account of the role. An empty role is the main machine of the
+// question's environment.
 func (m *Manager) Exec(ctx context.Context, id, qid, role, script string) (sandbox.ExecResult, error) {
 	s, err := m.get(id)
 	if err != nil {
@@ -1002,5 +1095,24 @@ func (m *Manager) Exec(ctx context.Context, id, qid, role, script string) (sandb
 	if q == nil {
 		return sandbox.ExecResult{}, ErrNotFound
 	}
-	return m.exec(ctx, s, q, role, script)
+	if q.Type == catalog.TypeChoice {
+		return sandbox.ExecResult{}, fmt.Errorf("%w: a choice question has no sandbox", ErrConflict)
+	}
+	return m.exec(ctx, s, q, role, "", script)
+}
+
+// Solve runs a solution of a question (solution.sh or a variant) on the main
+// machine of its environment, as the account the environment says solutions
+// use. `kubedojo content test` proves questions with it.
+func (m *Manager) Solve(ctx context.Context, id, qid, script string) (sandbox.ExecResult, error) {
+	s, err := m.get(id)
+	if err != nil {
+		return sandbox.ExecResult{}, err
+	}
+	q := m.cat.Tracks[s.Track].Question(qid)
+	if q == nil {
+		return sandbox.ExecResult{}, ErrNotFound
+	}
+	spec := m.envSpec(s.Track, q.Environment)
+	return m.exec(ctx, s, q, spec.DefaultRole(), spec.SolveUser(), script)
 }

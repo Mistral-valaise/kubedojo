@@ -24,6 +24,35 @@ For every question, on a real kind cluster:
 solutions are applied and the exam is graded by the same code that grades a learner's exam. It must
 reach a perfect score. This finds questions that disturb each other on a shared cluster.
 
+## Multiple-choice tracks
+
+A theory track (`kind: theory`) has no sandbox, so `content test` needs neither Docker nor kind for it
+and skips the preflight. It runs in well under a second and is part of the `build` job in CI.
+
+For every question, through the same session calls the UI makes (`Prepare`, `Answer`, `Check`):
+
+1. The session shows every option exactly once, in a drawn order.
+2. **No answer** scores 0.
+3. **The correct options** score the full point.
+4. **Every option picked alone** scores 0, unless it is the whole correct answer.
+5. For `multiple: true`: the correct options **plus one wrong option** score 0.
+
+`--exam` proves the exam path with every question of the track, twice: all questions answered
+correctly must give 100%, and a second exam with one wrong option per question must give 0%. Answers
+are saved one by one as in a real exam, and the exam is graded by `Finish`, which must hand back the
+finished report at once.
+
+`--repeat`, `--quick`, `--settle`, `--no-variants` and `--keep` are accepted and change nothing:
+grading an answer is a comparison of two sets, with nothing to wait for and nothing left behind.
+
+**What this cannot prove** is that the content is right. The proof takes the answer key from the same
+file as the question, so it shows that the option *marked* correct is the one that scores — not that
+it is the true one, that the wrong options are really wrong, that the explanation holds, or that the
+reference says what the question claims. No program checks that. It takes a reviewer who reads each
+question against its references; `content lint` only makes sure that an explanation and a reference
+exist and that the usual give-aways are absent (see
+[writing-questions.md](writing-questions.md#what-lint-checks)).
+
 ## Run it
 
 ```bash
@@ -131,7 +160,7 @@ warnings into errors; CI uses it.
 
 | Job | When | What |
 |---|---|---|
-| `build` | every push and pull request | unit tests, typecheck, browser tests of the terminal keyboard, `content lint --strict`, `helm lint` |
+| `build` | every push and pull request | unit tests, typecheck, browser tests of the terminal keyboard, `content lint --strict`, `content test` and `content test --exam` for every theory track, `helm lint` |
 | `cross-compile` | every push and pull request | the binary builds for macOS, Linux and Windows |
 | `content` | pull requests and pushes to `main` that change questions, the grader, the session code, the sandbox or the images | `content test --quick` for what changed, report uploaded as an artifact |
 | `content-nightly` | every night and on demand | every track: `content test --repeat 2`, then `content test --exam` |
@@ -145,6 +174,8 @@ warnings into errors; CI uses it.
 - A change to the grader, the session code, the sandbox, the images or the pipeline proves every
   track. So does the pull request label `content`.
 - Lessons and anything else prove nothing.
+- Theory tracks are never part of this job: the script leaves out every track with `kind: theory`,
+  and the `build` job proves them on every run.
 
 It runs with `--quick`: a check that is expected to fail (every check before the solution, and the
 checks a variant declares as failing) is looked at once instead of being retried until its `retry`
@@ -168,6 +199,8 @@ The CI jobs have a 90 minute limit (150 for the nightly job).
 
 ## Known limits
 
+- For multiple-choice questions only the grading is proven, never the facts. See
+  [Multiple-choice tracks](#multiple-choice-tracks).
 - Tasks that need a real kernel boundary (AppArmor, gVisor, Falco) cannot run on kind and are not part
   of the question bank yet. See [cks-coverage.md](cks-coverage.md).
 - A check runs for at most 60s unless it sets `timeout` (up to 5m).

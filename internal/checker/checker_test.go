@@ -147,6 +147,35 @@ func TestRetryUntilPass(t *testing.T) {
 	}
 }
 
+// A guard passes on the untouched environment. It must not earn points until
+// a check that needs work has passed, or an exam pays for unopened tasks.
+func TestGuardsScoreOnlyWithWork(t *testing.T) {
+	work := chk("work", &catalog.Expect{Equals: ptr("done")})
+	work2 := chk("work2", &catalog.Expect{Equals: ptr("done")})
+	guard := chk("guard", &catalog.Expect{Equals: ptr("intact")})
+	guard.Guard = true
+	q := &catalog.Question{ID: "q", Points: 3, Checks: []*catalog.Check{work, work2, guard}}
+	state := map[string]string{"guard\n": "intact"}
+	run := func(_ context.Context, _, script string) (sandbox.ExecResult, error) {
+		return sandbox.ExecResult{Stdout: state[script]}, nil
+	}
+	if res := Run(context.Background(), q, run); res.Score != 0 || !res.Checks[2].Passed {
+		t.Errorf("untouched: score %d with the guard passed=%v, want 0 and true", res.Score, res.Checks[2].Passed)
+	}
+	state["work\n"] = "done"
+	if res := Run(context.Background(), q, run); res.Score != 2 || res.Passed {
+		t.Errorf("half solved: score %d passed=%v, want 2 (one task check and the guard) and false", res.Score, res.Passed)
+	}
+	state["work2\n"] = "done"
+	if res := Run(context.Background(), q, run); res.Score != 3 || !res.Passed {
+		t.Errorf("solved: score %d passed=%v, want 3 and true", res.Score, res.Passed)
+	}
+	state["guard\n"] = "broken"
+	if res := Run(context.Background(), q, run); res.Score != 2 || res.Passed {
+		t.Errorf("solved by breaking the guard: score %d passed=%v, want 2 and false", res.Score, res.Passed)
+	}
+}
+
 // The content proof looks once at checks it expects to fail: their retry must
 // not be waited out, while the other checks keep theirs.
 func TestRunOnceSkipsRetryOfSelectedChecks(t *testing.T) {
@@ -233,5 +262,16 @@ func TestRedact(t *testing.T) {
 		if !strings.Contains(out, keep) {
 			t.Errorf("redaction removed harmless text %q:\n%s", keep, out)
 		}
+	}
+}
+
+// A check describes what it expects for the learner. A value of several lines
+// keeps its line breaks; quoted, they would read as a literal \n.
+func TestDescribeKeepsLineBreaks(t *testing.T) {
+	if got := describe(chk("c", &catalog.Expect{Equals: ptr("one\n")})); got != `equals "one"` {
+		t.Errorf("one line: %q", got)
+	}
+	if got := describe(chk("c", &catalog.Expect{Equals: ptr("one\ntwo\n")})); got != "equals:\none\ntwo" {
+		t.Errorf("two lines: %q", got)
 	}
 }

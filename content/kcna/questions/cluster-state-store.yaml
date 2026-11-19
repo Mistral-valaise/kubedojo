@@ -1,0 +1,34 @@
+title: Where the cluster state is kept
+domain: kubernetes-fundamentals
+difficulty: easy
+tags: [control-plane, architecture]
+stem: |-
+  An administrator plans backups for a control plane. After a total loss, all API objects
+  (Deployments, Services, Secrets and so on) must be restorable.
+
+  The data of which component has to be backed up for that?
+options:
+  - text: kube-apiserver
+    explain: >-
+      The API server exposes the Kubernetes API, but the objects are not kept in it. It writes every
+      object to its data store and reads it from there.
+  - text: kube-controller-manager
+    explain: >-
+      It runs the controllers. They read and change objects through the API server and store nothing
+      themselves.
+  - text: etcd
+    correct: true
+  - text: kubelet
+    explain: >-
+      A kubelet makes sure the Pods assigned to its node are running. It learns about them from the
+      API server and holds no cluster-wide state.
+explanation: >-
+  etcd is the consistent and highly available key-value store for all API server data: all Kubernetes
+  objects are stored in it. The other components work on those objects through the API server. That is
+  why the documentation asks for a backup plan for etcd, and why a snapshot of etcd is what recovers a
+  cluster after all control plane nodes were lost.
+references:
+  - title: Kubernetes Components
+    url: https://kubernetes.io/docs/concepts/overview/components/
+  - title: Operating etcd clusters for Kubernetes (Backing up an etcd cluster)
+    url: https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/#backing-up-an-etcd-cluster

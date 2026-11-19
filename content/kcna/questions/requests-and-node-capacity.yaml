@@ -1,0 +1,33 @@
+title: Fitting a Pod onto a busy node
+domain: kubernetes-fundamentals
+difficulty: medium
+tags: [scheduling, resources]
+stem: |-
+  A node can provide 4 CPU for Pods. The Pods running on it request 3.5 CPU in total, but monitoring
+  shows that they really use about 0.5 CPU. A new Pod with a CPU request of 1 and a CPU limit of 2
+  is created.
+
+  Does the scheduler consider this node for the new Pod?
+options:
+  - text: "Yes: the Pods really use 0.5 CPU, which leaves 3.5 CPU free for it"
+    explain: >-
+      The scheduler does not look at current usage. Usage can rise again at any time, and the requests
+      are what the node has promised to the Pods it runs.
+  - text: "No: the requests would add up to 4.5 CPU, more than the node provides"
+    correct: true
+  - text: "No: the limit of 2 CPU has to fit, and only 0.5 CPU is unrequested"
+    explain: >-
+      Limits are not used for placement. A limit is a ceiling enforced on the running container by the
+      kernel, and the limits on a node may add up to more than its capacity.
+  - text: "Yes: requests are checked by the kubelet, after the Pod was placed"
+    explain: >-
+      Requests are the scheduler's input for placement. The kubelet and the container runtime apply
+      requests and limits to the containers afterwards.
+explanation: >-
+  For each resource the scheduler makes sure that the sum of the requests of the containers on a node
+  stays within what the node can provide. Actual usage does not count: even when usage is very low, the
+  scheduler refuses the node if this check fails, which protects the node when usage rises later. A Pod
+  that fits nowhere stays Pending.
+references:
+  - title: Resource Management for Pods and Containers
+    url: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/

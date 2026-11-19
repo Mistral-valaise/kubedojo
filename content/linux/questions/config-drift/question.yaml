@@ -1,0 +1,93 @@
+title: Find and repair configuration drift
+domain: pipes-transformations
+difficulty: medium
+minutes: 8
+tags: [diff, sed, sort, process-substitution]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  Two web servers should run the same configuration, but `web-02` behaves differently since somebody
+  edited its file by hand. Both files are below `/opt/course/config-drift/`:
+
+  - `web-01/app.conf` is the **reference**,
+  - `web-02/app.conf` has drifted.
+
+  The files consist of `key = value` lines. These differences are harmless and expected:
+
+  - comments (lines starting with `#`) and blank lines,
+  - blanks or tabs around the `=` and at the end of a line,
+  - the settings `hostname` and `listen_address`, which belong to each host.
+
+  Everything else is drift: a setting with another value, a setting that is missing on `web-02`, or a
+  setting that exists only on `web-02`.
+
+  1. Write the **names** of the settings that drifted to `/opt/course/config-drift/drift.txt`, one
+     per line.
+  2. Repair `web-02/app.conf`: afterwards it has exactly the settings and values of the reference,
+     except that it keeps its own `hostname` and `listen_address`.
+
+  Do not change `web-01/app.conf`.
+hints:
+  - "`diff -u web-01/app.conf web-02/app.conf` shows every difference, most of them noise. Remove the noise before comparing, or tell `diff` to ignore it (`man diff`: `-w`, `-B`)."
+  - "Normalise both files the same way and compare the results: drop comments with `grep -v '^#'`, remove blanks with `tr -d ' \\t'` or `sed`, `sort`. `diff <(command1) <(command2)` compares the output of two commands."
+  - "`diff <(grep -v '^#' web-01/app.conf | tr -d ' \\t' | sort) <(grep -v '^#' web-02/app.conf | tr -d ' \\t' | sort)` leaves only real differences. Then edit `web-02/app.conf` in Vim or with `sed -i`: correct the value, add the missing line, delete the extra one."
+checks:
+  - id: drift
+    title: drift.txt names exactly the settings that drifted
+    type: file
+    path: /opt/course/config-drift/drift.txt
+    expect:
+      sameLines:
+        - debug_endpoints
+        - rate_limit_per_minute
+        - tls_min_version
+    explain: >-
+      A raw diff of the two files shows dozens of lines, and the three that matter hide between
+      spacing and comment changes. Normalise both sides first; a line that exists on one side only
+      is easy to overlook when you only search for changed values.
+  - id: repaired
+    title: web-02 has the settings of the reference again
+    type: exec
+    run: |-
+      cd /opt/course/config-drift || exit 1
+      for f in web-01/app.conf web-02/app.conf; do
+        [ -s "$f" ] || { echo "$PWD/$f is missing or empty" >&2; exit 1; }
+      done
+      norm() {
+        sed -e 's/#.*//' -e 's/[[:space:]]*=[[:space:]]*/=/' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$1" \
+          | grep -v '^$' | grep -vE '^(hostname|listen_address)=' | LC_ALL=C sort
+      }
+      diff <(norm web-01/app.conf) <(norm web-02/app.conf) >/dev/null && echo match
+    expect: {equals: match}
+    explain: >-
+      The comparison ignores comments, blank lines and spacing, exactly as the task defines it, and
+      the order of the lines. It fails while a value still differs, the missing setting has not been
+      added, or the setting that only web-02 had is still there.
+  - id: host-settings
+    title: web-02 keeps its own hostname and listen_address
+    type: exec
+    guard: true
+    run: |-
+      f=/opt/course/config-drift/web-02/app.conf
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      sed -e 's/#.*//' -e 's/[[:space:]]*=[[:space:]]*/=/' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$f" \
+        | grep -E '^(hostname|listen_address)=' | LC_ALL=C sort
+    expect:
+      equals: |-
+        hostname=web-02
+        listen_address=10.20.0.12
+    explain: >-
+      Copying the reference over the drifted file removes the drift and breaks the host: web-02
+      would announce itself as web-01 and bind an address it does not have. A repair changes what
+      is wrong and nothing else.
+  - id: reference-untouched
+    title: The reference file is unchanged
+    type: exec
+    guard: true
+    run: |-
+      cd /opt/course/config-drift || exit 1
+      sha256sum web-01/app.conf | cut -d' ' -f1 | cmp -s - .manifest && echo untouched
+    expect: {equals: untouched}
+    explain: >-
+      The reference is what everything is compared with. Making the two files equal by editing the
+      healthy one spreads the drift instead of removing it.

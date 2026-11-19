@@ -1,0 +1,127 @@
+title: A shared directory for a team
+domain: permissions-identity
+difficulty: hard
+minutes: 9
+environment: base
+tags: [chgrp, chmod, setgid, sticky-bit, groups]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  The developers `teamdir-ana` and `teamdir-ben` are the members of the group `teamdir-dev`. They
+  share `/opt/course/team-shared-dir/project`, which grew without a plan: files belong to whoever
+  created them, and every account on the host can read most of it. `teamdir-eve` is such an account;
+  she is not in the group.
+
+  Turn `project` into a proper team directory:
+
+  1. `project` and **everything** below it belongs to the group `teamdir-dev`.
+  2. Every member of the group can read and change every existing file, and create files in every
+     directory.
+  3. Whatever is created anywhere below `project` from now on belongs to `teamdir-dev` automatically,
+     whoever creates it.
+  4. Accounts outside the group have no access at all: they cannot even list `project`.
+  5. In `project/inbox` a member can delete or rename only the files that are their own.
+
+  Give no more than that. In particular, files that are not programs must not become executable;
+  `src/build.sh` stays executable. Do not change the content of the files or who is in which group.
+
+  You need `sudo`. Test as the others do: `sudo -u teamdir-ben touch project/docs/test`.
+hints:
+  - "Three mechanisms are involved: group ownership (`chgrp`), a special bit on directories that makes new entries inherit the group, and another one that protects files in a shared directory from other users. `ls -ld /tmp` shows the latter."
+  - "`chgrp -R` for the group; `chmod -R` with a capital `X` sets execute only on directories and on files that are executable already; setgid (`g+s`, octal 2000) on every directory; the sticky bit (`+t`, octal 1000) on `inbox`."
+  - "`sudo chgrp -R teamdir-dev project; sudo chmod -R u+rwX,g+rwX,o-rwx project; sudo find project -type d -exec chmod g+s {} +; sudo chmod +t project/inbox`"
+checks:
+  - id: group
+    title: Everything belongs to teamdir-dev, and new entries inherit the group
+    type: exec
+    run: |-
+      p=/opt/course/team-shared-dir/project
+      [ -d "$p" ] || { echo "$p is missing" >&2; exit 1; }
+      getent group teamdir-dev >/dev/null || { echo "group teamdir-dev is missing" >&2; exit 1; }
+      other=$(find "$p" ! -group teamdir-dev -printf '%P\n' | head -n 5)
+      [ -z "$other" ] || { echo "not in group teamdir-dev: $other" >&2; exit 1; }
+      plain=$(find "$p" -type d ! -perm -2000 -printf '%P/\n' | head -n 5)
+      [ -z "$plain" ] || { echo "directories without setgid: $plain" >&2; exit 1; }
+      echo inherited
+    expect: {equals: inherited}
+    explain: >-
+      A new file gets the primary group of whoever creates it, unless the directory carries the
+      setgid bit: then it gets the group of the directory, and new subdirectories pass the bit on.
+      `chgrp project/*` misses hidden files and everything deeper: use `-R`, and set the bit on every
+      existing directory.
+  - id: members-write
+    title: Members can change every file and create files in every directory
+    type: exec
+    run: |-
+      p=/opt/course/team-shared-dir/project
+      [ -d "$p" ] || { echo "$p is missing" >&2; exit 1; }
+      for u in teamdir-ana teamdir-ben; do
+        id -nG "$u" | tr ' ' '\n' | grep -qx teamdir-dev || { echo "$u is not in teamdir-dev" >&2; exit 1; }
+        while IFS= read -r -d '' e; do
+          if [ -d "$e" ]; then
+            runuser -u "$u" -- test -r "$e" -a -w "$e" -a -x "$e" || { echo "$u cannot work in directory $e" >&2; exit 1; }
+          else
+            runuser -u "$u" -- test -r "$e" -a -w "$e" || { echo "$u cannot read and write $e" >&2; exit 1; }
+          fi
+        done < <(find "$p" -print0)
+      done
+      echo writable
+    expect: {equals: writable}
+    explain: >-
+      Being in the group helps only where the group bits allow something: files need `g+rw`,
+      directories `g+rwx`, because creating a file means writing to the directory. Files that were
+      created with mode `600` or `644` stay closed for the team until somebody changes them.
+  - id: outsiders
+    title: Accounts outside the group have no access
+    type: exec
+    run: |-
+      p=/opt/course/team-shared-dir/project
+      [ -d "$p" ] || { echo "$p is missing" >&2; exit 1; }
+      id teamdir-eve >/dev/null || exit 1
+      open=$(find "$p" -perm /007 -printf '%P\n' | head -n 5)
+      [ -z "$open" ] || { echo "others still have rights on: ${open:-project}" >&2; exit 1; }
+      if runuser -u teamdir-eve -- ls "$p" >/dev/null 2>&1; then echo "teamdir-eve can list $p" >&2; exit 1; fi
+      [ "$(id -nG teamdir-eve)" = teamdir-eve ] || { echo "the groups of teamdir-eve changed" >&2; exit 1; }
+      echo closed
+    expect: {equals: closed}
+    explain: >-
+      The third digit of a mode is for everybody who is neither the owner nor in the group, and it
+      should be 0 on a team directory. `chmod -R 777` is the opposite: it makes the access problem
+      disappear by removing the access control.
+  - id: inbox
+    title: In inbox, members cannot delete each other's files
+    type: exec
+    run: |-
+      d=/opt/course/team-shared-dir/project/inbox
+      [ -d "$d" ] || { echo "$d is missing" >&2; exit 1; }
+      probe=$d/.kd-probe-$$
+      trap 'rm -f "$probe"' EXIT
+      runuser -u teamdir-ana -- touch "$probe" || { echo "teamdir-ana cannot create a file in inbox" >&2; exit 1; }
+      if runuser -u teamdir-ben -- rm -f "$probe" 2>/dev/null && [ ! -e "$probe" ]; then
+        echo "teamdir-ben could delete a file of teamdir-ana" >&2; exit 1
+      fi
+      [ -e "$probe" ] && echo protected
+    expect: {equals: protected}
+    explain: >-
+      Deleting a file is a change to the directory, so whoever may write to a directory may delete
+      everything in it. The sticky bit (`chmod +t`, shown as `t` in `drwxrws--T`) restricts deleting
+      and renaming to the owner of the file, as in `/tmp`.
+  - id: no-exec
+    title: Files are intact, and only build.sh is executable
+    type: exec
+    guard: true
+    run: |-
+      p=/opt/course/team-shared-dir/project
+      cd "$p" || exit 1
+      find . -type f ! -name '.kd-probe-*' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | diff -q - ../.manifest >/dev/null \
+        || { echo "files were added, removed or changed" >&2; exit 1; }
+      x=$(find . -type f -perm /111 -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ')
+      [ "$x" = "src/build.sh " ] || { echo "executable files: ${x:-none} (expected only src/build.sh)" >&2; exit 1; }
+      s=$(find . -type f -perm /6000 -printf '%P\n' | head -n 5)
+      [ -z "$s" ] || { echo "regular files with setuid or setgid: $s" >&2; exit 1; }
+      echo intact
+    expect: {equals: intact}
+    explain: >-
+      A recursive `chmod 770` or `2770` treats files like directories: every text file becomes
+      executable. The capital `X` in `chmod -R g+rwX` sets execute only on directories and on files
+      that already are executable; or use `find -type d` and `find -type f` to treat them separately.

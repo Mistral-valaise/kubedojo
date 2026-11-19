@@ -1,0 +1,34 @@
+title: A high-priority Pod in a full cluster
+domain: kubernetes-fundamentals
+difficulty: hard
+tags: [scheduling, priority]
+stem: |-
+  All nodes of a cluster are full. A Pod with a PriorityClass of a higher value than all running
+  workloads is created. The PriorityClass keeps the default preemption policy, and no node satisfies
+  the Pod's requirements as things are.
+
+  What does the scheduler do?
+options:
+  - text: It keeps the Pod at the head of the queue until other Pods finish by themselves
+    explain: >-
+      That is the behaviour with `preemptionPolicy: Never`: ahead of lower-priority Pods in the queue,
+      but without removing anything. The default policy does preempt.
+  - text: It binds the Pod to a node at once and leaves freeing the resources to the kubelet
+    explain: >-
+      The scheduler never binds a Pod to a node where it does not fit. The Pod is bound only after the
+      victims are gone; until then the node is recorded in the Pod's `nominatedNodeName`.
+  - text: It evicts lower-priority Pods from a node, which get their graceful termination period
+    correct: true
+  - text: It deletes lower-priority Pods on all nodes, so that the Pod can run on any of them
+    explain: >-
+      Preemption looks for one node where removing some lower-priority Pods is enough, and removes
+      only those.
+explanation: >-
+  When no node fits a pending Pod, the scheduler's preemption logic looks for a node where removing one
+  or more Pods of lower priority would let the Pod be scheduled. Those Pods are evicted and get their
+  graceful termination period, so there is a gap before the pending Pod can be placed. If the victims
+  belong to a workload resource, its controller creates replacements, which then wait in the queue
+  behind higher priorities.
+references:
+  - title: Pod Priority and Preemption
+    url: https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/

@@ -1,0 +1,32 @@
+title: A Pod that names its node itself
+domain: kubernetes-cluster-component-security
+difficulty: medium
+tags: [scheduler, pod]
+stem: |-
+  A cluster keeps tenant workloads off a group of sensitive nodes with node affinity rules that are
+  added to every tenant Pod. A tenant creates a Pod and sets `spec.nodeName` to one of those nodes.
+
+  What happens to this Pod?
+options:
+  - text: The scheduler ignores the Pod, and the kubelet of the named node tries to run it
+    correct: true
+  - text: The scheduler checks the affinity rules first and leaves the Pod in Pending
+    explain: >-
+      The scheduler only handles Pods whose `nodeName` is empty. It never sees this Pod, so its
+      affinity rules are not evaluated.
+  - text: The API server rejects the Pod, because only the scheduler may set `nodeName`
+    explain: >-
+      `nodeName` is an ordinary field of the Pod spec that any creator of a Pod may set. Refusing it
+      takes an admission policy that you add yourself.
+  - text: The scheduler treats `nodeName` as a preference and may pick another node
+    explain: >-
+      That describes preferred node affinity. `nodeName` is not weighed against anything: it is
+      the result of scheduling, written in advance.
+explanation: >-
+  If `nodeName` is not empty, the scheduler ignores the Pod and the kubelet on the named node tries
+  to place it there; `nodeName` overrules `nodeSelector` and affinity rules. Placement rules that
+  rely on the scheduler are therefore not a security boundary on their own for users who can write
+  Pod specs. Enforce them at admission, or control which nodes a namespace may use.
+references:
+  - title: Assigning Pods to Nodes - nodeName
+    url: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodename

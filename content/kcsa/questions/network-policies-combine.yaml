@@ -1,0 +1,33 @@
+title: Two NetworkPolicies for the same Pod
+domain: kubernetes-security-fundamentals
+difficulty: medium
+tags: [network-policy]
+stem: |-
+  Two NetworkPolicies in one namespace select the Pod `db`, each with `policyTypes: [Ingress]`. The
+  first allows ingress from Pods labelled `app=web`, the second from Pods labelled `app=batch`. The
+  network plugin enforces NetworkPolicies.
+
+  Which Pods of the namespace can connect to `db`?
+options:
+  - text: Pods labelled `app=web` and Pods labelled `app=batch`
+    correct: true
+  - text: Only Pods labelled `app=web`, because the first policy wins
+    explain: >-
+      NetworkPolicies have no order and no priority. The order in which they were created or are
+      evaluated does not affect the result.
+  - text: Only Pods that carry the two labels at the same time
+    explain: >-
+      That would be an intersection. The allow lists of several policies are added together; a
+      connection has to be allowed by one of them, not by each of them.
+  - text: No Pods, because conflicting policies result in a deny
+    explain: >-
+      Policies cannot conflict, because they only contain allow rules. A policy never takes away
+      what another one allows.
+explanation: >-
+  Network policies do not conflict; they are additive. If one or more policies apply to a Pod for a
+  direction, the connections allowed in that direction are the union of what those policies allow.
+  The Pod `db` is isolated for ingress as soon as one policy with `Ingress` in its `policyTypes`
+  selects it, and from then on everything that no policy lists is denied.
+references:
+  - title: Network Policies - The two sorts of pod isolation
+    url: https://kubernetes.io/docs/concepts/services-networking/network-policies/#the-two-sorts-of-pod-isolation

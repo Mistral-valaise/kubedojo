@@ -1,0 +1,34 @@
+title: Who moves a CNCF project to the next maturity level
+domain: cloud-native-architecture
+difficulty: medium
+tags: [cncf, community]
+stem: |-
+  An incubating CNCF project applies for graduation. Its application is checked against the graduation
+  criteria in a due diligence process.
+
+  Which body admits projects to the CNCF and decides on their maturity level?
+options:
+  - text: The CNCF Governing Board
+    explain: >-
+      The Governing Board is responsible for marketing, business oversight and the budget of the
+      CNCF. By its charter it does not make the technical decisions.
+  - text: The Kubernetes Steering Committee
+    explain: >-
+      It governs one project, Kubernetes, with its SIGs and working groups. It has no say over other
+      CNCF projects.
+  - text: A CNCF Technical Advisory Group (TAG)
+    explain: >-
+      TAGs bring expertise in an area such as security or infrastructure and support the projects in
+      it. They advise; they do not take the decision.
+  - text: The CNCF Technical Oversight Committee (TOC)
+    correct: true
+explanation: >-
+  The TOC is the technical governing body of the CNCF: it admits and oversees all projects and
+  evaluates whether a project meets the criteria of a level. The levels are sandbox (experimental,
+  early), incubating (gaining adoption, becoming stable) and graduated (highly mature, proven in
+  production); inactive projects are archived.
+references:
+  - title: CNCF Technical Oversight Committee (TOC)
+    url: https://github.com/cncf/toc/blob/main/README.md
+  - title: CNCF project lifecycle and process
+    url: https://github.com/cncf/toc/blob/main/process/README.md

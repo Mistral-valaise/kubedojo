@@ -1,0 +1,107 @@
+title: Jobs that outlive your login
+domain: processes-services
+difficulty: medium
+minutes: 7
+environment: base
+tags: [nohup, setsid, jobs, redirection, sigcont]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  **1. Start the collector so that it survives.**
+  `/opt/course/keep-job-running/bin/keepjob-collect` has to run for days. Start it, as `candidate`,
+  so that
+
+  - it runs in the background and **keeps running when you log out or your connection drops**,
+  - everything it prints, its standard output **and** its standard error, goes to the file
+    `/opt/course/keep-job-running/collector.log`,
+  - exactly **one** collector is running in the end.
+
+  **2. Continue the suspended import.**
+  A colleague suspended the running process `keepjob-import` and went home. Let it carry on. Do not
+  restart it: the work it has done so far would be lost.
+hints:
+  - "A program started in a terminal is tied to it: when the terminal goes away it is sent SIGHUP and its output has nowhere to go. Look at `man nohup` and `man setsid`. For the import: what does the STAT column of `ps` say about it?"
+  - "`nohup <command> &` makes the command ignore SIGHUP; redirect with `>> file 2>&1` (the order matters: first the file, then `2>&1`). A process in state `T` is stopped; `kill -l` lists the signal that continues it."
+  - "`nohup /opt/course/keep-job-running/bin/keepjob-collect >> /opt/course/keep-job-running/collector.log 2>&1 < /dev/null &` and `kill -CONT $(pgrep -x keepjob-import)`"
+checks:
+  - id: one-collector
+    title: Exactly one collector is running, as candidate
+    type: exec
+    run: |-
+      n=$(pgrep -c -x keepjob-collect)
+      [ "$n" = 1 ] || { echo "$n processes named keepjob-collect are running; expected 1" >&2; exit 1; }
+      ps -o user:32= -p "$(pgrep -x keepjob-collect)" | tr -d ' '
+    expect: {equals: candidate}
+    explain: >-
+      Check with `pgrep -a keepjob-collect` what really runs. A first attempt that was started in the
+      background and forgotten keeps running next to the second one; stop it with `kill <pid>`.
+  - id: hangup-proof
+    title: The collector does not depend on your terminal
+    type: exec
+    run: |-
+      n=$(pgrep -c -x keepjob-collect)
+      [ "$n" = 1 ] || { echo "$n processes named keepjob-collect are running; expected 1" >&2; exit 1; }
+      pid=$(pgrep -x keepjob-collect)
+      ign=$(awk '/^SigIgn:/ {print $2}' "/proc/$pid/status")
+      tty=$(ps -o tty= -p "$pid" | tr -d ' ')
+      [ -n "$ign" ] && [ -n "$tty" ] || { echo "cannot inspect process $pid" >&2; exit 1; }
+      if [ $(( 0x$ign & 1 )) -eq 1 ] || [ "$tty" = "?" ]; then echo safe; exit 0; fi
+      echo "the collector is attached to terminal $tty and does not ignore SIGHUP: it ends when that terminal hangs up" >&2
+      exit 1
+    expect: {equals: safe}
+    explain: >-
+      When a terminal goes away, the shell passes SIGHUP on to its jobs, and SIGHUP ends a process.
+      `nohup` makes the command ignore that signal, `setsid` detaches it from the terminal
+      altogether. After `disown` or a plain `&` the job is safe only once your shell has exited
+      normally: log out and check again.
+  - id: output
+    title: Standard output and standard error go to collector.log
+    type: exec
+    run: |-
+      log=/opt/course/keep-job-running/collector.log
+      n=$(pgrep -c -x keepjob-collect)
+      [ "$n" = 1 ] || { echo "$n processes named keepjob-collect are running; expected 1" >&2; exit 1; }
+      pid=$(pgrep -x keepjob-collect)
+      for fd in 1 2; do
+        to=$(runuser -u candidate -- readlink "/proc/$pid/fd/$fd") || { echo "cannot read where file descriptor $fd of process $pid points" >&2; exit 1; }
+        [ "$to" = "$log" ] || { echo "file descriptor $fd of the collector goes to $to" >&2; exit 1; }
+      done
+      grep -qx "collector started pid=$pid" "$log" || { echo "$log does not contain the start message of process $pid" >&2; exit 1; }
+      grep -q '^collector: warning' "$log" || { echo "$log does not contain the warning from standard error" >&2; exit 1; }
+      echo logged
+    expect: {equals: logged}
+    explain: >-
+      `> file` redirects standard output only; errors still go to the terminal and are lost with
+      it. `>> file 2>&1` sends both to the file, and the order matters: `2>&1 >> file` leaves
+      standard error where it was. Without a redirection `nohup` writes to `nohup.out`.
+  - id: resumed
+    title: The import is running again
+    type: exec
+    run: |-
+      pid=$(kd-fixture pid import) || exit 1
+      kill -0 "$pid" 2>/dev/null || { echo "the original import (pid $pid) is gone" >&2; exit 1; }
+      state=$(ps -o stat= -p "$pid" | cut -c1)
+      case "$state" in
+        T|t) echo "the import (pid $pid) is still stopped" >&2; exit 1 ;;
+        S|R|D|I) echo resumed ;;
+        *) echo "unexpected state '$state' of pid $pid" >&2; exit 1 ;;
+      esac
+    expect: {equals: resumed}
+    explain: >-
+      Ctrl-Z and `kill -STOP` freeze a process: it keeps its memory and its files and shows state `T`
+      in `ps`. `fg` and `bg` continue a job of your own shell; a process of another shell is
+      continued with `kill -CONT <pid>`.
+  - id: import-alive
+    title: The import was not restarted
+    type: exec
+    guard: true
+    run: |-
+      pid=$(kd-fixture pid import) || exit 1
+      kill -0 "$pid" 2>/dev/null || { echo "the original import (pid $pid) is gone" >&2; exit 1; }
+      [ "$(ps -o comm= -p "$pid")" = keepjob-import ] || { echo "pid $pid is not the import" >&2; exit 1; }
+      [ "$(pgrep -c -x keepjob-import)" = 1 ] || { echo "more than one keepjob-import is running" >&2; exit 1; }
+      echo original
+    expect: {equals: original}
+    explain: >-
+      A stopped process is not broken, it is waiting. Killing and restarting it throws away the work
+      it has done; continuing it costs one signal.

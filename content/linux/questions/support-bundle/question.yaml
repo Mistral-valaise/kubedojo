@@ -1,0 +1,118 @@
+title: A support bundle without the secrets
+domain: incident-troubleshooting
+difficulty: medium
+minutes: 10
+tags: [tar, gzip, exclude, sed, permissions, secrets]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  The incident is over, and the vendor of the shop software asks for a support bundle. The
+  application lives in `/opt/course/support-bundle/app`.
+
+  Create `/opt/course/support-bundle/bundle.tar.gz`, a gzip-compressed tar archive with exactly
+  these files:
+
+  - everything below `app/etc`, **except** private keys (`*.key`) and environment files (`*.env`),
+  - the two application logs `app/log/app.log` and `app/log/app.log.1`,
+  - the start script `app/bin/run.sh`.
+
+  Requirements:
+
+  - The files are stored under their paths relative to `/opt/course/support-bundle`, for example
+    `app/bin/run.sh`, and with the permissions they have on the host.
+  - No secret leaves the host. `app/etc/app.conf` contains the database password: in the copy
+    **inside the bundle** that line must read `db_password = REDACTED`. Everything else in the
+    bundled files is identical to the originals.
+  - Nothing below `app` is changed: the shop is running with these files.
+hints:
+  - "You cannot edit a file inside a tar archive, and you must not edit the live one. So: copy what was asked for to a scratch directory (keeping modes), change the copy, and archive the copy. List the result with `tar -tzvf` before you call it done."
+  - "`tar --exclude='*.key' --exclude='*.env'` leaves files out by pattern, and naming the directory `app/etc` (not `app/etc/*`) also takes the hidden files in it. `cp -a`, `rsync -a` or a tar pipe keep permissions; a plain `cp -r` does not."
+  - "`s=$(mktemp -d); tar -cf - --exclude='*.key' --exclude='*.env' app/etc app/log/app.log app/log/app.log.1 app/bin/run.sh | tar -xpf - -C \"$s\"`, then `sed -i 's/^db_password.*/db_password = REDACTED/' \"$s/app/etc/app.conf\"` and `tar -czf bundle.tar.gz -C \"$s\" app`."
+checks:
+  - id: members
+    title: The bundle is a gzip tar archive with exactly the requested files
+    type: exec
+    run: |-
+      a=/opt/course/support-bundle/bundle.tar.gz
+      [ -f "$a" ] || { echo "$a is missing" >&2; exit 1; }
+      gzip -t "$a" 2>/dev/null || { echo "$a is not gzip-compressed" >&2; exit 1; }
+      list=$(tar -tzf "$a") || { echo "$a is not a tar archive" >&2; exit 1; }
+      echo "$list" | sed 's|^\./||' | grep -v -e '/$' -e '^$' | LC_ALL=C sort
+    expect:
+      sameLines:
+        - app/bin/run.sh
+        - app/etc/.features
+        - app/etc/app.conf
+        - app/etc/limits.conf
+        - app/etc/tls/server.crt
+        - app/log/app.log
+        - app/log/app.log.1
+    explain: >-
+      Whoever unpacks the bundle should find the files where they are on the host, so create it
+      from the parent directory (`-C`) with relative paths. The usual slips: `app/etc/*` skips the
+      hidden file `.features`, and archiving all of `app` ships megabytes of cache and debug data.
+  - id: no-secrets
+    title: The bundle contains no key, no env file and no password
+    type: exec
+    run: |-
+      b=/opt/course/support-bundle; a=$b/bundle.tar.gz
+      [ -f "$a" ] || { echo "$a is missing" >&2; exit 1; }
+      [ -s "$b/.state/secrets" ] || { echo "$b/.state/secrets is missing: reset the question" >&2; exit 1; }
+      list=$(tar -tzf "$a") || { echo "$a is not a gzip tar archive" >&2; exit 1; }
+      bad=$(echo "$list" | grep -E '\.(key|env)$' | tr '\n' ' ')
+      [ -z "$bad" ] || { echo "secret files in the bundle: $bad" >&2; exit 1; }
+      hits=$(tar -xzOf "$a" | grep -a -c -F -f "$b/.state/secrets" || true)
+      [ "$hits" = 0 ] || { echo "$hits lines in the bundled files still contain a secret" >&2; exit 1; }
+      conf=$(echo "$list" | grep -E '^(\./)?app/etc/app\.conf$' | head -n 1)
+      [ -n "$conf" ] || { echo "app/etc/app.conf is not in the bundle" >&2; exit 1; }
+      tar -xzOf "$a" "$conf" | grep -Eqx 'db_password *= *REDACTED' || { echo "the bundled app.conf has no line 'db_password = REDACTED'" >&2; exit 1; }
+      echo clean
+    expect: {equals: clean}
+    explain: >-
+      A support bundle leaves your control the moment it is sent, so secrets are removed before
+      it is packed: by excluding files, and by redacting values inside files you do ship.
+      Excluding `*.key` and `*.env` is not enough when a password also sits in the configuration.
+  - id: intact
+    title: The bundled files have the original permissions and, apart from the redaction, the original content
+    type: exec
+    run: |-
+      b=/opt/course/support-bundle; a=$b/bundle.tar.gz
+      [ -f "$a" ] || { echo "$a is missing" >&2; exit 1; }
+      t=$(mktemp -d); trap 'rm -rf "$t"' EXIT
+      tar -xzpf "$a" -C "$t" --no-same-owner 2>/dev/null || { echo "$a cannot be unpacked" >&2; exit 1; }
+      n=0
+      while read -r rel; do
+        src=$b/$rel; f=$t/$rel
+        [ -f "$src" ] || continue
+        n=$((n + 1))
+        [ "$(stat -c %a "$f")" = "$(stat -c %a "$src")" ] || {
+          echo "$rel has mode $(stat -c %a "$f") in the bundle and $(stat -c %a "$src") on the host" >&2; exit 1; }
+        if [ "$rel" = app/etc/app.conf ]; then
+          cmp -s <(grep -v '^db_password' "$f") <(grep -v '^db_password' "$src")
+        else
+          cmp -s "$f" "$src"
+        fi || { echo "$rel in the bundle differs from the original" >&2; exit 1; }
+      done < <(cd "$t" && find . -type f | sed 's|^\./||')
+      [ "$n" -ge 1 ] || { echo "no file in the bundle is stored under its path relative to $b (app/...)" >&2; exit 1; }
+      echo intact
+    expect: {equals: intact}
+    explain: >-
+      Permissions are evidence too: the vendor wants to see that `run.sh` is executable and who
+      may write the logs. `tar` records them, but a staging copy made with plain `cp -r` has
+      already lost them to the umask; use `cp -a`, `rsync -a` or a tar pipe.
+  - id: originals
+    title: The application directory is unchanged
+    type: exec
+    guard: true
+    run: |-
+      b=/opt/course/support-bundle
+      [ -f "$b/.state/originals" ] || { echo "$b/.state/originals is missing: reset the question" >&2; exit 1; }
+      cd "$b" && [ -d app ] || { echo "$b/app is missing" >&2; exit 1; }
+      changed=$(comm -23 .state/originals <(find app \( -type f -printf 'f %m %s %p ' -exec sha256sum {} \; \) -o -printf '%y %m - %p\n' | awk '{print $1, $2, $3, $4, $5}' | LC_ALL=C sort))
+      [ -z "$changed" ] || { echo "changed or missing below app: $(echo "$changed" | awk '{print $4}' | head -n 3 | tr '\n' ' ')" >&2; exit 1; }
+      echo unchanged
+    expect: {equals: unchanged}
+    explain: >-
+      Redacting the live configuration takes the database password away from a running
+      application, and "moving" files into the bundle removes them from it. Collecting evidence
+      is read-only: work on a copy.

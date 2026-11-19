@@ -1,0 +1,35 @@
+title: The three CAs of a kubeadm cluster
+domain: platform-security
+difficulty: hard
+tags: [pki, certificates]
+stem: |-
+  The directory `/etc/kubernetes/pki` of a kubeadm control plane node contains three certificate
+  authorities: `ca.crt`, `etcd/ca.crt` and `front-proxy-ca.crt`.
+
+  What is the CA in `front-proxy-ca.crt` used for?
+options:
+  - text: Verifying the client certificate the API server presents to extension API servers
+    correct: true
+  - text: Signing the client certificates that kube-proxy on each node presents to the API server
+    explain: >-
+      Components that are clients of the API server, such as kube-proxy, kubelets, the scheduler and
+      the controller manager, use certificates from the general Kubernetes CA in `ca.crt`.
+  - text: Signing the serving certificates of Ingress controllers that proxy external traffic
+    explain: >-
+      Certificates for Ingress hosts come from TLS Secrets that users provide. The cluster's own PKI
+      is not involved in them.
+  - text: Verifying the ServiceAccount tokens that Pods present to the API server
+    explain: >-
+      ServiceAccount tokens are signed and verified with a separate key pair, `sa.key` and `sa.pub`,
+      which is not a certificate authority.
+explanation: >-
+  A cluster needs a general Kubernetes CA, a CA for all etcd-related functions and a CA for the front
+  proxy. The front proxy is the API server acting as a proxy in the aggregation layer: it forwards
+  requests to extension API servers and authenticates to them with its proxy client certificate,
+  which must be signed by this CA and not by the general one. Keeping the CAs apart keeps a
+  certificate issued for one purpose from being accepted for another.
+references:
+  - title: PKI certificates and requirements
+    url: https://kubernetes.io/docs/setup/best-practices/certificates/
+  - title: Configure the Aggregation Layer
+    url: https://kubernetes.io/docs/tasks/extend-kubernetes/configure-aggregation-layer/

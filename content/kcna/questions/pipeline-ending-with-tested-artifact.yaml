@@ -1,0 +1,35 @@
+title: Naming the stage that produces a tested artifact
+domain: cloud-native-application-delivery
+difficulty: easy
+tags: [ci-cd, delivery]
+stem: |-
+  Developers merge small changes into the main branch several times a day. Each merge starts an
+  automated run that checks that the change merges cleanly, compiles the code, runs the tests and
+  stores a container image. The run ends there; it deploys nothing.
+
+  Which practice does this describe?
+options:
+  - text: Continuous deployment
+    explain: >-
+      Continuous deployment goes furthest: every change that passes the pipeline is released to
+      production automatically.
+  - text: Continuous delivery
+    explain: >-
+      Continuous delivery takes the tested artifact further and deploys it automatically, at least to
+      an acceptance environment. It starts where this run ends.
+  - text: Continuous integration
+    correct: true
+  - text: Continuous reconciliation
+    explain: >-
+      Reconciliation is what a GitOps agent or a Kubernetes controller does: compare actual with
+      desired state and correct the difference. It is not a build stage.
+explanation: >-
+  Continuous integration (CI) is the practice of integrating code changes as often as possible. It
+  begins when a change is committed and ends with a tested artifact that a CD system can consume.
+  Continuous delivery builds on it by deploying changes automatically into an acceptance environment,
+  and continuous deployment goes one step further by deploying to production without a manual gate.
+references:
+  - title: CNCF Glossary - Continuous Integration (CI)
+    url: https://glossary.cncf.io/continuous-integration/
+  - title: CNCF Glossary - Continuous Delivery (CD)
+    url: https://glossary.cncf.io/continuous-delivery/

@@ -1,0 +1,40 @@
+title: Reading a Pod spec after a container was compromised
+domain: kubernetes-threat-model
+difficulty: medium
+tags: [malicious-code, container-escape, security-context]
+stem: |-
+  An attacker exploits an application and runs code as root inside its container. The incident team
+  reads the Pod spec to judge how far the attacker can get from there.
+
+  Which single setting means that the attacker's processes are essentially equivalent to root on the
+  node?
+options:
+  - text: "`runAsUser: 0`"
+    explain: >-
+      This only sets the UID of the container process, which the scenario already assumes. Root in a
+      container that is not privileged is still confined by the container's isolation; the Baseline
+      Pod Security Standard allows it.
+  - text: "`shareProcessNamespace: true`"
+    explain: >-
+      This shares one process namespace between the containers of the same Pod, so that they can see
+      and signal each other's processes. The processes of the node stay invisible; that would take
+      `hostPID`.
+  - text: "`privileged: true`"
+    correct: true
+  - text: "`allowPrivilegeEscalation: true`"
+    explain: >-
+      This is the default and means that `no_new_privs` is not set, so a process may gain more
+      privileges than its parent, for example through a setuid binary. That matters for a non-root
+      process; it does not open the container towards the node.
+explanation: >-
+  The API reference says it plainly: processes in privileged containers are essentially equivalent to
+  root on the host. The Pod Security Standards add that privileged Pods disable most security
+  mechanisms. Code execution in such a container is therefore a node compromise, and from the node
+  the attacker reaches everything that runs there. Other fields open single doors to the node:
+  `hostPID`, `hostIPC` and `hostNetwork` share host namespaces, and `hostPath` volumes expose its
+  filesystem. The Baseline profile forbids all of them.
+references:
+  - title: Pod, API reference (SecurityContext, privileged)
+    url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/
+  - title: Pod Security Standards
+    url: https://kubernetes.io/docs/concepts/security/pod-security-standards/

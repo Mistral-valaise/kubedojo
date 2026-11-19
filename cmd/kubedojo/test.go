@@ -45,6 +45,7 @@ type testEnvironment struct {
 	KubernetesVersion string `json:"kubernetesVersion"`
 	NodeImage         string `json:"nodeImage"`
 	TerminalImage     string `json:"terminalImage"`
+	LinuxImage        string `json:"linuxImage,omitempty"`
 	Driver            string `json:"driver"`
 	OS                string `json:"os"`
 	Arch              string `json:"arch"`
@@ -100,7 +101,8 @@ type proofOptions struct {
 	quick    bool
 }
 
-// cmdTest proves each question end to end against a real sandbox:
+// cmdTest proves each question end to end. A multiple-choice question is
+// proven without a sandbox (see proveChoice); a task against a real one:
 //  1. setup.sh runs,
 //  2. every check that is not a guard FAILS on the untouched environment,
 //  3. solution.sh runs,
@@ -132,8 +134,16 @@ func cmdTest(ctx context.Context, args []string) error {
 		return fmt.Errorf("content is invalid:\n%w", err)
 	}
 	drv := c.driver()
-	if err := preflight(ctx, drv, true); err != nil {
-		return err
+	var selected []*catalog.Track
+	for _, t := range cat.List() {
+		if *track == "" || t.ID == *track {
+			selected = append(selected, t)
+		}
+	}
+	if needsSandbox(cat, *track) {
+		if err := preflight(ctx, drv, true, needsOf(selected)); err != nil {
+			return err
+		}
 	}
 	tmp, err := os.MkdirTemp("", "kubedojo-test-*")
 	if err != nil {
@@ -158,7 +168,7 @@ func cmdTest(ctx context.Context, args []string) error {
 	defer mgr.Close()
 
 	rep := &testReport{GeneratedAt: time.Now().UTC(), Summary: map[string]int{}, Environment: testEnvironment{
-		Kubedojo: version, KubernetesVersion: c.k8sVersion, NodeImage: c.nodeImage, TerminalImage: c.termImage,
+		Kubedojo: version, KubernetesVersion: c.k8sVersion, NodeImage: c.nodeImage, TerminalImage: c.termImage, LinuxImage: c.linuxImage,
 		Driver: drv.Name(), OS: runtime.GOOS, Arch: runtime.GOARCH, Repeat: *repeat, Quick: *quick, SettleSeconds: int(settle.Seconds())}}
 	writeReport := func() error {
 		if *reportPath == "" {
@@ -183,7 +193,12 @@ func cmdTest(ctx context.Context, args []string) error {
 			if *track != "" && t.ID != *track {
 				continue
 			}
-			ep := testExam(ctx, mgr, t, *keep)
+			var ep *examProof
+			if t.Sandboxless() {
+				ep = testQuizExam(mgr, t)
+			} else {
+				ep = testExam(ctx, mgr, t, *keep)
+			}
 			rep.Exams = append(rep.Exams, ep)
 			if ep.Status != statusOK {
 				fmt.Printf("  ✗ %s: %s\n", t.ID, ep.Reason)
@@ -209,7 +224,7 @@ func cmdTest(ctx context.Context, args []string) error {
 			if len(want) > 0 && !want[q.ID] {
 				continue
 			}
-			if q.Driver != drv.Name() {
+			if !q.RunsOn(drv.Name()) {
 				// Never silently: a question that cannot run here is listed with the reason.
 				qp := newProof(q)
 				qp.Status, qp.Reason = statusSkipped, fmt.Sprintf("needs driver %q, this run uses %q", q.Driver, drv.Name())
@@ -229,7 +244,13 @@ func cmdTest(ctx context.Context, args []string) error {
 		fmt.Printf("\n%s (%d questions, session %s)\n", t.Title, len(qs), ses.ID)
 		for _, q := range qs {
 			total++
-			qp := proveQuestion(ctx, mgr, ses.ID, q, opts)
+			var qp *questionProof
+			if q.Type == catalog.TypeChoice {
+				// Nothing to repeat, settle or vary: grading an answer is a pure function.
+				qp = proveChoice(mgr, ses.ID, q)
+			} else {
+				qp = proveQuestion(ctx, mgr, ses.ID, q, opts)
+			}
 			rep.Questions = append(rep.Questions, qp)
 			rep.Summary[qp.Status]++
 			if qp.Status != statusOK {
@@ -243,7 +264,7 @@ func cmdTest(ctx context.Context, args []string) error {
 				break
 			}
 		}
-		if !*keep {
+		if !*keep || t.Sandboxless() {
 			dctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 			_ = mgr.Destroy(dctx, ses.ID)
 			cancel()
@@ -373,7 +394,7 @@ func proveRun(ctx context.Context, mgr *session.Manager, sid string, q *catalog.
 	if free := unsolvedPasses(before); len(free) > 0 {
 		return stop(statusFalsePositive, "passes before the task is solved: %s (fix the check, or mark it guard: true if it protects against a shortcut)", strings.Join(free, ", "))
 	}
-	res, err := mgr.Exec(ctx, sid, q.ID, "control-plane", script)
+	res, err := mgr.Solve(ctx, sid, q.ID, script)
 	if err != nil {
 		return stop(statusSolutionError, "%s: %v", name, err)
 	}
@@ -461,7 +482,7 @@ func describeMismatch(bad []checkMismatch) string {
 			parts = append(parts, fmt.Sprintf("[%s] passes but must fail", b.check.ID))
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("[%s] want %s, got %s", b.check.ID, b.check.Expected, strings.ReplaceAll(b.check.Observed, "\n", " ")))
+		parts = append(parts, fmt.Sprintf("[%s] want %s, got %s", b.check.ID, strings.ReplaceAll(b.check.Expected, "\n", " "), strings.ReplaceAll(b.check.Observed, "\n", " ")))
 	}
 	return strings.Join(parts, "; ")
 }
@@ -527,7 +548,7 @@ func testExam(ctx context.Context, mgr *session.Manager, t *catalog.Track, keep 
 	var broken []string
 	for _, qs := range v.Questions {
 		q := t.Question(qs.ID)
-		res, err := mgr.Exec(ctx, ses.ID, q.ID, "control-plane", q.SolutionSh)
+		res, err := mgr.Solve(ctx, ses.ID, q.ID, q.SolutionSh)
 		if err != nil {
 			return stop(statusSolutionError, err)
 		}
@@ -559,7 +580,7 @@ func testExam(ctx context.Context, mgr *session.Manager, t *catalog.Track, keep 
 		bad = append(bad, qs.ID)
 		for _, c := range qs.Last.Checks {
 			if !c.Passed {
-				fmt.Printf("  ✗ %-40s [%s] want %s, got %s\n", qs.ID, c.ID, c.Expected, strings.ReplaceAll(c.Observed, "\n", " "))
+				fmt.Printf("  ✗ %-40s [%s] want %s, got %s\n", qs.ID, c.ID, strings.ReplaceAll(c.Expected, "\n", " "), strings.ReplaceAll(c.Observed, "\n", " "))
 			}
 		}
 	}

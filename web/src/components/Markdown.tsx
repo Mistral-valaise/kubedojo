@@ -93,14 +93,19 @@ function Pre({ children }: { children?: ReactNode }) {
   );
 }
 
-export const Markdown = memo(function Markdown({ children, className }: { children: string; className?: string }) {
+/**
+ * `plain` renders inline code without the click-to-copy control, for markdown
+ * that sits inside another control (an answer option), where a nested button
+ * would be a second tab stop and would take the click.
+ */
+export const Markdown = memo(function Markdown({ children, className, plain }: { children: string; className?: string; plain?: boolean }) {
   return (
     <div className={"md " + (className ?? "")}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           pre: Pre,
-          code: InlineCode,
+          code: plain ? "code" : InlineCode,
           a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
         }}
       >

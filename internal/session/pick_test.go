@@ -13,6 +13,12 @@ func TestPickQuestionsFollowsDomainWeights(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tr := range cat.List() {
+		// TEMPORARY ALLOWANCE, keyed on placeholder lessons (Track.Draft): a
+		// skeleton track cannot fill an exam yet. See TestShippedContentIsValid.
+		if tr.Draft() {
+			t.Logf("%s is a draft (placeholder lessons): skipped", tr.ID)
+			continue
+		}
 		n := tr.Exam.Questions
 		for round := 0; round < 20; round++ {
 			picked := pickQuestions(tr, n, "kind")
@@ -46,5 +52,18 @@ func TestPickQuestionsCapsAtAvailable(t *testing.T) {
 	}
 	if got := len(pickQuestions(tr, 5, "vm")); got != 0 {
 		t.Fatalf("picked %d questions for a driver nothing uses", got)
+	}
+}
+
+// Choice questions need no sandbox, so every driver can offer them.
+func TestPickQuestionsOffersChoiceQuestionsOnEveryDriver(t *testing.T) {
+	cat, _ := catalog.Load(content.FS)
+	for _, tr := range cat.List() {
+		if !tr.Sandboxless() {
+			continue
+		}
+		if got := len(pickQuestions(tr, 1000, "vm")); got != len(tr.Questions) {
+			t.Errorf("%s: picked %d of %d questions", tr.ID, got, len(tr.Questions))
+		}
 	}
 }

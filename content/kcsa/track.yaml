@@ -1,0 +1,39 @@
+id: kcsa
+title: Kubernetes and Cloud Native Security Associate
+short: KCSA
+kind: theory
+description: >-
+  The security foundations of Kubernetes and cloud native platforms. Multiple-choice exam:
+  you answer questions about concepts, no terminal involved.
+docs:
+  - title: KCSA curriculum (CNCF)
+    url: https://github.com/cncf/curriculum/blob/main/KCSA%20Curriculum.pdf
+exam:
+  durationMinutes: 45
+  passPercent: 75
+  questions: 30
+domains:
+  - id: overview-of-cloud-native-security
+    title: Overview of Cloud Native Security
+    weight: 14
+    summary: The 4Cs, cloud provider and infrastructure security, isolation, artifact and workload security.
+  - id: kubernetes-cluster-component-security
+    title: Kubernetes Cluster Component Security
+    weight: 22
+    summary: How the API server, etcd, kubelet, scheduler, controller manager and the other components are secured.
+  - id: kubernetes-security-fundamentals
+    title: Kubernetes Security Fundamentals
+    weight: 22
+    summary: Pod Security Standards and admission, authentication, authorization, Secrets, isolation, NetworkPolicy, audit logging.
+  - id: kubernetes-threat-model
+    title: Kubernetes Threat Model
+    weight: 16
+    summary: Trust boundaries, data flow, persistence, denial of service, malicious code, network attackers, privilege escalation.
+  - id: platform-security
+    title: Platform Security
+    weight: 16
+    summary: Supply chain, image repositories, observability, service mesh, PKI, connectivity and admission control.
+  - id: compliance-and-security-frameworks
+    title: Compliance and Security Frameworks
+    weight: 10
+    summary: Compliance and threat modelling frameworks, supply chain compliance and automation tooling.

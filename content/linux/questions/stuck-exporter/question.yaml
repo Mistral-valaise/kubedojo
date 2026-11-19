@@ -1,0 +1,79 @@
+title: A job that will not stop, and one that must not
+domain: processes-services
+difficulty: medium
+minutes: 6
+environment: base
+tags: [kill, signals, sigkill, sighup, pgrep]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  Two instances of `stuck-exporter` are running, one per job. `/opt/course/stuck-exporter/README`
+  describes the files they use and the signals they understand.
+
+  1. The **nightly** job has been hanging for hours and does not react to a normal `kill`. End it.
+     Afterwards nothing of it may be left that keeps the next nightly run from starting.
+  2. The **hourly** job is healthy and must not be interrupted. Its configuration
+     `/opt/course/stuck-exporter/conf/hourly.conf` was changed to `level=debug`, but
+     `/opt/course/stuck-exporter/run/hourly.status` shows that the process still works with
+     `level=info`. Make the running process use the new configuration **without restarting it**:
+     its PID stays the same.
+hints:
+  - "Both processes have the same name. `pgrep -a stuck-exporter` prints their command lines, and each status file contains a pid. Read the README: what does this program do on which signal, and what does a job leave behind while it runs?"
+  - "`kill -l` lists the signals. One of them cannot be caught or ignored: it is the last resort, and a process ended that way cleans up nothing. Another one traditionally tells a daemon to read its configuration again."
+  - "`kill -KILL <pid of nightly>`, then `rm run/nightly.lock`; `kill -HUP <pid of hourly>`, then `cat run/hourly.status`."
+checks:
+  - id: hung-gone
+    title: The hung nightly job is gone
+    type: exec
+    run: |-
+      pid=$(kd-fixture pid nightly) || exit 1
+      if kill -0 "$pid" 2>/dev/null; then echo "the nightly job (pid $pid) is still running" >&2; exit 1; fi
+      echo gone
+    expect: {equals: gone}
+    explain: >-
+      A process may ignore or mishandle SIGTERM, SIGINT and SIGHUP; SIGKILL (`kill -9`, `kill -KILL`)
+      is carried out by the kernel and cannot be ignored. Always look after sending a signal
+      (`ps -p <pid>`): `kill` succeeding only means the signal was delivered.
+  - id: lock-removed
+    title: No stale lock keeps the next nightly run from starting
+    type: exec
+    run: |-
+      d=/opt/course/stuck-exporter/run
+      [ -d "$d" ] || { echo "$d is missing" >&2; exit 1; }
+      if [ -e "$d/nightly.lock" ]; then echo "$d/nightly.lock still exists" >&2; exit 1; fi
+      echo removed
+    expect: {equals: removed}
+    explain: >-
+      That is the price of SIGKILL: the process gets no chance to remove its lock, pidfile or
+      temporary files, and the next start finds them and refuses to run. After `kill -9`, clean up
+      what the process would have cleaned up itself.
+  - id: reloaded
+    title: The running hourly job uses level=debug
+    type: exec
+    run: |-
+      f=/opt/course/stuck-exporter/run/hourly.status
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      pid=$(kd-fixture pid hourly) || exit 1
+      grep -qx "pid=$pid" "$f" || { echo "the status was not written by the original hourly process (pid $pid)" >&2; exit 1; }
+      grep -qx 'state=running' "$f" || { echo "the hourly job is not running" >&2; exit 1; }
+      grep -x 'level=.*' "$f"
+    expect: {equals: "level=debug"}
+    explain: >-
+      A process reads its configuration at start; editing the file changes nothing in memory. Most
+      daemons read it again on SIGHUP (`kill -HUP <pid>`), which avoids the outage of a restart.
+      What a signal means is up to the program, so check its documentation first.
+  - id: hourly-alive
+    title: The hourly job was not interrupted
+    type: exec
+    guard: true
+    run: |-
+      pid=$(kd-fixture pid hourly) || exit 1
+      kill -0 "$pid" 2>/dev/null || { echo "the original hourly process (pid $pid) is gone" >&2; exit 1; }
+      [ "$(ps -o comm= -p "$pid")" = stuck-exporter ] || { echo "pid $pid is not the exporter" >&2; exit 1; }
+      [ -e /opt/course/stuck-exporter/run/hourly.lock ] || { echo "the lock of the hourly job is gone" >&2; exit 1; }
+      echo alive
+    expect: {equals: alive}
+    explain: >-
+      `killall stuck-exporter` and `pkill stuck-exporter` hit both instances. Signal a pid, not a
+      name, whenever more than one process carries that name, and keep your hands off the files of
+      the job that is healthy.

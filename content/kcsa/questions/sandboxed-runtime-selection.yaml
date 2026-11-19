@@ -1,0 +1,36 @@
+title: Stronger isolation for untrusted workloads
+domain: overview-of-cloud-native-security
+difficulty: medium
+tags: [isolation, runtime]
+stem: |-
+  A platform runs code uploaded by customers next to its own services. The customer Pods are to run
+  in a container runtime that uses hardware virtualization, while all other Pods keep the standard
+  runtime of the nodes.
+
+  Which Kubernetes feature selects the runtime configuration per Pod?
+options:
+  - text: A RuntimeClass, referenced by the Pod
+    correct: true
+  - text: A seccomp profile, set in the Pod
+    explain: >-
+      Seccomp filters the system calls a process may make. The container still shares the kernel of
+      the node; no other runtime is involved.
+  - text: An AppArmor profile, set in the Pod
+    explain: >-
+      AppArmor confines what a program may access on the node. Like seccomp it hardens a container
+      on the shared kernel instead of putting a boundary around it.
+  - text: A Pod Security level, set on the namespace
+    explain: >-
+      Pod Security Admission checks Pod specs against the Pod Security Standards. It rejects risky
+      settings and does not choose a runtime.
+explanation: >-
+  RuntimeClass is the feature for selecting the container runtime configuration. A RuntimeClass
+  object names a handler configured in the CRI implementation of the nodes, and a Pod picks it with
+  `spec.runtimeClassName`. Containers use OS-level virtualization and are a weaker boundary than
+  virtual machines, so workloads that need more assurance can run in a sandboxed runtime, at the
+  cost of some overhead.
+references:
+  - title: Runtime Class
+    url: https://kubernetes.io/docs/concepts/containers/runtime-class/
+  - title: Multi-tenancy - Sandboxing containers
+    url: https://kubernetes.io/docs/concepts/security/multi-tenancy/#sandboxing-containers

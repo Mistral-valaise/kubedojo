@@ -1,0 +1,102 @@
+title: The exporter nobody can scrape
+domain: networking-ssh
+difficulty: medium
+minutes: 8
+tags: [ss, curl, listen-address, loopback, service]
+task: |
+  This exercise uses two machines: your terminal (the jump host) and the host `{{host}}`.
+
+  A metrics exporter runs on `{{host}}`. The colleague who installed it tested it there with
+  `curl http://localhost:23080/metrics` and got metrics. The monitoring server on another machine
+  only gets `connection refused`. Your terminal is such another machine: from there,
+  `curl http://{{host}}:23080/metrics` fails in the same way.
+
+  | | |
+  |---|---|
+  | Directory on `{{host}}` | `/opt/course/bind-address-fix/` |
+  | Configuration | `exporter.conf` (read once, when the exporter starts) |
+  | Control script | `sudo /opt/course/bind-address-fix/exporterctl start`, `stop`, `restart` or `status` |
+
+  1. Find out why a client on another machine cannot connect, and fix it in the configuration so
+     that the **metrics** endpoint (port 23080) accepts connections on all IPv4 addresses of the
+     host. The fix must still be in place after the next restart of the exporter.
+  2. The exporter has a second, **admin** endpoint. It must keep working for operators on the host
+     itself and must stay unreachable from other machines.
+  3. When you are done, write the listening TCP sockets of the exporter to
+     `/opt/course/bind-address-fix/listeners.txt`, one per line as `ADDRESS:PORT`, exactly as
+     `ss` shows them.
+
+  Do not change `exporter.py` or `exporterctl`.
+hints:
+  - "A server only accepts connections on the address it is bound to. On the host, `ss -ltnp` lists every listening TCP socket with its local address and (with `sudo`) the process behind it. Compare the address in front of `:23080` with the one of sshd on port 22."
+  - "`127.0.0.1` is the loopback address: reachable only from the same machine. `0.0.0.0` means every IPv4 address the host has. The address comes from `exporter.conf`, and the exporter reads that file only when it starts."
+  - "Set `listen_address = 0.0.0.0` (and leave `admin_address` alone), run `sudo /opt/course/bind-address-fix/exporterctl restart`, check with `ss -ltn` and with `curl http://{{host}}:23080/metrics` from the terminal, then write the two `ADDRESS:PORT` lines."
+checks:
+  - id: reachable
+    title: The metrics endpoint answers a client on another machine
+    type: exec
+    on: terminal
+    run: |-
+      [ -n "$KD_HOST" ] || { echo "KD_HOST is not set" >&2; exit 1; }
+      curl -sS -m 5 "http://$KD_HOST:23080/metrics" | grep -x 'exporter_up 1'
+    expect: {equals: exporter_up 1}
+    explain: >-
+      This check runs `curl` on your terminal, like the monitoring server would. A listener on
+      127.0.0.1 answers only clients on the same machine, and the kernel refuses everybody else,
+      which looks like a dead service or a firewall although the process is fine.
+  - id: persistent
+    title: exporter.conf binds the metrics endpoint to all IPv4 addresses
+    type: exec
+    run: |-
+      f=/opt/course/bind-address-fix/exporter.conf
+      [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+      v=$(sed 's/#.*//' "$f" | awk -F= '$1 ~ /^[ \t]*listen_address[ \t]*$/ {gsub(/[ \t]/, "", $2); print $2}')
+      [ -n "$v" ] || { echo "listen_address is not set in $f" >&2; exit 1; }
+      echo "$v"
+    expect: {equals: 0.0.0.0}
+    explain: >-
+      A process started by hand with other settings works until the next restart, and then the
+      incident comes back at night. The setting belongs in the file the service reads when it
+      starts; `0.0.0.0` stands for every IPv4 address of the host.
+  - id: listeners
+    title: listeners.txt names both sockets with the address they are bound to
+    type: exec
+    run: |-
+      f=/opt/course/bind-address-fix/listeners.txt
+      [ -f "$f" ] || { echo "$f is missing" >&2; exit 1; }
+      tr -d ' \t\r' < "$f" | grep -v '^$'
+    expect:
+      sameLines:
+        - 0.0.0.0:23080
+        - 127.0.0.1:23081
+    explain: >-
+      The "Local Address:Port" column of `ss -ltn` is the whole diagnosis: the address in front
+      of the port decides who can connect. Look again after the restart, because a changed file
+      proves nothing about a process that is still running with the old setting.
+  - id: admin-private
+    title: The admin endpoint still runs and is bound to the loopback address only
+    type: exec
+    guard: true
+    run: |-
+      got=$(ss -Hltn 'sport = :23081' | awk '{print $4}' | LC_ALL=C sort | tr '\n' ' ')
+      [ -n "$got" ] || { echo "nothing listens on port 23081: the exporter is not running" >&2; exit 1; }
+      [ "$got" = "127.0.0.1:23081 " ] || { echo "the admin endpoint listens on: $got" >&2; exit 1; }
+      curl -sS -m 5 -o /dev/null -w '%{http_code}\n' http://127.0.0.1:23081/-/reload
+    expect: {equals: "200"}
+    explain: >-
+      Replacing every 127.0.0.1 in the file makes the scraper happy and publishes the admin
+      endpoint to the whole network. Binding to the loopback address is a cheap and effective
+      protection: open exactly the endpoint that has to be reached, and nothing else.
+  - id: program
+    title: exporter.py and exporterctl are unchanged
+    type: exec
+    guard: true
+    run: |-
+      m=/opt/course/bind-address-fix/.state/manifest
+      [ -f "$m" ] || { echo "$m is missing: reset the question" >&2; exit 1; }
+      sha256sum --quiet -c "$m" >&2 && echo unchanged
+    expect: {equals: unchanged}
+    explain: >-
+      The program is not broken; it does what its configuration says. Patching code to work
+      around a setting leaves a host that differs from every other one and is undone by the next
+      update.

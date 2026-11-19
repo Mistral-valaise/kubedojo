@@ -1,0 +1,33 @@
+title: A webhook meant to stop reading Secrets
+domain: platform-security
+difficulty: medium
+tags: [admission-control, webhooks]
+stem: |-
+  A security team registers a validating admission webhook for all operations on `secrets`. It is
+  supposed to reject `kubectl get secret` for users outside one group. Creating and deleting Secrets
+  reaches the webhook, but for `kubectl get secret` it is never called.
+
+  Why?
+options:
+  - text: The API server exempts Secrets from webhooks so that their data does not leave it
+    explain: >-
+      Secrets are not exempt: webhooks registered for them receive the full object on create and
+      update, which is why control over webhook configurations is itself a sensitive permission.
+  - text: Validating webhooks are called only for objects that a mutating webhook has changed
+    explain: >-
+      The validating phase runs after the mutating phase for every admitted request, whether or not
+      anything was mutated.
+  - text: The webhook needs `failurePolicy` set to `Fail` before read requests are sent to it
+    explain: >-
+      `failurePolicy` decides what happens when the webhook cannot be reached or returns an error.
+      It does not change which requests are sent.
+  - text: Read requests are not subject to admission control, so no admission plugin sees them
+    correct: true
+explanation: >-
+  Admission controllers intercept requests after authentication and authorization and before the
+  object is persisted. They apply to requests that create, modify or delete objects, and to custom
+  verbs such as connecting to a Pod; **get**, **list** and **watch** bypass the admission layer
+  entirely. Who may read Secrets is a question for authorization, that is RBAC.
+references:
+  - title: Admission Control in Kubernetes
+    url: https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/

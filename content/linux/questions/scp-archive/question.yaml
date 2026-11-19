@@ -1,0 +1,123 @@
+title: Ship a release over ssh
+domain: networking-ssh
+difficulty: medium
+minutes: 8
+tags: [ssh, scp, rsync, sha256sum, permissions]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  The release job that ships files to the archive stopped working: since somebody "tidied up" its
+  directory, every `ssh` and `scp` to the archive account ends in `Permission denied (publickey)`.
+
+  | | |
+  |---|---|
+  | Archive account | `scp-archive@localhost` (reached over ssh, like any remote machine) |
+  | Private key of the job | `/opt/course/scp-archive/keys/archive_ed25519` |
+  | Files to ship | `/opt/course/scp-archive/outbox/` |
+
+  Do the job by hand, as `candidate`:
+
+  1. Make the key login work again. The key pair is the right one: do not create a new key and do
+     not change anything in the archive account's `~/.ssh`.
+  2. Copy `release-2.4.1.tar.gz` and `deploy.sh` from the outbox to the directory `incoming/` in the
+     home of the archive account. Their **permissions and modification times** must arrive
+     unchanged.
+  3. Fetch `receipts/release-2.4.0.receipt` from the home of the archive account to
+     `/opt/course/scp-archive/inbox/`, again with permissions and modification time.
+  4. Prove that the shipped files arrived intact: run `sha256sum` **in the archive account** on the
+     two files in `incoming/` and save its output (two lines, file names without a directory) as
+     `/opt/course/scp-archive/remote.sha256`.
+
+  Copy over ssh (`scp`, `rsync` or `sftp`): the files must belong to the account that received them.
+hints:
+  - "Run `ssh -i /opt/course/scp-archive/keys/archive_ed25519 scp-archive@localhost` and read the whole message, not only its last line: ssh says exactly why it ignores the key. `ls -l` on the key shows the same thing."
+  - "A private key must be readable by its owner only (`chmod 600`). Then: `scp -p` keeps mode and times (`rsync -a -e 'ssh -i ...'` does too), and `ssh <account> '<command>'` runs a command on the other side and prints its output on yours."
+  - "`chmod 600 keys/archive_ed25519`, `scp -p -i keys/archive_ed25519 outbox/release-2.4.1.tar.gz outbox/deploy.sh scp-archive@localhost:incoming/`, the same with source and target swapped for the receipt, and `ssh -i keys/archive_ed25519 scp-archive@localhost 'cd incoming && sha256sum deploy.sh release-2.4.1.tar.gz' > remote.sha256`."
+checks:
+  - id: login
+    title: candidate can log in to the archive account with the key
+    type: exec
+    run: |-
+      k=/opt/course/scp-archive/keys/archive_ed25519
+      [ -f "$k" ] || { echo "$k is missing" >&2; exit 1; }
+      runuser -u candidate -- ssh -i "$k" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 \
+        -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+        scp-archive@localhost 'echo logged-in-as $(id -un)'
+    expect: {equals: logged-in-as scp-archive}
+    explain: >-
+      ssh refuses a private key that other users can read ("UNPROTECTED PRIVATE KEY FILE") and then
+      falls through to "Permission denied (publickey)", which looks like a problem on the server.
+      The fix is on the client: `chmod 600` on the key, not a new key and not looser settings.
+  - id: transferred
+    title: The files arrived on both sides, byte for byte, owned by the receiving account
+    type: exec
+    run: |-
+      b=/opt/course/scp-archive; r=/home/scp-archive
+      for f in release-2.4.1.tar.gz deploy.sh; do
+        [ -f "$r/incoming/$f" ] || { echo "incoming/$f is missing in the archive account" >&2; exit 1; }
+        cmp -s "$b/outbox/$f" "$r/incoming/$f" || { echo "incoming/$f differs from the file in the outbox" >&2; exit 1; }
+        [ "$(stat -c %U "$r/incoming/$f")" = scp-archive ] || { echo "incoming/$f does not belong to scp-archive: copy it over ssh" >&2; exit 1; }
+      done
+      f=release-2.4.0.receipt
+      [ -f "$b/inbox/$f" ] || { echo "inbox/$f is missing" >&2; exit 1; }
+      cmp -s "$r/receipts/$f" "$b/inbox/$f" || { echo "inbox/$f differs from the receipt in the archive account" >&2; exit 1; }
+      [ "$(stat -c %U "$b/inbox/$f")" = candidate ] || { echo "inbox/$f does not belong to candidate" >&2; exit 1; }
+      echo transferred
+    expect: {equals: transferred}
+    explain: >-
+      `scp source target` works in both directions: whichever side has the form `account@host:path`
+      is the remote one, and a relative remote path starts in that account's home. Files copied
+      around ssh with `sudo cp` end up owned by root, and the receiving account cannot manage them.
+  - id: preserved
+    title: Permissions and modification times survived the copy
+    type: exec
+    run: |-
+      b=/opt/course/scp-archive; r=/home/scp-archive
+      same() {
+        [ -f "$2" ] || { echo "$2 is missing" >&2; exit 1; }
+        [ "$(stat -c '%a %Y' "$1")" = "$(stat -c '%a %Y' "$2")" ] || {
+          echo "$2 has mode and mtime '$(stat -c '%a %y' "$2")', the source has '$(stat -c '%a %y' "$1")'" >&2; exit 1; }
+      }
+      same "$b/outbox/release-2.4.1.tar.gz" "$r/incoming/release-2.4.1.tar.gz"
+      same "$b/outbox/deploy.sh" "$r/incoming/deploy.sh"
+      same "$r/receipts/release-2.4.0.receipt" "$b/inbox/release-2.4.0.receipt"
+      echo preserved
+    expect: {equals: preserved}
+    explain: >-
+      Without `-p`, scp creates the copy with the current time, and with a mode cut down by the
+      umask of the receiving side. Tools that decide by modification time (rsync, make, backup
+      rotation) then treat every copy as new: use `scp -p` or `rsync -a`.
+  - id: checksums
+    title: remote.sha256 holds the checksums of the two shipped files and they match
+    type: exec
+    run: |-
+      b=/opt/course/scp-archive; r=/home/scp-archive; f=$b/remote.sha256
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      names=$(awk 'NF {sub(/^\*/, "", $2); print $2}' "$f" | LC_ALL=C sort | tr '\n' ' ')
+      [ "$names" = "deploy.sh release-2.4.1.tar.gz " ] || { echo "expected one line each for deploy.sh and release-2.4.1.tar.gz, got: $names" >&2; exit 1; }
+      [ -d "$r/incoming" ] || { echo "incoming/ is missing in the archive account" >&2; exit 1; }
+      (cd "$r/incoming" && sha256sum --quiet -c "$f" >&2) || { echo "the checksums do not match the files in incoming/" >&2; exit 1; }
+      (cd "$b/outbox" && sha256sum --quiet -c "$f" >&2) || { echo "the checksums do not match the files in the outbox" >&2; exit 1; }
+      echo verified
+    expect: {equals: verified}
+    explain: >-
+      A copy that ended without an error is not yet a verified copy: only a checksum computed on the
+      receiving side and compared with the source proves it. `ssh account@host 'command'` runs
+      the command there; the redirection outside the quotes writes the output here.
+  - id: account
+    title: The key pair, the archive account and the outbox are unchanged
+    type: exec
+    guard: true
+    run: |-
+      b=/opt/course/scp-archive; m=$b/.state/manifest
+      [ -f "$m" ] || { echo "$m is missing: reset the question" >&2; exit 1; }
+      {
+        sha256sum "$b/keys/archive_ed25519" /home/scp-archive/.ssh/authorized_keys "$b/outbox/release-2.4.1.tar.gz" "$b/outbox/deploy.sh"
+        stat -c '%a %Y %n' "$b/outbox/release-2.4.1.tar.gz" "$b/outbox/deploy.sh"
+      } 2>&1 | diff - "$m" >&2 || { echo "the key, authorized_keys or the files in the outbox were changed" >&2; exit 1; }
+      echo unchanged
+    expect: {equals: unchanged}
+    explain: >-
+      Generating a new key pair and writing it into `authorized_keys` also makes the login work,
+      but it locks out every other holder of the old key and needs access you would not have on a
+      real remote machine. The outbox is the source of truth and must stay as it was.

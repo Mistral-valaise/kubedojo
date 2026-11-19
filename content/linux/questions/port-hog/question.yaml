@@ -1,0 +1,95 @@
+title: Find the process that blocks a port
+domain: processes-services
+difficulty: easy
+minutes: 5
+environment: base
+tags: [ss, ps, kill, signals]
+task: |
+  Solve this exercise on: `ssh {{host}}`
+
+  A new service needs TCP port **22110**, but something on the host is already listening there.
+  Several workers with the same name are running; only the one on that port is in the way.
+
+  1. Find the process that listens on port 22110. Before you touch it, write three lines about it to
+     `/opt/course/port-hog/culprit.txt`:
+
+     ```
+     pid=<its process id>
+     user=<the full name of the user it runs as>
+     command=<its complete command line>
+     ```
+
+  2. Stop that process **gracefully**, so that it can finish its work: it must not be killed the hard
+     way.
+
+  All other workers keep running.
+hints:
+  - "`ss` lists sockets, and it can show which process owns a listening one. Look at its options for listening, TCP, numeric and process. The process is your own: without `sudo` you see more here, not less."
+  - "`ss -ltnp` shows `users:((\"name\",pid=...))` per port. `ps -o pid,user:20,args -p <pid>` gives the facts to record; a plain `ps -ef` cuts long user names off. `kill <pid>` sends SIGTERM, the polite request to finish."
+  - "`ss -ltnp | grep :22110`, then `ps -o user:20=,args= -p <pid>`, write the three lines, then `kill <pid>` (not `kill -9`, and not `pkill` by name)."
+checks:
+  - id: recorded
+    title: culprit.txt names the process, its user and its command line
+    type: exec
+    run: |-
+      f=/opt/course/port-hog/culprit.txt
+      [ -s "$f" ] || { echo "$f is missing or empty" >&2; exit 1; }
+      want=$(kd-fixture pid billing) || exit 1
+      get() { grep -m1 -i "^$1[[:space:]]*=" "$f" | cut -d= -f2- | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; }
+      [ "$(get pid)" = "$want" ] || { echo "pid= is not the process that listened on port 22110" >&2; exit 1; }
+      [ "$(get user)" = candidate ] || { echo "user= is '$(get user)': not the full name of the owner" >&2; exit 1; }
+      case "$(get command)" in
+        *port-hog-worker*--queue*billing*) echo recorded ;;
+        *) echo "command= is not the complete command line of that process" >&2; exit 1 ;;
+      esac
+    expect: {equals: recorded}
+    explain: >-
+      The workers look alike in `ps`; what tells them apart is the port, and `ss -ltnp` maps a port
+      to a pid. Record before you stop anything: a dead process has no command line. `ps -ef` shortens
+      long user names to `candida+`; ask for a wider column with `ps -o user:20`.
+  - id: stopped
+    title: Nothing listens on port 22110 any more
+    type: exec
+    run: |-
+      pid=$(kd-fixture pid billing) || exit 1
+      if kill -0 "$pid" 2>/dev/null; then echo "process $pid is still running" >&2; exit 1; fi
+      if (exec 3<>/dev/tcp/127.0.0.1/22110) 2>/dev/null; then echo "port 22110 still accepts connections" >&2; exit 1; fi
+      echo free
+    expect: {equals: free}
+    explain: >-
+      The port is free once the process that held it has ended. `kill` only sends a signal: check
+      with `ss -ltn` or `ps -p <pid>` that the process really went away before you start the next
+      thing on that port.
+  - id: graceful
+    title: The process was able to shut down cleanly
+    type: exec
+    run: |-
+      pid=$(kd-fixture pid billing) || exit 1
+      if kill -0 "$pid" 2>/dev/null; then echo "process $pid is still running" >&2; exit 1; fi
+      f=/opt/course/port-hog/state/worker-$pid.exit
+      [ -f "$f" ] || { echo "the worker left no shutdown note: it was killed, not asked to stop" >&2; exit 1; }
+      grep -q '^clean shutdown' "$f" && echo clean
+    expect: {equals: clean}
+    explain: >-
+      SIGTERM (plain `kill`) asks a process to stop: it can finish a request, flush its files and
+      remove its locks. SIGKILL (`kill -9`) cannot be caught, so none of that happens. Use it only
+      when a process does not react to SIGTERM.
+  - id: siblings
+    title: The other workers are still running
+    type: exec
+    guard: true
+    run: |-
+      for w in orders:22111 mail:22112; do
+        name=${w%%:*}; port=${w##*:}
+        pid=$(kd-fixture pid "$name") || exit 1
+        kill -0 "$pid" 2>/dev/null || { echo "the worker for queue $name (pid $pid) is gone" >&2; exit 1; }
+        exec 3<>"/dev/tcp/127.0.0.1/$port" || { echo "nothing listens on port $port" >&2; exit 1; }
+        read -r -t 5 line <&3 || { echo "no answer on port $port" >&2; exit 1; }
+        exec 3<&-
+        [ "$line" = "queue $name" ] || { echo "unexpected answer on port $port: $line" >&2; exit 1; }
+      done
+      echo running
+    expect: {equals: running}
+    explain: >-
+      `pkill <name>` and `killall <name>` signal every process with that name. When several
+      instances run, find the pid of the one you mean and signal exactly that one.
