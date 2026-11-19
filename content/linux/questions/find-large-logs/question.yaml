@@ -4,7 +4,7 @@ difficulty: easy
 minutes: 5
 tags: [find, sort, redirection]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   A disk is filling up. Below `/opt/course/find-large-logs/logs` there are log files of very different
   sizes and ages.

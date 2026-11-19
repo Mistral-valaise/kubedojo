@@ -5,7 +5,7 @@ minutes: 3
 environment: base
 tags: [vim, modes, save-quit]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   At peak time the orders database refuses new clients: its connection limit is too low.
 
@@ -14,8 +14,8 @@ task: |
 
   Change nothing else in the file: other lines contain the number 100 too, and they are right.
 
-  Any editor works. `vim` is the one you will find on every exam host, so this is a good place to
-  meet it.
+  Any editor works. `vim` is the one you will find on every Kubernetes exam host, so this is a good
+  place to meet it.
 hints:
   - "`vim /opt/course/vim-first-edit/db.conf` opens the file in normal mode: keys are commands there, not text. `i` starts inserting text, Esc gets you back."
   - "Jump to the line with `/max_connections` and Enter. Put the cursor on `100` (`w` moves a word forward) and type `cw` to replace that word, then `250`, then Esc."

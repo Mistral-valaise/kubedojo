@@ -6,8 +6,8 @@ import {
 } from "lucide-react";
 import { api, type Config, type QuestionView, type Session, type Track } from "../api";
 import { fmtDuration, useInterval } from "../hooks";
-import { t } from "../i18n";
-import { words } from "../track";
+import { plural, t } from "../i18n";
+import { isFullAssessment, words } from "../track";
 import { Choice } from "../components/Choice";
 import { Help, TutorBox } from "../components/Help";
 import { Markdown } from "../components/Markdown";
@@ -237,13 +237,13 @@ function Workspace({ session, track, onSession, refresh }: {
         </div>
       </div>
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
-        <div className={cx("space-y-5 py-5", quiz ? "sm:py-8" : "px-6", column)}>
+        <div className={cx("space-y-5 py-5", quiz ? "sm:py-8" : "px-4 sm:px-6", column)}>
           <div>
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
-              <Badge tone="accent">{t("Question {n} of {m}", { n: idx + 1, m: qs.length })}</Badge>
+              <Badge tone="accent">{w.position(idx + 1, qs.length)}</Badge>
               {domain && <Badge>{domain.title}</Badge>}
               {/* Every question of a quiz counts the same, so the points say nothing. */}
-              {meta && !quiz && <Badge>{t("{n} points", { n: meta.points })}</Badge>}
+              {meta && !quiz && <Badge>{plural(meta.points, "{n} point", "{n} points")}</Badge>}
               {meta?.host && <Badge><Server className="size-3" />{meta.host}</Badge>}
             </div>
             <h1 className="text-xl font-semibold tracking-tight">{meta?.title}</h1>
@@ -293,31 +293,34 @@ function Workspace({ session, track, onSession, refresh }: {
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-bg px-4">
-        {/* A quiz is also taken on a phone, where the header has room for the timer and the button only. */}
-        <span className={cx("items-center gap-3", quiz ? "hidden sm:flex" : "flex")}><Brand /><span className="text-line">/</span></span>
-        <span className="min-w-0 truncate text-sm text-muted">{track.short}<span className={quiz ? "hidden sm:inline" : undefined}> · {w.assessment}</span></span>
+        {/* On a phone the header has room for the timer and the button only. */}
+        <span className="hidden items-center gap-3 sm:flex"><Brand /><span className="text-line">/</span></span>
+        <span className="min-w-0 truncate text-sm text-muted">{track.short}<span className="hidden sm:inline"> · {w.assessment}</span></span>
         <div className={cx("ml-auto shrink-0 flex items-center gap-2 rounded-lg border px-3 py-1 font-mono text-sm font-semibold tabular-nums",
           critical ? "border-bad/50 bg-bad-soft text-bad" : low ? "border-warn/50 bg-warn-soft text-warn" : "bg-panel2")}
           role="timer" aria-label={t("Time remaining")}>
           {critical && <AlertTriangle className="size-3.5" />}{fmtDuration(left)}
         </div>
         {w.assessmentDocs && (
-          <a href={w.assessmentDocs.url} target="_blank" rel="noreferrer" title={w.assessmentDocs.title} className="inline-flex items-center gap-1.5 px-1 text-sm text-muted hover:text-text">
-            <BookOpen className="size-3.5" />{t("Docs")}
+          <a href={w.assessmentDocs.url} target="_blank" rel="noreferrer" title={w.assessmentDocs.title} aria-label={t("Docs")} className="inline-flex shrink-0 items-center gap-1.5 px-1 text-sm text-muted hover:text-text">
+            <BookOpen className="size-3.5" aria-hidden /><span className="hidden sm:inline">{t("Docs")}</span>
           </a>
         )}
         <ThemeToggle />
-        <Button size="sm" variant="primary" onClick={() => setConfirm(true)}>{w.finishAssessment}</Button>
+        {/* Next to a terminal the phone header is full: the button keeps its name and shows a short one. */}
+        <Button size="sm" variant="primary" onClick={() => setConfirm(true)} aria-label={w.finishAssessment}>
+          {quiz ? w.finishAssessment : <><span className="sm:hidden">{t("Finish")}</span><span className="hidden sm:inline">{w.finishAssessment}</span></>}
+        </Button>
       </header>
       {quiz
         ? <div className="min-h-0 flex-1">{leftPane}</div>
-        : <Split left={leftPane} right={<TerminalTabs sessionId={session.id} />} storageKey="kubedojo.split.exam" />}
+        : <Split left={leftPane} right={<TerminalTabs sessionId={session.id} />} storageKey="kubedojo.split.exam" labels={{ left: w.item, right: t("Terminal") }} />}
       {confirm && (
         <Modal title={w.finishTitle} onClose={() => !busy && setConfirm(false)}
           footer={<><Button disabled={busy} onClick={() => setConfirm(false)}>{t("Keep working")}</Button><Button variant="primary" loading={busy} onClick={finish}>{t("Finish and grade")}</Button></>}>
           <p>{t("You still have {time} left. After finishing you cannot change your answers.", { time: fmtDuration(left) })}</p>
           {quiz && (unanswered > 0
-            ? <p className="mt-2 font-medium text-warn">{t("{n} of {m} questions are unanswered. An unanswered question scores no points.", { n: unanswered, m: qs.length })}</p>
+            ? <p className="mt-2 font-medium text-warn">{plural(unanswered, "{n} of {m} questions is unanswered. An unanswered question scores no points.", "{n} of {m} questions are unanswered. An unanswered question scores no points.", { m: qs.length })}</p>
             : <p className="mt-2">{t("Every question is answered.")}</p>)}
           {flagged > 0 && <p className="mt-2 text-warn">{w.flagged(flagged)}</p>}
         </Modal>
@@ -332,6 +335,12 @@ function ReportView({ session, track, tutor }: { session: Session; track: Track;
   const qs = session.questions ?? [];
   const solved = qs.filter((q) => q.last?.passed).length;
   const w = words(track);
+  // A quick round is graded like an assessment and proves less: it says so and does not count on the path.
+  const quick = !isFullAssessment(track, qs.length);
+  const short = Math.max(0.1, Math.round((r.passPercent - r.percent) * 10) / 10);
+  const headline = quick ? (r.passed ? t("You passed this quick round.") : t("Quick round not passed."))
+    : r.passed ? w.passedHeadline
+      : plural(short, "{n} percentage point short of the pass mark.", "{n} percentage points short of the pass mark.");
   return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -347,12 +356,11 @@ function ReportView({ session, track, tutor }: { session: Session; track: Track;
                 {r.passed ? <CheckCircle2 className="size-4" /> : <XCircle className="size-4" />}
                 {r.passed ? t("Passed") : t("Not passed")}
               </div>
-              <h1 className="text-2xl font-bold tracking-tight">
-                {r.passed ? w.passedHeadline : t("{n} percentage points short of the pass mark.", { n: Math.max(0.1, Math.round((r.passPercent - r.percent) * 10) / 10) })}
-              </h1>
+              <h1 className="text-2xl font-bold tracking-tight">{headline}</h1>
               <p className="mt-1.5 text-muted">
                 {w.reportSummary(r.passPercent, solved, qs.length, fmtDuration(r.usedSeconds))}
               </p>
+              {quick && <p className="mt-1.5 text-sm text-muted">{w.quickRoundNote}</p>}
               {/* With a sandbox the way back is its "Remove sandbox" button. */}
               {!w.sandbox && (
                 <Link to={`/t/${track.id}`} className="mt-4 inline-block">
@@ -372,7 +380,8 @@ function ReportView({ session, track, tutor }: { session: Session; track: Track;
                     return (
                       <li key={d.id}>
                         <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
-                          <Link to={`/t/${track.id}/lesson/${d.id}`} className="truncate hover:text-accent hover:underline">{d.title}</Link>
+                          {/* Long titles wrap: cut off, two domains can read the same. */}
+                          <Link to={`/t/${track.id}/lesson/${d.id}`} className="min-w-0 break-words hover:text-accent hover:underline">{d.title}</Link>
                           <span className="shrink-0 tabular-nums text-muted">{d.score}/{d.max}</span>
                         </div>
                         <Bar value={pct} tone={pct >= r.passPercent ? "ok" : pct >= 40 ? "warn" : "bad"} />

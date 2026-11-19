@@ -30,6 +30,19 @@ export function useInterval(fn: () => void, ms: number, enabled = true) {
   }, [ms, enabled]);
 }
 
+/** Whole seconds since `active` became true; 0 while it is false. */
+export function useElapsed(active: boolean): number {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    setSeconds(0);
+    if (!active) return;
+    const start = Date.now();
+    const id = setInterval(() => setSeconds(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+  return seconds;
+}
+
 export function useTheme(): [string, () => void] {
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || "dark");
   const toggle = () => {

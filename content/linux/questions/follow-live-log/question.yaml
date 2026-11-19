@@ -4,7 +4,7 @@ difficulty: medium
 minutes: 7
 tags: [tail, grep, follow, less]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   A service writes several lines a second to `/opt/course/follow-live-log/log/service.log`, and it
   will not stop while you work. You have to prove that a configuration reload goes through.

@@ -235,3 +235,14 @@ func TestRedact(t *testing.T) {
 		}
 	}
 }
+
+// A check describes what it expects for the learner. A value of several lines
+// keeps its line breaks; quoted, they would read as a literal \n.
+func TestDescribeKeepsLineBreaks(t *testing.T) {
+	if got := describe(chk("c", &catalog.Expect{Equals: ptr("one\n")})); got != `equals "one"` {
+		t.Errorf("one line: %q", got)
+	}
+	if got := describe(chk("c", &catalog.Expect{Equals: ptr("one\ntwo\n")})); got != "equals:\none\ntwo" {
+		t.Errorf("two lines: %q", got)
+	}
+}

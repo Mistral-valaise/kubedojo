@@ -5,7 +5,7 @@ minutes: 7
 environment: base
 tags: [vim, yaml, indentation, retab]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   Somebody completed the Pod manifest `/opt/course/vim-yaml-indent/pod.yaml` by pasting blocks from
   a chat window. The pasted lines are indented with tab characters and stand at the wrong depth, so

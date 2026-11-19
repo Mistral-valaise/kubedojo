@@ -4,7 +4,7 @@ difficulty: medium
 minutes: 8
 tags: [ssh, scp, rsync, sha256sum, permissions]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The release job that ships files to the archive stopped working: since somebody "tidied up" its
   directory, every `ssh` and `scp` to the archive account ends in `Permission denied (publickey)`.

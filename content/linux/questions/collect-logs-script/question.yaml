@@ -4,7 +4,7 @@ difficulty: medium
 minutes: 10
 tags: [arguments, exit-status, loops, quoting, test]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   For every incident, the on-call engineer copies the logs of the affected service to a ticket
   directory by hand, and forgets some. Write the script `/opt/course/collect-logs-script/collect-logs.sh`

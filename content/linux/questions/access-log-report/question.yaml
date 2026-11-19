@@ -4,7 +4,7 @@ difficulty: medium
 minutes: 6
 tags: [awk, sort, uniq, pipes]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The shop had a bad morning. `/opt/course/access-log-report/access.log` is the web server's access
   log of that time, in the usual combined format:

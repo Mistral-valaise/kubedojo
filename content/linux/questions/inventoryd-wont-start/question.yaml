@@ -5,7 +5,7 @@ minutes: 9
 environment: base
 tags: [service, init.d, logs, ss, kill, curl]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   This host has no systemd: services are managed with `sudo service <name> start|stop|restart|status`,
   which runs the script `/etc/init.d/<name>`.

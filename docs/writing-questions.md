@@ -125,6 +125,9 @@ Tracks that teach the shell (`content/linux/`) run on one Linux container instea
 track's environment has `type: container`. A question looks the same; what differs is listed here.
 `linux/find-large-logs` is the model, including its `variants/`.
 
+**Wording.** A skills track has exercises, not questions, and no exam behind it: the first line of a
+task reads ``Solve this exercise on: `ssh {{host}}` ``.
+
 **Machines.** `host` is the Linux container the learner reaches with `ssh {{host}}`; it is the
 default for checks and scripts. `terminal` is the jump host, for tasks about `ssh`, `scp` or `rsync`
 between two machines. `{{worker}}` does not exist. Checks are `file` and `exec`; a `resource` check is

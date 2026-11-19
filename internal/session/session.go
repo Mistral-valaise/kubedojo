@@ -292,6 +292,24 @@ func (m *Manager) update(s *Session, fn func()) {
 	m.mu.Unlock()
 }
 
+// logWords are the nouns of the progress log a learner reads while a session
+// is set up or graded. They follow the kind of the track, like the UI does.
+type logWords struct{ item, assessment string }
+
+func wordsOf(t *catalog.Track) logWords {
+	if t != nil && t.Kind == catalog.KindSkills {
+		return logWords{item: "exercise", assessment: "assessment"}
+	}
+	return logWords{item: "question", assessment: "exam"}
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
 func (m *Manager) logf(s *Session) func(string, ...any) {
 	return func(format string, a ...any) {
 		msg := fmt.Sprintf(format, a...)
@@ -506,7 +524,7 @@ func (m *Manager) provisionExam(s *Session, t *catalog.Track) {
 			return !t.Question(order[i].ID).Disruptive && t.Question(order[j].ID).Disruptive
 		})
 		for i, qs := range order {
-			logf("Preparing question %d of %d ...", i+1, len(order))
+			logf("Preparing %s %d of %d ...", wordsOf(t).item, i+1, len(order))
 			if err := m.setup(ctx, s, t.Question(qs.ID), false); err != nil {
 				return fmt.Errorf("question %s: %w", qs.ID, err)
 			}
@@ -522,7 +540,7 @@ func (m *Manager) provisionExam(s *Session, t *catalog.Track) {
 		m.update(s, func() { s.Status, s.Error = StatusError, err.Error() })
 		return
 	}
-	logf("Environment ready in %s. Start the exam when you are.", time.Since(start).Round(time.Second))
+	logf("Environment ready in %s. Start the %s when you are.", time.Since(start).Round(time.Second), wordsOf(t).assessment)
 	m.update(s, func() {
 		if s.Status == StatusProvisioning {
 			s.Status = StatusReady
@@ -687,7 +705,7 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 			err = m.healOthers(ctx, s, t, q, logf)
 		}
 		if err == nil {
-			logf("Setting up question %q ...", q.Title)
+			logf("Setting up %s %q ...", wordsOf(t).item, q.Title)
 			err = m.setup(ctx, s, q, (reset || wasReady) && !recreated)
 		}
 		m.update(s, func() {
@@ -698,9 +716,9 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 			}
 		})
 		if err != nil {
-			logf("Could not prepare question: %v", err)
+			logf("Could not prepare %s: %v", wordsOf(t).item, err)
 		} else {
-			logf("Question %q is ready.", q.Title)
+			logf("%s %q is ready.", capitalize(wordsOf(t).item), q.Title)
 		}
 	}()
 	return nil
@@ -854,7 +872,7 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 		results := make([]checker.Result, len(s.Questions))
 		for i, qs := range s.Questions {
 			q := t.Question(qs.ID)
-			logf("Grading question %d of %d ...", i+1, len(s.Questions))
+			logf("Grading %s %d of %d ...", wordsOf(t).item, i+1, len(s.Questions))
 			results[i] = checker.Run(ctx, q, m.runner(s, q))
 			res := results[i]
 			m.update(s, func() { qs.Last = &res })
@@ -933,11 +951,12 @@ func (m *Manager) conclude(s *Session, t *catalog.Track, results []checker.Resul
 	})
 	db, _ := json.Marshal(rep.Domains)
 	_ = m.st.AddExam(store.Exam{SessionID: s.ID, Track: s.Track, Score: rep.Score, Max: rep.Max,
-		Percent: rep.Percent, Passed: rep.Passed, FinishedAt: *s.FinishedAt, Domains: db, Owner: s.Owner})
+		Percent: rep.Percent, Passed: rep.Passed, FinishedAt: *s.FinishedAt, Domains: db, Owner: s.Owner,
+		Questions: len(s.Questions), Minutes: s.DurationMinutes})
 	if m.hooks.ExamDone != nil {
 		m.hooks.ExamDone(s.Track, rep)
 	}
-	m.logf(s)("Exam graded: %d/%d points (%.1f%%).", rep.Score, rep.Max, rep.Percent)
+	m.logf(s)("%s graded: %d/%d points (%.1f%%).", capitalize(wordsOf(t).assessment), rep.Score, rep.Max, rep.Percent)
 }
 
 // Patch updates candidate-owned fields of a question.

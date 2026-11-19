@@ -5,7 +5,7 @@ minutes: 5
 environment: base
 tags: [ss, ps, kill, signals]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   A new service needs TCP port **22110**, but something on the host is already listening there.
   Several workers with the same name are running; only the one on that port is in the way.

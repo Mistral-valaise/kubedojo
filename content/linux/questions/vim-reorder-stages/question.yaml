@@ -5,7 +5,7 @@ minutes: 6
 environment: base
 tags: [vim, delete, yank, paste]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The release pipeline of the checkout service packages an image before anything is built. Its
   stages run in the order in which they stand in `/opt/course/vim-reorder-stages/pipeline.conf`,

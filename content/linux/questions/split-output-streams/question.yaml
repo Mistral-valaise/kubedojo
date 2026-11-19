@@ -4,7 +4,7 @@ difficulty: easy
 minutes: 4
 tags: [redirection, stderr, exit-status]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The nightly job runs `/opt/course/split-output-streams/bin/inventory-export`. The tool prints the
   inventory as CSV, but it also complains about broken records, and the import that reads its output

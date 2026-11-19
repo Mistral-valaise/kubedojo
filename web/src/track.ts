@@ -2,7 +2,7 @@
 // words(track), so a new kind is one more entry here and no page decides by
 // track id.
 import type { Link, Progress, QuestionMeta, Track } from "./api";
-import { t } from "./i18n";
+import { plural, t } from "./i18n";
 
 export type Kind = "certification" | "skills" | "theory";
 
@@ -64,7 +64,15 @@ export interface Words {
   next: string;
   notePlaceholder: string;
   flagged: (n: number) => string;
+  /** What one item is called, as the name of its pane: "Task", "Exercise", "Question". */
+  item: string;
+  /** Position in an assessment: "Exercise 2 of 5". */
+  position: (n: number, m: number) => string;
+  /** Shown while a check runs for a noticeable time. */
+  stillChecking: string;
   passedHeadline: string;
+  /** Under the headline of a quick round: what does count on the path. */
+  quickRoundNote: string;
   reportSummary: (passPercent: number, solved: number, n: number, time: string) => string;
   /** Text of the sandbox card in the report; empty without a sandbox. */
   reportSandbox: string;
@@ -72,6 +80,14 @@ export interface Words {
   tutorPlaceholder: string;
   tutorNote: string;
 }
+
+// Counts with their units, singular and plural.
+const count = {
+  questions: (n: number) => plural(n, "{n} question", "{n} questions"),
+  tasks: (n: number) => plural(n, "{n} task", "{n} tasks"),
+  exercises: (n: number) => plural(n, "{n} exercise", "{n} exercises"),
+  minutes: (n: number) => plural(n, "{n} minute", "{n} minutes"),
+};
 
 const kubernetesDocs = (): Link => ({ title: t("Kubernetes docs"), url: "https://kubernetes.io/docs/" });
 
@@ -92,12 +108,12 @@ const wording: Record<Kind, () => Wording> = {
     gradingTitle: t("Grading your exam"),
     readiness: t("Exam readiness"),
     readinessNote: (p) => t("Readiness is your best result per question, weighted like the real exam. Pass mark: {p}%.", { p }),
-    questions: (n) => t("{n} questions", { n }),
-    tasks: (n) => t("{n} tasks", { n }),
+    questions: count.questions,
+    tasks: count.tasks,
     duration: (n) => t("{n} min exam", { n }),
-    assessmentSummary: (q, m) => t("{q} tasks in {m} minutes, weighted like the real exam. No hints. Graded when you finish.", { q, m }),
-    assessmentOption: (q, m) => t("{q} tasks · {m} minutes", { q, m }),
-    briefingSummary: (n, m, p) => t("{n} tasks · {m} minutes · pass mark {p}%", { n, m, p }),
+    assessmentSummary: (q, m) => t("{q} in {m}, weighted like the real exam. No hints. Graded when you finish.", { q: count.tasks(q), m: count.minutes(m) }),
+    assessmentOption: (q, m) => `${count.tasks(q)} · ${count.minutes(m)}`,
+    briefingSummary: (n, m, p) => t("{n} · {m} · pass mark {p}%", { n: count.tasks(n), m: count.minutes(m), p }),
     briefing: [
       t("Each task names the host to solve it on. Connect with ssh from the terminal, and return with exit before connecting to another host."),
       t("Tasks are independent. Skip what blocks you, flag it, and come back later."),
@@ -107,7 +123,7 @@ const wording: Record<Kind, () => Wording> = {
     startNote: t("Fresh clusters are created for the exam, which takes one to two minutes. The timer starts only when you say so."),
     allSolved: t("Every question is solved. Run an exam simulation to prove it under time pressure."),
     noQuestions: t("No questions yet."),
-    practiseDomain: (n) => t("{n} questions on a live cluster", { n }),
+    practiseDomain: (n) => plural(n, "{n} question on a live cluster", "{n} questions on a live cluster"),
     provisioningNote: t("A real Kubernetes cluster is being created for you. This takes about a minute."),
     assessmentProvisioningNote: t("Fresh clusters are created and every task is set up. The timer has not started."),
     gradingNote: t("Every task is checked against the live clusters."),
@@ -123,8 +139,12 @@ const wording: Record<Kind, () => Wording> = {
     previous: t("Previous question"),
     next: t("Next question"),
     notePlaceholder: t("Private notes for this task ..."),
-    flagged: (n) => t("{n} task(s) are still flagged for review.", { n }),
+    flagged: (n) => plural(n, "{n} task is still flagged for review.", "{n} tasks are still flagged for review."),
+    item: t("Task"),
+    position: (n, m) => t("Question {n} of {m}", { n, m }),
+    stillChecking: t("Still checking. Some checks wait a little for the cluster to settle before they give up."),
     passedHeadline: t("You would have passed this exam."),
+    quickRoundNote: t("Only a full exam simulation counts toward readiness on the path."),
     reportSummary: (p, s, n, time) => t("Pass mark {p}% · {s} of {n} tasks fully solved · time used {time}", { p, s, n, time }),
     reportSandbox: t("The clusters are still running, so you can inspect what you built and retry tasks using the solutions."),
     reportList: t("Task by task"),
@@ -146,12 +166,12 @@ const wording: Record<Kind, () => Wording> = {
     gradingTitle: t("Grading your assessment"),
     readiness: t("Readiness"),
     readinessNote: (p) => t("Readiness is your best result per exercise, weighted by domain. Pass mark of the skills assessment: {p}%.", { p }),
-    questions: (n) => t("{n} exercises", { n }),
-    tasks: (n) => t("{n} exercises", { n }),
+    questions: count.exercises,
+    tasks: count.exercises,
     duration: (n) => t("{n} min assessment", { n }),
-    assessmentSummary: (q, m) => t("{q} exercises in {m} minutes, weighted by domain. No hints. Graded when you finish.", { q, m }),
-    assessmentOption: (q, m) => t("{q} exercises · {m} minutes", { q, m }),
-    briefingSummary: (n, m, p) => t("{n} exercises · {m} minutes · pass mark {p}%", { n, m, p }),
+    assessmentSummary: (q, m) => t("{q} in {m}, weighted by domain. No hints. Graded when you finish.", { q: count.exercises(q), m: count.minutes(m) }),
+    assessmentOption: (q, m) => `${count.exercises(q)} · ${count.minutes(m)}`,
+    briefingSummary: (n, m, p) => t("{n} · {m} · pass mark {p}%", { n: count.exercises(n), m: count.minutes(m), p }),
     briefing: [
       t("Each exercise names the host to solve it on. Connect with ssh from the terminal, and return with exit before connecting to another host."),
       t("Exercises are independent. Skip what blocks you, flag it, and come back later."),
@@ -161,7 +181,7 @@ const wording: Record<Kind, () => Wording> = {
     startNote: t("A fresh Linux sandbox is started for the assessment, which takes a few seconds. The timer starts only when you say so."),
     allSolved: t("Every exercise is solved. Run a skills assessment to prove it under time pressure."),
     noQuestions: t("No exercises yet."),
-    practiseDomain: (n) => t("{n} exercises in a Linux sandbox", { n }),
+    practiseDomain: (n) => plural(n, "{n} exercise in a Linux sandbox", "{n} exercises in a Linux sandbox"),
     provisioningNote: t("A Linux sandbox is being started for you. This takes a few seconds."),
     assessmentProvisioningNote: t("A fresh Linux sandbox is started and every exercise is set up. The timer has not started."),
     gradingNote: t("Every exercise is checked against the live sandbox."),
@@ -177,8 +197,12 @@ const wording: Record<Kind, () => Wording> = {
     previous: t("Previous exercise"),
     next: t("Next exercise"),
     notePlaceholder: t("Private notes for this exercise ..."),
-    flagged: (n) => t("{n} exercise(s) are still flagged for review.", { n }),
+    flagged: (n) => plural(n, "{n} exercise is still flagged for review.", "{n} exercises are still flagged for review."),
+    item: t("Exercise"),
+    position: (n, m) => t("Exercise {n} of {m}", { n, m }),
+    stillChecking: t("Still checking. Some checks wait a little for the sandbox to settle before they give up."),
     passedHeadline: t("You passed this skills assessment."),
+    quickRoundNote: t("Only a full skills assessment counts toward readiness on the path."),
     reportSummary: (p, s, n, time) => t("Pass mark {p}% · {s} of {n} exercises fully solved · time used {time}", { p, s, n, time }),
     reportSandbox: t("The sandbox is still running, so you can inspect what you built and retry exercises using the solutions."),
     reportList: t("Exercise by exercise"),
@@ -200,12 +224,12 @@ const wording: Record<Kind, () => Wording> = {
     gradingTitle: t("Grading your mock exam"),
     readiness: t("Exam readiness"),
     readinessNote: (p) => t("Readiness is your latest result per question, weighted like the real exam. Pass mark: {p}%.", { p }),
-    questions: (n) => t("{n} questions", { n }),
-    tasks: (n) => t("{n} questions", { n }),
+    questions: count.questions,
+    tasks: count.questions,
     duration: (n) => t("{n} min mock exam", { n }),
-    assessmentSummary: (q, m) => t("{q} questions in {m} minutes, weighted like the real exam. No hints. Graded when you finish.", { q, m }),
-    assessmentOption: (q, m) => t("{q} questions · {m} minutes", { q, m }),
-    briefingSummary: (n, m, p) => t("{n} questions · {m} minutes · pass mark {p}%", { n, m, p }),
+    assessmentSummary: (q, m) => t("{q} in {m}, weighted like the real exam. No hints. Graded when you finish.", { q: count.questions(q), m: count.minutes(m) }),
+    assessmentOption: (q, m) => `${count.questions(q)} · ${count.minutes(m)}`,
+    briefingSummary: (n, m, p) => t("{n} · {m} · pass mark {p}%", { n: count.questions(n), m: count.minutes(m), p }),
     briefing: [
       t("Every question is multiple choice. You can change an answer until you finish."),
       t("Questions are independent. Skip what blocks you, flag it, and come back later."),
@@ -215,7 +239,7 @@ const wording: Record<Kind, () => Wording> = {
     startNote: t("The timer starts only when you say so."),
     allSolved: t("Every question is answered correctly. Take a mock exam to prove it under time pressure."),
     noQuestions: t("No questions yet."),
-    practiseDomain: (n) => t("{n} multiple-choice questions", { n }),
+    practiseDomain: (n) => plural(n, "{n} multiple-choice question", "{n} multiple-choice questions"),
     provisioningNote: "",
     assessmentProvisioningNote: "",
     gradingNote: "",
@@ -231,8 +255,12 @@ const wording: Record<Kind, () => Wording> = {
     previous: t("Previous question"),
     next: t("Next question"),
     notePlaceholder: t("Private notes for this question ..."),
-    flagged: (n) => t("{n} question(s) are still flagged for review.", { n }),
+    flagged: (n) => plural(n, "{n} question is still flagged for review.", "{n} questions are still flagged for review."),
+    item: t("Question"),
+    position: (n, m) => t("Question {n} of {m}", { n, m }),
+    stillChecking: t("Still checking."),
     passedHeadline: t("You would have passed this exam."),
+    quickRoundNote: t("Only a full mock exam counts toward readiness on the path."),
     reportSummary: (p, s, n, time) => t("Pass mark {p}% · {s} of {n} questions answered correctly · time used {time}", { p, s, n, time }),
     reportSandbox: "",
     reportList: t("Question by question"),
@@ -275,9 +303,21 @@ export function quickRound(track: Track): { questions: number; minutes: number }
   return { questions, minutes };
 }
 
-/** Whether the learner passed at least one assessment of the track. */
-export function assessmentPassed(progress: Progress | null | undefined): boolean {
-  return !!progress?.exams?.some((e) => e.passed);
+/**
+ * Whether an assessment of `questions` items is a full one. A quick round is
+ * shorter than the track's assessment, which itself cannot be longer than the
+ * questions the track has. An assessment of unknown size (recorded before the
+ * size was stored) counts as full, as every assessment did then.
+ */
+export function isFullAssessment(track: Track, questions: number | undefined): boolean {
+  if (!questions) return true;
+  const available = track.questions?.length ?? 0;
+  return questions >= (available > 0 ? Math.min(track.exam.questions, available) : track.exam.questions);
+}
+
+/** Whether the learner passed at least one full assessment of the track. A quick round proves too little. */
+export function assessmentPassed(track: Track, progress: Progress | null | undefined): boolean {
+  return !!progress?.exams?.some((e) => e.passed && isFullAssessment(track, e.questions));
 }
 
 /** Whether a question can be practised here: choice questions need no sandbox, tasks need the local one. */

@@ -21,7 +21,7 @@ export function PathSection({ path, tracks, progress }: {
 
   // Only required steps count: a foundation prepares for the goal, it is not part of it.
   const required = steps.filter((s) => s.role === "required");
-  const passed = required.filter((s) => assessmentPassed(progress?.[s.track.id])).length;
+  const passed = required.filter((s) => assessmentPassed(s.track, progress?.[s.track.id])).length;
 
   return (
     <Card className="mb-8 p-6">
@@ -36,7 +36,11 @@ export function PathSection({ path, tracks, progress }: {
           </div>
           {required.length > 0 && (
             <div className="w-full sm:w-60">
-              <p className="mb-1.5 text-xs text-muted">{t("{n} of {m} mock exams passed", { n: passed, m: required.length })}</p>
+              {/* What counts differs by track (mock exam, exam simulation), so the visible text names none. */}
+              <p className="mb-1.5 text-xs text-muted" title={t("Full mock exams and exam simulations. A quick round does not count.")}>
+                {t("{n} of {m} passed", { n: passed, m: required.length })}
+                <span className="sr-only"> ({t("full mock exams and exam simulations")})</span>
+              </p>
               <Bar value={(passed / required.length) * 100} tone={passed === required.length ? "ok" : "accent"} />
             </div>
           )}
@@ -45,7 +49,7 @@ export function PathSection({ path, tracks, progress }: {
         <ol className="flex flex-col lg:flex-row">
           {steps.map((s, i) => {
             const w = words(s.track), pr = progress?.[s.track.id];
-            const ready = Math.round(pr?.readiness ?? 0), done = assessmentPassed(pr);
+            const ready = Math.round(pr?.readiness ?? 0), done = assessmentPassed(s.track, pr);
             const label = s.role === "foundation" ? t("Foundation") : w.kindLabel;
             const name = [s.track.short, s.track.title, label, t("{n}% ready", { n: ready }), done && w.assessmentPassed].filter(Boolean).join(", ");
             return (

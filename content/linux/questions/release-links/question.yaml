@@ -4,7 +4,7 @@ difficulty: medium
 minutes: 8
 tags: [ln, symlink, hardlink, stat, inode]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The application in `/opt/course/release-links/app` does not start: its start script follows the
   link `current`, and after the last deployment the links are a mess.

@@ -4,7 +4,7 @@ difficulty: hard
 minutes: 9
 tags: [grep, cut, sort, uniq, head, tail]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   After a bad morning you are asked what happened. `/opt/course/error-log-triage/app.log` holds the
   log of six services. Every line has the same form:

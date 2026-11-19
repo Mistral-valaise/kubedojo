@@ -69,7 +69,7 @@ func reason(q *catalog.Question, env *sandbox.EnvSpec) string {
 }
 
 var (
-	solveOn = regexp.MustCompile("(?m)^Solve this question on: `ssh \\{\\{host\\}\\}`\\s*\n")
+	solveOn = regexp.MustCompile("(?m)^Solve this (?:question|exercise) on: `ssh \\{\\{host\\}\\}`\\s*\n")
 	hostRef = regexp.MustCompile(" on `\\{\\{host\\}\\}`")
 )
 

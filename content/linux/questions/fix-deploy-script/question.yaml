@@ -4,7 +4,7 @@ difficulty: medium
 minutes: 8
 tags: [quoting, exit-status, test, loops, pipefail]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   `/opt/course/fix-deploy-script/deploy.sh` has deployed the shop for months. Last night it reported
   success for a release whose health check had failed, and today it broke on a release directory

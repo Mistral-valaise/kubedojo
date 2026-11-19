@@ -4,7 +4,7 @@ difficulty: medium
 minutes: 8
 tags: [ss, curl, listen-address, loopback, service]
 task: |
-  This question uses two machines: your terminal (the jump host) and the host `{{host}}`.
+  This exercise uses two machines: your terminal (the jump host) and the host `{{host}}`.
 
   A metrics exporter runs on `{{host}}`. The colleague who installed it tested it there with
   `curl http://localhost:23080/metrics` and got metrics. The monitoring server on another machine

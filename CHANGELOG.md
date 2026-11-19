@@ -34,6 +34,23 @@ practice that need no Kubernetes cluster.
 - `kubedojo doctor` and `content test` ask for kind and the node image only when a selected track
   uses a cluster.
 - Sessions of theory tracks do not count against `--max-sessions`.
+- A quick round is no longer taken for a full assessment: its report says "quick round", and the
+  path on the home page counts and ticks full mock exams, exam simulations and skills assessments
+  only. Exam records carry their number of questions and minutes.
+- Hands-on practice and assessments work on a phone: below the `md` breakpoint task and terminal
+  are two tabs, and the terminal keeps its connection and scrollback behind the other tab.
+- The Linux track is worded as a skills track throughout: recommendations, the provisioning and
+  grading log, the assessment workspace and the first line of its 40 task texts.
+- Counts are singular or plural ("1 exercise", "2 questions") instead of "question(s)".
+- A check that waits for its retry window says so after three seconds, with the seconds it has run.
+- Check explanations are rendered as Markdown; expected values of several lines keep their line
+  breaks instead of showing `\n`.
+
+### Fixed
+
+- Lessons no longer scroll sideways on a phone.
+- The solution opens without a confirmation once every check has passed.
+- Long domain titles wrap in the report instead of being cut off.
 
 ## [0.3.0] - unreleased
 

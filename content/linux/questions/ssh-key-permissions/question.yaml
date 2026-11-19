@@ -5,7 +5,7 @@ minutes: 5
 environment: base
 tags: [chmod, ssh, acl, setfacl]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The release job uses the ssh key below `/opt/course/ssh-key-permissions/deploy/.ssh`. After somebody
   "fixed" an access problem with a broad `chmod`, ssh refuses to use the key. See for yourself:

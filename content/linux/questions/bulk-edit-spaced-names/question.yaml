@@ -4,7 +4,7 @@ difficulty: medium
 minutes: 7
 tags: [find, xargs, sed, quoting]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The database moved: the host `db-old.internal` is now called `db-new.internal`. The site
   configurations below `/opt/course/bulk-edit-spaced-names/sites` still point to the old name.

@@ -4,7 +4,7 @@ difficulty: easy
 minutes: 6
 tags: [type, which, path, alias]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   Last night's rollout was done with an outdated `deployctl`, although version 2.0 is installed. The
   team's shells load `/opt/course/command-lookup/team-env.sh`, which changes `PATH` and defines some

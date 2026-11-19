@@ -41,10 +41,17 @@ export const path: Path = {
   ],
 };
 
-export function progress(trackId: string, readiness: number, exams: boolean[] = []): Progress {
+/**
+ * `exams` lists the assessments taken: true or false for a full one that was
+ * passed or failed, "quick" for a passed quick round of five questions.
+ */
+export function progress(trackId: string, readiness: number, exams: (boolean | "quick")[] = []): Progress {
   return {
     track: trackId, readiness, passPercent: 66, attempts: 0, domains: [], questions: {}, recommendations: null,
-    exams: exams.map((passed, i) => ({ sessionId: `s${i}`, score: 0, max: 0, percent: passed ? 90 : 10, passed, finishedAt: "" })),
+    exams: exams.map((e, i) => ({
+      sessionId: `s${i}`, score: 0, max: 0, percent: e ? 90 : 10, passed: !!e, finishedAt: "",
+      ...(e === "quick" ? { questions: 5, minutes: 10 } : {}),
+    })),
   };
 }
 

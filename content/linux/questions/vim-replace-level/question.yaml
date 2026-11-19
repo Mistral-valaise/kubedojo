@@ -5,7 +5,7 @@ minutes: 5
 environment: base
 tags: [vim, substitute, regex]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   After an upgrade the checkout service does not start: its logging library no longer accepts the
   level name `warn`, only `warning`.

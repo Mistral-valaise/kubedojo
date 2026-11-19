@@ -482,7 +482,7 @@ func describeMismatch(bad []checkMismatch) string {
 			parts = append(parts, fmt.Sprintf("[%s] passes but must fail", b.check.ID))
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("[%s] want %s, got %s", b.check.ID, b.check.Expected, strings.ReplaceAll(b.check.Observed, "\n", " ")))
+		parts = append(parts, fmt.Sprintf("[%s] want %s, got %s", b.check.ID, strings.ReplaceAll(b.check.Expected, "\n", " "), strings.ReplaceAll(b.check.Observed, "\n", " ")))
 	}
 	return strings.Join(parts, "; ")
 }
@@ -580,7 +580,7 @@ func testExam(ctx context.Context, mgr *session.Manager, t *catalog.Track, keep 
 		bad = append(bad, qs.ID)
 		for _, c := range qs.Last.Checks {
 			if !c.Passed {
-				fmt.Printf("  ✗ %-40s [%s] want %s, got %s\n", qs.ID, c.ID, c.Expected, strings.ReplaceAll(c.Observed, "\n", " "))
+				fmt.Printf("  ✗ %-40s [%s] want %s, got %s\n", qs.ID, c.ID, strings.ReplaceAll(c.Expected, "\n", " "), strings.ReplaceAll(c.Observed, "\n", " "))
 			}
 		}
 	}

@@ -738,6 +738,21 @@ type recommendation struct {
 	Next   string `json:"next,omitempty"` // question id to practise next
 }
 
+// recommendationReason says why a domain is recommended, in the words of the
+// track's kind: a skills track has exercises and a skills assessment, not
+// questions and an exam.
+func recommendationReason(kind string, dp domainProgress, weight int) string {
+	items, whole := "questions", "exam"
+	if kind == catalog.KindSkills {
+		items, whole = "exercises", "skills assessment"
+	}
+	reason := "Not practised yet"
+	if dp.Attempted > 0 {
+		reason = strconv.Itoa(dp.Solved) + " of " + strconv.Itoa(dp.Questions) + " " + items + " solved"
+	}
+	return reason + " · worth " + strconv.Itoa(weight) + "% of the " + whole
+}
+
 func (s *Server) progress(w http.ResponseWriter, r *http.Request) {
 	t := s.Catalog.Tracks[r.PathValue("track")]
 	if t == nil {
@@ -815,11 +830,7 @@ func (s *Server) progress(w http.ResponseWriter, r *http.Request) {
 		overall += dp.Mastery * float64(d.Weight) / 100
 		domains = append(domains, dp)
 		if dp.Questions > 0 && dp.Mastery < 100 {
-			reason := "Not practised yet"
-			if dp.Attempted > 0 {
-				reason = strconv.Itoa(dp.Solved) + " of " + strconv.Itoa(dp.Questions) + " questions solved"
-			}
-			reason += " · worth " + strconv.Itoa(d.Weight) + "% of the exam"
+			reason := recommendationReason(t.Kind, dp, d.Weight)
 			cands = append(cands, cand{prio: float64(d.Weight) * (100 - dp.Mastery), rec: recommendation{Domain: d.ID, Title: d.Title, Reason: reason, Next: next}})
 		}
 	}

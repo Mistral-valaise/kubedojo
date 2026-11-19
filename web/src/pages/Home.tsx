@@ -2,7 +2,7 @@ import { Link, useNavigate } from "react-router";
 import { ArrowRight, BookOpen, CheckCircle2, GraduationCap, Layers, Terminal as TerminalIcon, Timer, Trash2 } from "lucide-react";
 import { api, type Progress, type Session, type Track } from "../api";
 import { useInterval, useLoad } from "../hooks";
-import { t } from "../i18n";
+import { plural, t } from "../i18n";
 import { words } from "../track";
 import { PathSection } from "../components/PathSection";
 import { Badge, Bar, Button, Card, ErrorNote, Page, Spinner } from "../components/ui";
@@ -77,7 +77,7 @@ export function TrackCard({ track, progress }: { track: Track; progress?: Progre
       </div>
       <p className="mb-5 text-sm leading-relaxed text-muted">{track.description}</p>
       <div className="mb-5 flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-muted">
-        <span className="inline-flex items-center gap-1.5"><Layers className="size-4" />{t("{n} domains", { n: track.domains.length })}</span>
+        <span className="inline-flex items-center gap-1.5"><Layers className="size-4" />{plural(track.domains.length, "{n} domain", "{n} domains")}</span>
         <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="size-4" />{w.questions(count)}</span>
         <span className="inline-flex items-center gap-1.5"><Timer className="size-4" />{w.duration(track.exam.durationMinutes)}</span>
       </div>

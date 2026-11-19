@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { CheckCircle2, ChevronDown, XCircle } from "lucide-react";
 import type { Result } from "../api";
-import { t } from "../i18n";
+import { plural, t } from "../i18n";
+import { Markdown } from "./Markdown";
 import { cx } from "./ui";
 
 /** Per-check grading feedback: what was expected, what was found, and why it matters. */
@@ -15,7 +16,7 @@ export function Results({ result, defaultOpen = true }: { result: Result; defaul
           <div className="text-sm font-semibold">
             {result.passed ? t("All checks passed") : t("{n} of {m} checks passed", { n: result.checks.filter((c) => c.passed).length, m: result.checks.length })}
           </div>
-          <div className="text-xs text-muted">{t("{score} of {max} points", { score: result.score, max: result.max })} · {pct}%</div>
+          <div className="text-xs text-muted">{plural(result.max, "{score} of {n} point", "{score} of {n} points", { score: result.score })} · {pct}%</div>
         </div>
       </div>
       <ul className="divide-y">
@@ -40,12 +41,13 @@ function CheckRow({ check, defaultOpen }: { check: Result["checks"][number]; def
           {!check.passed && (
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5">
               <dt className="text-muted">{t("Expected")}</dt>
-              <dd className="font-mono text-[12px] break-words whitespace-pre-wrap">{check.expected}</dd>
+              <dd className="min-w-0"><Value text={check.expected} /></dd>
               <dt className="text-muted">{t("Found")}</dt>
-              <dd className="font-mono text-[12px] break-words whitespace-pre-wrap text-bad">{check.observed}</dd>
+              <dd className="min-w-0 text-bad"><Value text={check.observed} /></dd>
             </dl>
           )}
-          <p className="leading-relaxed text-muted">{check.explain}</p>
+          {/* Explanations are Markdown: commands and file names in them are code. */}
+          <Markdown plain className="md-sm text-muted">{check.explain}</Markdown>
           <details className="text-xs text-muted">
             <summary className="cursor-pointer select-none hover:text-text">{t("How this was checked")}</summary>
             <pre className="mt-1.5 overflow-x-auto rounded-lg border bg-code px-3 py-2 font-mono text-[11.5px] whitespace-pre-wrap">{check.command}</pre>
@@ -58,7 +60,7 @@ function CheckRow({ check, defaultOpen }: { check: Result["checks"][number]; def
                 <dt>{t("Duration")}</dt>
                 <dd className="font-mono tabular-nums">
                   {((check.durationMs ?? 0) / 1000).toFixed(1)}s
-                  {(check.attempts ?? 1) > 1 && ` · ${t("{n} attempts", { n: check.attempts ?? 1 })}`}
+                  {(check.attempts ?? 1) > 1 && ` · ${plural(check.attempts ?? 1, "{n} attempt", "{n} attempts")}`}
                 </dd>
                 {check.stderr && (
                   <>
@@ -73,4 +75,13 @@ function CheckRow({ check, defaultOpen }: { check: Result["checks"][number]; def
       )}
     </li>
   );
+}
+
+/**
+ * An expected or observed value, as preformatted text: a value of several
+ * lines keeps its line breaks and its indentation, and a long line wraps
+ * instead of widening the row.
+ */
+function Value({ text }: { text: string }) {
+  return <pre className="font-mono text-[12px] leading-5 break-words whitespace-pre-wrap">{text.replace(/\n+$/, "")}</pre>;
 }
