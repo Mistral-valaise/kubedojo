@@ -5,7 +5,7 @@ minutes: 5
 environment: base
 tags: [vim, search, navigation]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The load balancer marks three healthy servers of the shop as down. Its configuration
   `/opt/course/vim-search-fix/backend.cfg` lists 180 servers, and every one of them must be

@@ -5,7 +5,7 @@ minutes: 6
 environment: base
 tags: [vim, visual-block, comments]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   Tonight the shop switches from the blue release to the green one. Prepare the load balancer
   configuration `/opt/course/vim-block-edit/haproxy.cfg`:

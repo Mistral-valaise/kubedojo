@@ -395,7 +395,13 @@ func describe(c *catalog.Check) string {
 	}
 	var parts []string
 	if e.Equals != nil {
-		parts = append(parts, "equals "+strconv.Quote(strings.TrimSpace(*e.Equals)))
+		if v := strings.TrimSpace(*e.Equals); strings.Contains(v, "\n") {
+			// A value of several lines is shown as it is: quoted, its line
+			// breaks would read as a literal \n.
+			parts = append(parts, "equals:\n"+v)
+		} else {
+			parts = append(parts, "equals "+strconv.Quote(v))
+		}
 	}
 	if e.NotEquals != nil {
 		parts = append(parts, "not "+strconv.Quote(*e.NotEquals))

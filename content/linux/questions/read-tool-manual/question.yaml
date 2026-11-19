@@ -4,7 +4,7 @@ difficulty: medium
 minutes: 8
 tags: [man, help, environment, exit-status]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The release team hands you a tool you have never seen: `/opt/course/read-tool-manual/bin/relcheck`.
   It checks the release directories below `/opt/course/read-tool-manual/releases`. Nobody is around

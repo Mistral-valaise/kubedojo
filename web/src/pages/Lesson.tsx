@@ -26,9 +26,18 @@ export function LessonPage() {
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
         <article className="min-w-0">
           <Markdown>{lesson.data.markdown}</Markdown>
+          {/* Domain titles are long: on a narrow screen the two buttons share the row and cut their titles off. */}
           <div className="mt-10 flex justify-between gap-3 border-t pt-5">
-            {prev ? <Link to={`/t/${tr.id}/lesson/${prev.id}`}><Button icon={<ArrowLeft className="size-4" />}>{prev.title}</Button></Link> : <span />}
-            {next && <Link to={`/t/${tr.id}/lesson/${next.id}`}><Button>{next.title}<ArrowRight className="size-4" /></Button></Link>}
+            {prev ? (
+              <Link to={`/t/${tr.id}/lesson/${prev.id}`} className="flex min-w-0" title={prev.title}>
+                <Button className="max-w-full" icon={<ArrowLeft className="size-4 shrink-0" />}><span className="truncate">{prev.title}</span></Button>
+              </Link>
+            ) : <span />}
+            {next && (
+              <Link to={`/t/${tr.id}/lesson/${next.id}`} className="flex min-w-0" title={next.title}>
+                <Button className="max-w-full"><span className="truncate">{next.title}</span><ArrowRight className="size-4 shrink-0" /></Button>
+              </Link>
+            )}
           </div>
         </article>
         <aside className="lg:sticky lg:top-20 lg:self-start">

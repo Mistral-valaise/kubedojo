@@ -4,7 +4,7 @@ difficulty: easy
 minutes: 6
 tags: [curl, dig, ss, nc, dns, http]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The status page shows four of five internal services as "down", and nobody knows why. The health
   URLs it polls are listed in `/opt/course/net-layer-diagnosis/endpoints.txt` (name, then URL).

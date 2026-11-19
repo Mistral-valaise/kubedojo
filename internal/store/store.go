@@ -41,6 +41,15 @@ func Open(path string) (*Store, error) {
 	for _, table := range []string{"attempts", "exams"} {
 		_, _ = db.Exec("ALTER TABLE " + table + " ADD COLUMN owner TEXT NOT NULL DEFAULT ''")
 	}
+	// Exams recorded before quick rounds were told apart get their size from
+	// the session they belong to, as far as that session is still stored.
+	for _, col := range []string{"questions", "minutes"} {
+		_, _ = db.Exec("ALTER TABLE exams ADD COLUMN " + col + " INTEGER NOT NULL DEFAULT 0")
+	}
+	_, _ = db.Exec(`UPDATE exams SET
+		questions = COALESCE((SELECT json_array_length(data, '$.questions') FROM sessions WHERE id = exams.session_id), 0),
+		minutes = COALESCE((SELECT json_extract(data, '$.durationMinutes') FROM sessions WHERE id = exams.session_id), 0)
+		WHERE questions = 0`)
 	return &Store{db: db}, nil
 }
 
@@ -122,16 +131,20 @@ type Exam struct {
 	FinishedAt time.Time       `json:"finishedAt"`
 	Domains    json.RawMessage `json:"domains"`
 	Owner      string          `json:"-"`
+	// Questions and Minutes are the size of the assessment, which tells a quick
+	// round from a full one. Zero for an exam recorded before they were stored.
+	Questions int `json:"questions"`
+	Minutes   int `json:"minutes"`
 }
 
 func (s *Store) AddExam(e Exam) error {
-	_, err := s.db.Exec(`INSERT OR REPLACE INTO exams(session_id,track,score,max,percent,passed,finished_at,domains,owner) VALUES(?,?,?,?,?,?,?,?,?)`,
-		e.SessionID, e.Track, e.Score, e.Max, e.Percent, e.Passed, e.FinishedAt.UTC().Format(time.RFC3339), string(e.Domains), e.Owner)
+	_, err := s.db.Exec(`INSERT OR REPLACE INTO exams(session_id,track,score,max,percent,passed,finished_at,domains,owner,questions,minutes) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		e.SessionID, e.Track, e.Score, e.Max, e.Percent, e.Passed, e.FinishedAt.UTC().Format(time.RFC3339), string(e.Domains), e.Owner, e.Questions, e.Minutes)
 	return err
 }
 
 func (s *Store) Exams(track, owner string) ([]Exam, error) {
-	rows, err := s.db.Query(`SELECT session_id,track,score,max,percent,passed,finished_at,domains FROM exams WHERE track=? AND owner=? ORDER BY finished_at`, track, owner)
+	rows, err := s.db.Query(`SELECT session_id,track,score,max,percent,passed,finished_at,domains,questions,minutes FROM exams WHERE track=? AND owner=? ORDER BY finished_at`, track, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +153,7 @@ func (s *Store) Exams(track, owner string) ([]Exam, error) {
 	for rows.Next() {
 		var e Exam
 		var at, d string
-		if err := rows.Scan(&e.SessionID, &e.Track, &e.Score, &e.Max, &e.Percent, &e.Passed, &at, &d); err != nil {
+		if err := rows.Scan(&e.SessionID, &e.Track, &e.Score, &e.Max, &e.Percent, &e.Passed, &at, &d, &e.Questions, &e.Minutes); err != nil {
 			return nil, err
 		}
 		e.FinishedAt, _ = time.Parse(time.RFC3339, at)

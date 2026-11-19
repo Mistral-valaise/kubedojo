@@ -5,7 +5,7 @@ minutes: 7
 environment: base
 tags: [nohup, setsid, jobs, redirection, sigcont]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   **1. Start the collector so that it survives.**
   `/opt/course/keep-job-running/bin/keepjob-collect` has to run for days. Start it, as `candidate`,

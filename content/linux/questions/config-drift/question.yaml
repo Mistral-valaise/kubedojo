@@ -4,7 +4,7 @@ difficulty: medium
 minutes: 8
 tags: [diff, sed, sort, process-substitution]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   Two web servers should run the same configuration, but `web-02` behaves differently since somebody
   edited its file by hand. Both files are below `/opt/course/config-drift/`:

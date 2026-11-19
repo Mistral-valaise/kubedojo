@@ -4,7 +4,7 @@ difficulty: easy
 minutes: 6
 tags: [cut, sort, uniq, head, grep]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   For an audit you get `/opt/course/rank-login-shells/accounts.txt`, an export in the format of
   `/etc/passwd` (seven fields separated by colons: name, password, UID, GID, comment, home, shell)

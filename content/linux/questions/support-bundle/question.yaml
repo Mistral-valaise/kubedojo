@@ -4,7 +4,7 @@ difficulty: medium
 minutes: 10
 tags: [tar, gzip, exclude, sed, permissions, secrets]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The incident is over, and the vendor of the shop software asks for a support bundle. The
   application lives in `/opt/course/support-bundle/app`.

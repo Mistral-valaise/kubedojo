@@ -4,7 +4,7 @@ difficulty: hard
 minutes: 10
 tags: [jq, json, sort, uniq, pipes]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   During an incident somebody saved the output of `kubectl get pods -A -o json` to
   `/opt/course/jq-pod-summary/pods.json` before the cluster became unreachable. The file is all you

@@ -5,7 +5,7 @@ minutes: 9
 environment: base
 tags: [chgrp, chmod, setgid, sticky-bit, groups]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The developers `teamdir-ana` and `teamdir-ben` are the members of the group `teamdir-dev`. They
   share `/opt/course/team-shared-dir/project`, which grew without a plan: files belong to whoever

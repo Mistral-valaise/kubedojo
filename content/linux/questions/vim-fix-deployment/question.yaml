@@ -5,7 +5,7 @@ minutes: 9
 environment: base
 tags: [vim, yaml, kubernetes, manifest]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   A colleague asks you to review `/opt/course/vim-fix-deployment/deployment.yaml` before it is
   applied to the cluster. There is no cluster on this host: you fix the file. The review found:

@@ -5,7 +5,7 @@ minutes: 6
 environment: base
 tags: [kill, signals, sigkill, sighup, pgrep]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   Two instances of `stuck-exporter` are running, one per job. `/opt/course/stuck-exporter/README`
   describes the files they use and the signals they understand.

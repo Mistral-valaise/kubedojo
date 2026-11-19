@@ -5,7 +5,7 @@ minutes: 7
 environment: base
 tags: [chmod, chgrp, id, namei, sudo]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The nightly report runs as the service account `unreadable-config-svc`. Since the application was
   restored from a backup it fails. Reproduce it:

@@ -4,7 +4,7 @@ difficulty: medium
 minutes: 7
 tags: [rm, globbing, find, symlink]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The build host is short of disk space. Clean up `/opt/course/cleanup-build-cache/workspace`, but
   remove **exactly** this and nothing else:

@@ -4,7 +4,7 @@ difficulty: hard
 minutes: 10
 tags: [while-read, exit-status, functions, loops, nc]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   After every deployment the on-call engineer checks by hand whether the services answer. Automate
   it: write the executable script `/opt/course/service-status-report/check-services.sh`, called as

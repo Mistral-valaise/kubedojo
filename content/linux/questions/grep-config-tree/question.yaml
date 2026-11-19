@@ -4,7 +4,7 @@ difficulty: medium
 minutes: 8
 tags: [grep, regex, recursive]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   Before a migration you audit the configuration below `/opt/course/grep-config-tree/etc`. Only
   files whose name ends in `.conf` are loaded, and only **active** lines count: a line whose first

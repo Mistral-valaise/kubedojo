@@ -60,7 +60,8 @@ export function Help({ sid, q, result, tutor, track, initialHints = 0, confirmSo
               {hints.length === 0 ? t("Show a hint") : t("Next hint ({n} of {m})", { n: hints.length + 1, m: q.hints })}
             </Button>
           )}
-          <Button size="sm" variant="ghost" icon={<Eye className="size-3.5" />} onClick={() => (confirmSolution ? setConfirm(true) : void showSolution())}>
+          {/* Once every check has passed there is no attempt left to protect: the solution opens without asking. */}
+          <Button size="sm" variant="ghost" icon={<Eye className="size-3.5" />} onClick={() => (confirmSolution && !result?.passed ? setConfirm(true) : void showSolution())}>
             {t("Show solution")}
           </Button>
         </div>

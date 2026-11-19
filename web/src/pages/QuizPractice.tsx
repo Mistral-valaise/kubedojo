@@ -113,7 +113,7 @@ export function QuizPractice({ track, qid }: { track: Track; qid: string }) {
         </Link>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <Button size="sm" variant="ghost" disabled={!prev} onClick={() => prev && nav(`/t/${track.id}/q/${prev.id}`)} aria-label={w.previous}><ChevronLeft className="size-4" /></Button>
-          <span className="px-1 text-xs tabular-nums text-muted">{pos >= 0 ? `${pos + 1} / ${sameDomain.length}` : ""}</span>
+          <span className="px-1 text-xs whitespace-nowrap tabular-nums text-muted">{pos >= 0 ? `${pos + 1} / ${sameDomain.length}` : ""}</span>
           <Button size="sm" variant="ghost" disabled={!next} onClick={() => next && nav(`/t/${track.id}/q/${next.id}`)} aria-label={w.next}><ChevronRight className="size-4" /></Button>
           {w.docs && <a href={w.docs.url} target="_blank" rel="noreferrer" title={w.docs.title} className="hidden px-2 text-sm text-muted hover:text-text sm:block">{t("Docs")}</a>}
           <ThemeToggle />
@@ -126,7 +126,8 @@ export function QuizPractice({ track, qid }: { track: Track; qid: string }) {
             <div ref={body} className="space-y-6">
               <div>
                 <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                  {domain && <Link to={`/t/${track.id}/lesson/${domain.id}`}><Badge tone="accent">{domain.title}</Badge></Link>}
+                  {/* inline-flex: as plain inline content the badge would sit on the text baseline, below its neighbour. */}
+                  {domain && <Link to={`/t/${track.id}/lesson/${domain.id}`} className="inline-flex max-w-full"><Badge tone="accent">{domain.title}</Badge></Link>}
                   {meta && <Difficulty level={meta.difficulty} />}
                 </div>
                 <h1 className="text-xl font-semibold tracking-tight">{meta?.title ?? " "}</h1>

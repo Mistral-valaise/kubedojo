@@ -4,7 +4,7 @@ difficulty: easy
 minutes: 7
 tags: [grep, logs, correlation, request-id, jq]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   A customer reports: "My order **ORD-7731** failed around 10:15 UTC. I tried again a minute later
   and it went through." Support wants to know what went wrong the first time.

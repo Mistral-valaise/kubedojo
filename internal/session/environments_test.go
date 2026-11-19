@@ -236,3 +236,67 @@ func TestFreshEnvironmentRecreatesTheHost(t *testing.T) {
 		}
 	}
 }
+
+// The log a learner reads while an assessment is set up and graded speaks of
+// exercises and an assessment on a skills track, of questions and an exam on
+// the others.
+func TestLogWordingFollowsTheTrackKind(t *testing.T) {
+	for track, c := range map[string]struct{ want, never []string }{
+		"k": {[]string{"Preparing question 1 of 1 ...", "Start the exam when you are.", "Grading question 1 of 1 ...", "Exam graded: "},
+			[]string{"exercise", "ssessment"}},
+		"l": {[]string{"Preparing exercise 1 of 1 ...", "Start the assessment when you are.", "Grading exercise 1 of 1 ...", "Assessment graded: "},
+			[]string{"question", "xam"}},
+	} {
+		mgr, _ := envManager(t)
+		ses, err := mgr.NewExam(track, session.ExamOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wait := func(status string) *session.Session {
+			t.Helper()
+			deadline := time.Now().Add(10 * time.Second)
+			for {
+				v, err := mgr.View(ses.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if v.Status == status {
+					return v
+				}
+				if v.Status == session.StatusError || time.Now().After(deadline) {
+					t.Fatalf("track %s: status %s (%s), want %s", track, v.Status, v.Error, status)
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+		wait(session.StatusReady)
+		if err := mgr.Start(ses.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := mgr.Finish(context.Background(), ses.ID); err != nil {
+			t.Fatal(err)
+		}
+		var log []string
+		// The last line is written after the status changes.
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+			log = log[:0]
+			for _, l := range wait(session.StatusFinished).Log {
+				log = append(log, l.Msg)
+			}
+			if strings.Contains(strings.Join(log, "\n"), "graded: ") || time.Now().After(deadline) {
+				break
+			}
+		}
+		all := strings.Join(log, "\n")
+		for _, w := range c.want {
+			if !strings.Contains(all, w) {
+				t.Errorf("track %s: log lacks %q:\n%s", track, w, all)
+			}
+		}
+		for _, w := range c.never {
+			if strings.Contains(all, w) {
+				t.Errorf("track %s: log says %q:\n%s", track, w, all)
+			}
+		}
+	}
+}

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { QuestionMeta } from "./api";
 import { cka, kcna, linux, progress } from "./fixtures";
-import { assessmentPassed, quickRound, words, type Words } from "./track";
+import { plural } from "./i18n";
+import { assessmentPassed, isFullAssessment, quickRound, words, type Words } from "./track";
 
 /** Every string a track of this kind can show, the parametrised ones with sample numbers. */
 function everything(w: Words): string {
@@ -101,9 +103,71 @@ describe("quickRound", () => {
 
 describe("assessmentPassed", () => {
   it("needs one passed assessment, however many failed", () => {
-    expect(assessmentPassed(undefined)).toBe(false);
-    expect(assessmentPassed(progress("cka", 90))).toBe(false);
-    expect(assessmentPassed(progress("cka", 10, [false, false]))).toBe(false);
-    expect(assessmentPassed(progress("cka", 10, [false, true, false]))).toBe(true);
+    expect(assessmentPassed(cka, undefined)).toBe(false);
+    expect(assessmentPassed(cka, progress("cka", 90))).toBe(false);
+    expect(assessmentPassed(cka, progress("cka", 10, [false, false]))).toBe(false);
+    expect(assessmentPassed(cka, progress("cka", 10, [false, true, false]))).toBe(true);
+  });
+
+  it("does not count a passed quick round", () => {
+    expect(assessmentPassed(cka, progress("cka", 10, ["quick"]))).toBe(false);
+    expect(assessmentPassed(cka, progress("cka", 10, ["quick", false]))).toBe(false);
+    expect(assessmentPassed(cka, progress("cka", 10, ["quick", true]))).toBe(true);
+  });
+});
+
+describe("isFullAssessment", () => {
+  const q = (n: number) => Array.from({ length: n }, () => ({}) as QuestionMeta);
+
+  it("tells a quick round from the assessment of the track", () => {
+    const track = { ...linux, questions: q(40) }; // an assessment has 15 exercises
+    expect(isFullAssessment(track, 5)).toBe(false);
+    expect(isFullAssessment(track, 14)).toBe(false);
+    expect(isFullAssessment(track, 15)).toBe(true);
+  });
+
+  it("takes every question for full when the track has fewer than an assessment asks for", () => {
+    expect(isFullAssessment({ ...linux, questions: q(4) }, 4)).toBe(true);
+    expect(isFullAssessment({ ...linux, questions: q(4) }, 3)).toBe(false);
+  });
+
+  it("counts an assessment of unknown size as full, as before sizes were recorded", () => {
+    expect(isFullAssessment(linux, undefined)).toBe(true);
+    expect(isFullAssessment(linux, 0)).toBe(true);
+  });
+});
+
+describe("counts", () => {
+  it("uses the singular for exactly one", () => {
+    expect(plural(1, "{n} item", "{n} items")).toBe("1 item");
+    expect([0, 2, 11].map((n) => plural(n, "{n} item", "{n} items"))).toEqual(["0 items", "2 items", "11 items"]);
+    expect(plural(1, "{n} of {m} is open", "{n} of {m} are open", { m: 3 })).toBe("1 of 3 is open");
+  });
+
+  it("words every count of a track in singular and plural", () => {
+    const c = words(cka), l = words(linux), k = words(kcna);
+    expect([c.questions(1), c.tasks(1), l.questions(1), l.tasks(2), k.tasks(1)]).toEqual(["1 question", "1 task", "1 exercise", "2 exercises", "1 question"]);
+    expect(l.assessmentOption(1, 45)).toBe("1 exercise · 45 minutes");
+    expect(k.assessmentOption(5, 1)).toBe("5 questions · 1 minute");
+    expect(c.briefingSummary(1, 1, 66)).toBe("1 task · 1 minute · pass mark 66%");
+    expect(l.practiseDomain(1)).toBe("1 exercise in a Linux sandbox");
+  });
+
+  it("says how many items are still flagged, without a bracketed plural", () => {
+    expect(words(linux).flagged(1)).toBe("1 exercise is still flagged for review.");
+    expect(words(linux).flagged(2)).toBe("2 exercises are still flagged for review.");
+    expect(words(kcna).flagged(2)).toBe("2 questions are still flagged for review.");
+    expect(words(cka).flagged(1)).toBe("1 task is still flagged for review.");
+  });
+
+  it("names the position in an assessment by kind", () => {
+    expect(words(linux).position(1, 5)).toBe("Exercise 1 of 5");
+    expect(words(cka).position(2, 17)).toBe("Question 2 of 17");
+    expect(words(kcna).position(3, 30)).toBe("Question 3 of 30");
+  });
+
+  it("explains a slow check with the sandbox of the track", () => {
+    expect(words(linux).stillChecking).toMatch(/for the sandbox to settle/);
+    expect(words(cka).stillChecking).toMatch(/for the cluster to settle/);
   });
 });

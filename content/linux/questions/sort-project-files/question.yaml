@@ -4,7 +4,7 @@ difficulty: easy
 minutes: 6
 tags: [mv, mkdir, globbing, quoting]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   Everything in `/opt/course/sort-project-files/project` lies in one flat directory, and the build
   tooling expects a layout. Move the files so that, inside `project`:

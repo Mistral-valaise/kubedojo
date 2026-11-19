@@ -184,3 +184,14 @@ func TestExportSkipsWhatIsNotAClusterTask(t *testing.T) {
 		}
 	}
 }
+
+// The first line of a task names the host to solve it on. Killercoda has one
+// host only, so the line goes, whichever noun the track uses.
+func TestTextDropsTheSolveOnLine(t *testing.T) {
+	for _, noun := range []string{"question", "exercise"} {
+		got := text("Solve this " + noun + " on: `ssh {{host}}`\n\nCreate a Pod on `{{host}}`.\n")
+		if got != "Create a Pod.\n" {
+			t.Errorf("%s: text = %q", noun, got)
+		}
+	}
+}

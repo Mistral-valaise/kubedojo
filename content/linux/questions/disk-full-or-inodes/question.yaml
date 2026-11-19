@@ -4,7 +4,7 @@ difficulty: medium
 minutes: 9
 tags: [df, du, find, inodes, sparse-files, cleanup]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The shop cannot create session files any more: `No space left on device`. The on-call colleague
   looked at `df -h`, saw free space and gave up. What was recorded during the alert is in

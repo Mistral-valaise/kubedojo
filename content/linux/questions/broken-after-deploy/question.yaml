@@ -4,7 +4,7 @@ difficulty: hard
 minutes: 10
 tags: [logs, diff, permissions, service, root-cause]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   The order service `ordersd` has been down since a change was applied last night. What the change
   was meant to do is written in `/opt/course/broken-after-deploy/CHANGE-4711.txt`.

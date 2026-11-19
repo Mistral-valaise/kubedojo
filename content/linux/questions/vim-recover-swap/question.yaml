@@ -5,7 +5,7 @@ minutes: 5
 environment: base
 tags: [vim, swap-file, recovery]
 task: |
-  Solve this question on: `ssh {{host}}`
+  Solve this exercise on: `ssh {{host}}`
 
   Your connection dropped while two files in `/opt/course/vim-recover-swap` were open in Vim.
   Neither had been saved. Vim left a swap file for each of them.

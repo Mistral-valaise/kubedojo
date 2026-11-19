@@ -72,7 +72,8 @@ export interface Progress {
   domains: DomainProgress[];
   // `latest` is what counts for a choice question, `best` for a task.
   questions: Record<string, { best: number; latest: number; attempts: number; last: string }>;
-  exams: { sessionId: string; score: number; max: number; percent: number; passed: boolean; finishedAt: string }[];
+  // `questions` and `minutes` are the size of the assessment; 0 or missing when recorded before they were stored.
+  exams: { sessionId: string; score: number; max: number; percent: number; passed: boolean; finishedAt: string; questions?: number; minutes?: number }[];
   recommendations: { domain: string; title: string; reason: string; next?: string }[] | null;
 }
 export interface Config { version: string; tutor: boolean; user: string; maxTerminals: number }

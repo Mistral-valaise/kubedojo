@@ -61,18 +61,33 @@ describe("PathSection", () => {
   it("counts passed mock exams over the required steps only", () => {
     // The foundation step is passed too, and must change neither number.
     show(path, { linux: progress("linux", 100, [true]), kcna: progress("kcna", 80, [true]), ckad: progress("ckad", 20, [false]) });
-    expect(screen.getByText("1 of 3 mock exams passed")).toBeTruthy();
+    expect(screen.getByText("1 of 3 passed")).toBeTruthy();
+  });
+
+  it("names what counts without calling an exam simulation a mock exam", () => {
+    show(path);
+    const counter = screen.getByText("0 of 3 passed");
+    expect(counter.textContent).toBe("0 of 3 passed (full mock exams and exam simulations)");
+    expect(counter.getAttribute("title")).toMatch(/^Full mock exams and exam simulations/);
+    expect(counter.querySelector(".sr-only")).toBeTruthy();
+  });
+
+  it("neither counts nor ticks a passed quick round", () => {
+    show(path, { linux: progress("linux", 100, ["quick"]), kcna: progress("kcna", 80, ["quick"]), ckad: progress("ckad", 80, ["quick", true]) });
+    expect(screen.getByText("1 of 3 passed")).toBeTruthy();
+    expect(steps().map((li) => within(li).queryAllByTestId("path-passed").length)).toEqual([0, 0, 1, 0]);
+    expect(screen.getByRole("link", { name: "KCNA, Kubernetes and Cloud Native Associate, Theory, 80% ready" })).toBeTruthy();
   });
 
   it("counts nothing before progress is loaded", () => {
     show(path);
-    expect(screen.getByText("0 of 3 mock exams passed")).toBeTruthy();
+    expect(screen.getByText("0 of 3 passed")).toBeTruthy();
   });
 
   it("skips steps whose track the server does not offer", () => {
     show(path, undefined, [linux, cka]);
     expect(steps()).toHaveLength(2);
-    expect(screen.getByText("0 of 1 mock exams passed")).toBeTruthy();
+    expect(screen.getByText("0 of 1 passed")).toBeTruthy();
   });
 
   it("shows the disclaimer and links the program page, and claims no title", () => {
@@ -80,7 +95,7 @@ describe("PathSection", () => {
     expect(screen.getByText(path.disclaimer)).toBeTruthy();
     const link = screen.getByRole("link", { name: "Official program page on cncf.io" });
     expect(link.getAttribute("href")).toBe(path.url);
-    expect(screen.getByText("3 of 3 mock exams passed")).toBeTruthy();
+    expect(screen.getByText("3 of 3 passed")).toBeTruthy();
     expect(container.textContent).not.toMatch(/you are|you're|you have become|congratulations/i);
   });
 });
