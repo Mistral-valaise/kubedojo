@@ -109,6 +109,9 @@ Guidelines:
 - Wait for what you break to take effect, so the learner does not see a healthy cluster for the first
   minute.
 - Pin image tags, and prefer images other questions already use (`nginx:1.27-alpine`, `busybox:1.36`).
+- A check never starts a throwaway Pod with `kubectl run --rm`: its output can be lost and the check
+  fails at random. Let `setup.sh` create a long-lived client Pod and probe with `kubectl exec`, or use
+  `curl` from the node against a ClusterIP. `content lint` warns about it.
 
 ## Test it
 
