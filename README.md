@@ -18,6 +18,8 @@ format, graded automatically, with an explanation for every point you miss.
 
 ![Solving a question in kubedojo: task on the left, terminal on the right, per-check feedback](docs/images/practice.gif)
 
+[Watch the 50-second tour](docs/media/kubedojo-promo.mp4) (MP4, no sound)
+
 </div>
 
 ## Why kubedojo
