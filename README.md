@@ -2,11 +2,12 @@
 
 # kubedojo
 
-**Pass your Kubernetes exam by doing, not by reading.**
+**Get good at Linux and Kubernetes by doing, not by reading.**
 
-Practice for all five exams on the road to Kubestronaut — **KCNA**, **CKAD**, **CKA**, **KCSA**, **CKS** —
-and the Linux and Vim skills they assume. Real clusters, a real terminal in your browser, tasks in exam
-format, graded automatically, with an explanation for every point you miss.
+A place to train for developers, SREs and anyone who runs software. Real clusters, a real terminal in
+your browser, tasks graded automatically, with an explanation for every point you miss. Use it to keep
+your skills sharp, or to prepare for the five exams on the road to Kubestronaut — **KCNA**, **CKAD**,
+**CKA**, **KCSA**, **CKS** — and the Linux and Vim skills they assume.
 
 [![CI](https://github.com/Mistral-valaise/kubedojo/actions/workflows/ci.yaml/badge.svg)](https://github.com/Mistral-valaise/kubedojo/actions/workflows/ci.yaml)
 [![Release](https://img.shields.io/github/v/release/Mistral-valaise/kubedojo)](https://github.com/Mistral-valaise/kubedojo/releases)
@@ -23,6 +24,21 @@ format, graded automatically, with an explanation for every point you miss.
 </div>
 
 ## Why kubedojo
+
+Understanding a system and being able to operate it are different skills, and only the second one
+fades when you stop using it. That matters more now that an AI assistant can write the manifest or the
+shell one-liner for you: somebody still has to know what it does, notice when it is wrong, and fix the
+cluster at the terminal when it breaks. Linux and Kubernetes sit under most of the software that runs
+today, so they are a good place to stay in practice.
+
+kubedojo is built for that practice. The exams are one reason to use it, not the only one:
+
+- **For the job.** Open any task in any track, solve it on a real host or cluster, get graded. No exam
+  date needed.
+- **For the exam.** The same tasks, timed and weighted like the certification, with a report per domain.
+- **It keeps moving.** Questions are plain files, proven by an automated test, so they are updated as
+  Kubernetes changes. A track is a directory: new modules on other topics can be added the same way
+  ([docs/adding-a-track.md](docs/adding-a-track.md)).
 
 The CKA, CKAD and CKS are performance exams: two hours, a terminal, real clusters. Reading does not prepare
 you for that — repetition under exam conditions does. kubedojo gives you exactly that loop, on your own

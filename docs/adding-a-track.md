@@ -1,6 +1,8 @@
 # Adding a track
 
-A track is one exam: its domains, its lessons and its questions. kubedojo is driven by the content
+A track is one subject: its domains, its lessons and its questions. Most tracks follow an exam, but a
+track needs none: `kind: skills` is for a subject that is practised for its own sake, as Linux & Vim
+Essentials is, and the same format carries any topic that can be checked on a host or a cluster. kubedojo is driven by the content
 directory, so the server and the web UI need no change for a new track. Seven places outside the
 track's own directory do; they are listed at the end.
 

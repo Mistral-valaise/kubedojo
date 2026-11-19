@@ -8,6 +8,19 @@ listed at the end, read on 2026-11-18. Curricula change; check the pages before 
 kubedojo is an independent project: it is not affiliated with or endorsed by the CNCF or the Linux
 Foundation, its questions are original, and no exam content is reproduced.
 
+## Who the tracks are for
+
+Two kinds of people, often the same person at different times. Someone preparing for a certification
+follows the path below and takes the timed simulations. Someone who builds or runs software and wants
+to stay in practice opens single tasks, with no exam in mind: a developer who wants to be at ease on a
+Linux host, an SRE who has not restored etcd since the last incident. Assistants that write commands
+and manifests make the second use more important, not less, because the output still has to be
+understood and corrected by someone who has done the work by hand.
+
+The certifications give the tracks their structure because their curricula are public, maintained and
+weighted. The path is not the limit of the format: the Linux track already has no exam behind it, and
+a track on another topic is one more directory ([adding-a-track.md](adding-a-track.md)).
+
 ## The goal the path leads to
 
 The CNCF's Kubestronaut program recognises people who hold five certifications at the same time:

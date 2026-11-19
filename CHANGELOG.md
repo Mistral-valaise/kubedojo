@@ -26,6 +26,8 @@ practice that need no Kubernetes cluster.
   a Linux track is never presented as a Kubernetes exam.
 - `docs/curriculum-design.md`: the official sources behind the tracks, the order, and the limits.
 - `shellcheck` on the Linux host.
+- README, home page and curriculum design say who kubedojo is for: people who build and run software
+  and want to stay in practice, not only exam candidates.
 - A 50-second tour of the project, `docs/media/kubedojo-promo.mp4`, linked from the README.
 
 ### Changed

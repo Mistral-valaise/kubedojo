@@ -22,10 +22,10 @@ export function Home() {
     <Page>
       <section className="mb-10 max-w-3xl">
         <h1 className="text-4xl font-bold tracking-tight sm:text-[2.75rem] sm:leading-[1.1]">
-          {t("Pass your Kubernetes exam by doing,")} <span className="text-accent">{t("not by reading.")}</span>
+          {t("Get good at Linux and Kubernetes by doing,")} <span className="text-accent">{t("not by reading.")}</span>
         </h1>
         <p className="mt-4 text-lg leading-relaxed text-muted">
-          {t("Real terminals, real clusters and questions in exam format. Learn each topic in minutes, practise with instant grading, then prove it against the clock.")}
+          {t("Real terminals, real clusters and tasks graded on the spot. Keep your skills sharp, or prepare for the exams on the road to Kubestronaut: learn a topic in minutes, practise it, then prove it against the clock.")}
         </p>
       </section>
 
