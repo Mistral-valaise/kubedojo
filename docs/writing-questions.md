@@ -80,7 +80,8 @@ Optional per check:
   its own shortly after the action: a log line, an endpoint.
 - `guard: true` — the check protects against a destructive shortcut ("the API server is healthy", "the
   base was not edited") and therefore passes on the untouched environment. `content test` requires
-  every other check to fail before the task is solved.
+  every other check to fail before the task is solved. A guard's points only count once another
+  check has passed, so a task nobody touched scores zero.
 
 Guidelines:
 

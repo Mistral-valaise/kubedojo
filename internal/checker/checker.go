@@ -126,12 +126,27 @@ func Recheck(ctx context.Context, q *catalog.Question, run Runner, prev Result) 
 	return res
 }
 
+// score adds up the points of the passed checks. Guards only count once a
+// check that needs work has passed: a guard holds on the untouched
+// environment ("the service still runs", "the base was not edited"), so on
+// its own it says nothing was broken, not that anything was done. Without
+// this an exam would pay for tasks nobody opened.
 func score(q *catalog.Question, res *Result) {
 	res.Score = 0
+	worked, guards := false, 0
 	for i, c := range q.Checks {
-		if i < len(res.Checks) && res.Checks[i].Passed {
+		if i >= len(res.Checks) || !res.Checks[i].Passed {
+			continue
+		}
+		if c.Guard {
+			guards += c.Points
+		} else {
+			worked = true
 			res.Score += c.Points
 		}
+	}
+	if worked {
+		res.Score += guards
 	}
 	res.Passed = res.Score == res.Max
 }

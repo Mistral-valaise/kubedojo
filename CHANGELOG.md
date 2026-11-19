@@ -34,6 +34,8 @@ practice that need no Kubernetes cluster.
 - `kubedojo doctor` and `content test` ask for kind and the node image only when a selected track
   uses a cluster.
 - Sessions of theory tracks do not count against `--max-sessions`.
+- Guard checks score only once another check of the task has passed. An untouched task used to
+  earn the points of its guards in an exam.
 
 ## [0.3.0] - unreleased
 
