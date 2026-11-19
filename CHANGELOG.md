@@ -7,7 +7,8 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
 ### Changed
 
 - The tour video has sound and is cut to the music: a music bed, a few sound effects on visible
-  actions, and a new scene that solves a CKAD task with `kubectl` on a real cluster. Credits are in
+  actions, and a new scene that solves a CKAD task with `kubectl` on a real cluster. It opens with
+  the project name and ends with a QR code to the repository. Credits are in
   `docs/media/CREDITS.md`.
 
 ## [0.4.0] - 2026-11-19

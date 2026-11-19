@@ -4,10 +4,11 @@
 
 ## Music
 
-"Killing Time" by Kevin MacLeod (incompetech.com), licensed under
-[Creative Commons Attribution 3.0](https://creativecommons.org/licenses/by/3.0/).
-Source: <https://commons.wikimedia.org/wiki/File:Killing_Time_(ISRC_USUAN1100570).mp3>.
-The track was shortened to the length of the video, lowered in volume and faded out.
+"Lofi Hip Hop Upbeat" by raspberrymusic, licensed under
+[Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/).
+Source: <https://commons.wikimedia.org/wiki/File:Raspberrymusic_-_Lofi_Hip_Hop_Upbeat.ogg>.
+The track was shortened to the length of the video (it starts at its second bar), lowered in
+volume and faded out.
 
 ## Sound effects
 
