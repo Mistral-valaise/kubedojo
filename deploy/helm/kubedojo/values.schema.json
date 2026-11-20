@@ -71,6 +71,9 @@
         },
         "storageClass": {
           "type": "string"
+        },
+        "keepOnUninstall": {
+          "type": "boolean"
         }
       }
     },

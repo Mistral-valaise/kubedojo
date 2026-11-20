@@ -5,7 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -13,6 +15,9 @@ import (
 )
 
 type Store struct{ db *sql.DB }
+
+// ErrLocked is returned by Lock when a server uses the data directory.
+var ErrLocked = errors.New("a kubedojo server is using this data directory")
 
 const schema = `
 CREATE TABLE IF NOT EXISTS sessions (
@@ -236,4 +241,52 @@ func (s *Store) Ratings(track string) ([]Rating, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// Backup writes a consistent copy of the database to path, which must not
+// exist. It is safe while a server uses the database: SQLite takes the copy
+// inside one read transaction, so it holds either all of a write or nothing
+// of it. Copying the database file instead is not safe: in WAL mode the
+// latest writes are in a second file.
+func (s *Store) Backup(ctx context.Context, path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("%s exists already", path)
+	}
+	if _, err := s.db.ExecContext(ctx, "VACUUM INTO ?", path); err != nil {
+		_ = os.Remove(path)
+		return fmt.Errorf("backup to %s: %w", path, err)
+	}
+	return nil
+}
+
+// Contents is what a database holds, for a person to recognise it.
+type Contents struct {
+	Sessions, Attempts, Exams, Ratings int
+}
+
+// Inspect opens a database file read-only, checks that it is an intact
+// kubedojo database and counts what it holds.
+func Inspect(ctx context.Context, path string) (Contents, error) {
+	var c Contents
+	if _, err := os.Stat(path); err != nil {
+		return c, err
+	}
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)")
+	if err != nil {
+		return c, err
+	}
+	defer db.Close()
+	var ok string
+	if err := db.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&ok); err != nil {
+		return c, fmt.Errorf("%s is not a SQLite database: %w", path, err)
+	}
+	if ok != "ok" {
+		return c, fmt.Errorf("%s is damaged: %s", path, ok)
+	}
+	for table, n := range map[string]*int{"sessions": &c.Sessions, "attempts": &c.Attempts, "exams": &c.Exams, "ratings": &c.Ratings} {
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(n); err != nil {
+			return c, fmt.Errorf("%s is not a kubedojo database: %w", path, err)
+		}
+	}
+	return c, nil
 }

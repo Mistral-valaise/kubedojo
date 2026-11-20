@@ -104,6 +104,13 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
 
 ### Added
 
+- **`kubedojo backup` and `kubedojo restore`.** A backup is a consistent snapshot of the progress
+  database and can be taken while the server runs. Copying the database file, which the docs
+  recommended, is not consistent: SQLite keeps the latest writes in a second file. `restore` checks
+  the file, keeps the database it replaces, and refuses while a server runs.
+- The server locks its data directory. A second server on the same directory stops with a message
+  instead of sharing the database.
+- Helm: `helm uninstall` leaves the volume with the history (`persistence.keepOnUninstall`).
 - `GET /api/ready` for readiness probes: it fails while the server shuts down or when the database
   does not answer. `/api/health` remains the liveness check.
 - `KUBEDOJO_MAX_SESSIONS`, the environment variable for `--max-sessions`.

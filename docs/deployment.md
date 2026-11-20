@@ -211,7 +211,66 @@ See [`values.yaml`](../deploy/helm/kubedojo/values.yaml) for every option, and
   `terminationGracePeriodSeconds` a little above the grace period, or Kubernetes kills the server
   first. The chart does both from one value, `shutdownGraceSeconds` (default 60): the grace period,
   and 15 seconds more for the Pod.
-- **Backup**: the PVC holds a single SQLite file, `/data/kubedojo.db`.
+- **Uninstall keeps the history.** `helm uninstall` leaves the server's volume
+  (`persistence.keepOnUninstall`, on by default); a release of the same name in the same Namespace
+  takes it over again. To delete the history: `kubectl -n kubedojo delete pvc kubedojo`.
+- **One server per data directory.** The server holds a lock on `/data`. A second one on the same
+  volume, or a restore while it runs, stops with a message.
+
+### Backup and restore
+
+The history is one SQLite database, `/data/kubedojo.db`. Do not copy the file while the server runs:
+SQLite keeps the latest writes in a second file, and a copy of the first alone is not consistent.
+`kubedojo backup` takes a consistent snapshot and works under a running server:
+
+```bash
+kubectl -n kubedojo exec deploy/kubedojo -c kubedojo -- kubedojo backup --out /data/backup.db
+kubectl -n kubedojo exec deploy/kubedojo -c kubedojo -- cat /data/backup.db > kubedojo-backup.db
+```
+
+It prints what the backup holds: sessions, graded questions, exams, ratings. Keep the file somewhere
+that is not this volume.
+
+To restore, the server must not run. Stop it, restore in a Pod of its own that mounts the volume, and
+start it again (the image is the server's, see `kubectl -n kubedojo get deploy kubedojo -o
+jsonpath='{.spec.template.spec.containers[0].image}'`):
+
+```bash
+kubectl -n kubedojo scale deploy/kubedojo --replicas=0
+kubectl -n kubedojo run kubedojo-restore --rm -i --restart=Never --image=<server image> --overrides='
+{"spec":{"securityContext":{"runAsUser":10001,"fsGroup":10001},
+ "containers":[{"name":"kubedojo-restore","image":"<server image>",
+   "args":["restore","--from","/data/backup.db"],
+   "volumeMounts":[{"name":"data","mountPath":"/data"}]}],
+ "volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"kubedojo"}}]}}'
+kubectl -n kubedojo scale deploy/kubedojo --replicas=1
+```
+
+`restore` checks that the file is an intact kubedojo database before it touches anything, and keeps
+the database it replaces as `kubedojo.db.before-restore-<time>`. For a backup that is not on the
+volume yet, copy it there first, into the same kind of Pod.
+
+Sandboxes are not part of a backup. Sessions that were open when it was taken come back without
+their clusters; learners end them and start new ones. The history, the exam results and the ratings
+are what a backup is for.
+
+### Upgrade and rollback
+
+```bash
+kubectl -n kubedojo exec deploy/kubedojo -c kubedojo -- kubedojo backup --out /data/before-upgrade.db
+helm upgrade kubedojo <chart> -n kubedojo --reset-then-reuse-values
+helm rollback kubedojo -n kubedojo        # back to the previous revision
+```
+
+- The server Pod is replaced, not rolled: there is one, and the old one stops before the new one
+  starts. It waits for running work first (see *Shutdown* above).
+- Sandboxes keep running and sessions go on; open terminals reconnect.
+- The database is changed only by adding columns. An older server therefore still reads a database a
+  newer one has used, and a rollback needs no restore. The backup is for the case that this ever
+  stops being true.
+- A sandbox keeps the sandbox host image it was started with. After an upgrade, old sessions run the
+  old image and new sessions the new one, until the old ones end.
+
 - **Sandbox Pods** carry the labels `app.kubernetes.io/component=sandbox`,
   `app.kubernetes.io/instance=<release>` and `kubedojo.dev/session=<id>`:
   `kubectl -n kubedojo get pod -l app.kubernetes.io/component=sandbox`.
