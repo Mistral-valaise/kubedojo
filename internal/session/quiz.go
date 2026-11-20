@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -157,7 +158,7 @@ func (m *Manager) Answer(id, qid string, answer []string) error {
 // checkChoice grades the stored answer of a choice question in practice. A
 // graded question keeps its result until it is reset: grading it again would
 // only add attempts for an answer that can no longer change.
-func (m *Manager) checkChoice(s *Session, q *catalog.Question) (*checker.Result, error) {
+func (m *Manager) checkChoice(ctx context.Context, s *Session, q *catalog.Question) (*checker.Result, error) {
 	m.mu.Lock()
 	if s.Mode == ModeExam {
 		qs := s.q(q.ID)
@@ -180,9 +181,9 @@ func (m *Manager) checkChoice(s *Session, q *catalog.Question) (*checker.Result,
 	qs.Last = &res
 	m.save(s)
 	m.mu.Unlock()
-	m.record(s, q, s.Mode, res)
+	m.record(ctx, s, q, s.Mode, res)
 	if m.hooks.Checked != nil {
-		m.hooks.Checked(s.Track, q.ID, s.Mode, res)
+		m.hooks.Checked(ctx, s.Track, q.ID, s.Mode, res)
 	}
 	return &res, nil
 }
@@ -190,7 +191,7 @@ func (m *Manager) checkChoice(s *Session, q *catalog.Question) (*checker.Result,
 // finishQuiz grades the exam of a sandboxless track. Answers do not converge,
 // so there is no settle time and the report exists when this returns. Results
 // appear on the session together with the finished status, never before.
-func (m *Manager) finishQuiz(s *Session) error {
+func (m *Manager) finishQuiz(ctx context.Context, s *Session) error {
 	t := m.cat.Tracks[s.Track]
 	m.mu.Lock()
 	if s.Mode != ModeExam || s.Status != StatusRunning {
@@ -206,6 +207,6 @@ func (m *Manager) finishQuiz(s *Session) error {
 	}
 	m.save(s)
 	m.mu.Unlock()
-	m.conclude(s, t, results)
+	m.conclude(ctx, s, t, results)
 	return nil
 }

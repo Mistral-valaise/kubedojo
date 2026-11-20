@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/Mistral-valaise/kubedojo/internal/checker"
 	"github.com/Mistral-valaise/kubedojo/internal/k8shost"
@@ -17,11 +16,15 @@ import (
 // telemetryHooks connects session events to the telemetry instruments.
 func telemetryHooks(t *telemetry.Telemetry) session.Hooks {
 	return session.Hooks{
-		Provisioned: func(track, mode string, d time.Duration, err error) { t.Provisioned(track, mode, d, err) },
-		Checked: func(track, question, mode string, res checker.Result) {
-			t.Checked(track, question, mode, res.Score, res.Max)
+		Provisioned: t.Provisioned,
+		Checked: func(ctx context.Context, track, question, mode string, res checker.Result) {
+			t.Checked(ctx, track, question, mode, res.Score, res.Max)
 		},
-		ExamDone: func(track string, r session.Report) { t.ExamDone(track, r.Percent, r.Passed) },
+		ExamDone: func(ctx context.Context, track string, r session.Report) {
+			t.ExamDone(ctx, track, r.Percent, r.Passed)
+		},
+		Span:   t.Span,
+		Detach: telemetry.Detach,
 	}
 }
 

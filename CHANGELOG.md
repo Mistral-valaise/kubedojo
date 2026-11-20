@@ -24,6 +24,11 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
 - **Signals are linked in Grafana.** The local stack and the chart's `lgtm.enabled` provision their
   own data sources: from a trace to its logs and to the request metrics of its route, from a log
   line to its trace, and from a latency sample to the trace behind it (exemplars).
+- **Traces show what a session did.** Preparing a question, building an exam environment, grading
+  and destroying are spans below the request that started them, with the steps of creating a
+  sandbox as children. Log lines written during that work carry the trace ID, and the metric
+  samples carry it as an exemplar. Before, the only span besides the requests was a
+  `sandbox.provision` without a parent, and no log line had a trace ID.
 - Helm: `lgtm.image` is pinned to the tested version, and `lgtm.enabled` no longer breaks when
   `dashboards.enabled` is off or `dashboards.namespace` is set. The stack has its own copy of the
   dashboards.

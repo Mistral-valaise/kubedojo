@@ -67,7 +67,8 @@ func endpointConfigured() bool { return Endpoint() != "" }
 func Setup(ctx context.Context, version string, base *slog.Logger) (*Telemetry, error) {
 	t := &Telemetry{Logger: base}
 	if !endpointConfigured() {
-		t.instruments()
+		// The global providers do nothing until an SDK is installed.
+		t.instruments(otel.GetTracerProvider(), otel.GetMeterProvider())
 		return t, nil
 	}
 	if os.Getenv("OTEL_SERVICE_NAME") == "" {
@@ -104,13 +105,22 @@ func Setup(ctx context.Context, version string, base *slog.Logger) (*Telemetry, 
 	t.Enabled = true
 	t.shutdown = []func(context.Context) error{tp.Shutdown, mp.Shutdown, lp.Shutdown}
 	t.Logger = slog.New(fanout{base.Handler(), otelslog.NewHandler(scope, otelslog.WithLoggerProvider(lp))})
-	t.instruments()
+	t.instruments(tp, mp)
 	return t, nil
 }
 
-func (t *Telemetry) instruments() {
-	t.tracer = otel.Tracer(scope)
-	t.meter = otel.Meter(scope)
+// New returns a Telemetry that records to the given providers and logs to
+// logger. Setup is what the server uses; this is for tests and for embedding
+// kubedojo into a process that owns its OpenTelemetry SDK.
+func New(tp trace.TracerProvider, mp metric.MeterProvider, logger *slog.Logger) *Telemetry {
+	t := &Telemetry{Enabled: true, Logger: logger}
+	t.instruments(tp, mp)
+	return t
+}
+
+func (t *Telemetry) instruments(tp trace.TracerProvider, mp metric.MeterProvider) {
+	t.tracer = tp.Tracer(scope)
+	t.meter = mp.Meter(scope)
 	t.provision, _ = t.meter.Float64Histogram("kubedojo.sandbox.provision.duration", metric.WithUnit("s"),
 		metric.WithDescription("Time to create a sandbox cluster (practice) or a whole exam environment."),
 		metric.WithExplicitBucketBoundaries(5, 10, 20, 30, 45, 60, 90, 120, 180, 300, 600))
@@ -154,23 +164,39 @@ func result(err error) string {
 	return "ok"
 }
 
-// Provisioned records one sandbox provisioning.
-func (t *Telemetry) Provisioned(track, mode string, d time.Duration, err error) {
-	ctx := context.Background()
-	attrs := []attribute.KeyValue{attribute.String("track", track), attribute.String("mode", mode), attribute.String("result", result(err))}
-	t.provision.Record(ctx, d.Seconds(), metric.WithAttributes(attrs...))
-	end := time.Now()
-	_, span := t.tracer.Start(ctx, "sandbox.provision", trace.WithTimestamp(end.Add(-d)), trace.WithAttributes(attrs...))
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+// Span starts a span for a piece of session work. attrs are pairs of key and
+// value. The returned function ends the span and records the error, if any.
+func (t *Telemetry) Span(ctx context.Context, name string, attrs ...string) (context.Context, func(error)) {
+	kv := make([]attribute.KeyValue, 0, len(attrs)/2)
+	for i := 0; i+1 < len(attrs); i += 2 {
+		kv = append(kv, attribute.String(attrs[i], attrs[i+1]))
 	}
-	span.End(trace.WithTimestamp(end))
+	ctx, span := t.tracer.Start(ctx, name, trace.WithAttributes(kv...))
+	return ctx, func(err error) {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}
+}
+
+// Detach returns a context for work that outlives a request: it lives as long
+// as base, and spans started in it belong to the trace of request. Creating a
+// cluster takes a minute; the request that asked for it is answered at once.
+func Detach(base, request context.Context) context.Context {
+	return trace.ContextWithSpanContext(base, trace.SpanContextFromContext(request))
+}
+
+// Provisioned records one sandbox provisioning. Recorded inside the span of
+// the provisioning, the sample carries its trace as an exemplar.
+func (t *Telemetry) Provisioned(ctx context.Context, track, mode string, d time.Duration, err error) {
+	t.provision.Record(ctx, d.Seconds(), metric.WithAttributes(
+		attribute.String("track", track), attribute.String("mode", mode), attribute.String("result", result(err))))
 }
 
 // Checked records one graded question.
-func (t *Telemetry) Checked(track, question, mode string, score, max int) {
-	ctx := context.Background()
+func (t *Telemetry) Checked(ctx context.Context, track, question, mode string, score, max int) {
 	res := "failed"
 	if score == max {
 		res = "passed"
@@ -184,8 +210,7 @@ func (t *Telemetry) Checked(track, question, mode string, score, max int) {
 }
 
 // ExamDone records one finished exam.
-func (t *Telemetry) ExamDone(track string, percent float64, passed bool) {
-	ctx := context.Background()
+func (t *Telemetry) ExamDone(ctx context.Context, track string, percent float64, passed bool) {
 	res := "failed"
 	if passed {
 		res = "passed"
@@ -195,8 +220,8 @@ func (t *Telemetry) ExamDone(track string, percent float64, passed bool) {
 }
 
 // Rated records a learner's rating of a question.
-func (t *Telemetry) Rated(track, question string, stars int) {
-	t.ratings.Record(context.Background(), int64(stars),
+func (t *Telemetry) Rated(ctx context.Context, track, question string, stars int) {
+	t.ratings.Record(ctx, int64(stars),
 		metric.WithAttributes(attribute.String("track", track), attribute.String("question", question)))
 }
 

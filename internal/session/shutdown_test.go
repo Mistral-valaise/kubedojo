@@ -177,7 +177,7 @@ func TestShutdownCancelsWorkAfterTheGracePeriod(t *testing.T) {
 	if _, err := z.mgr.NewExam("cka", session.ExamOptions{}); !errors.Is(err, session.ErrShuttingDown) {
 		t.Fatalf("NewExam after Shutdown = %v, want ErrShuttingDown", err)
 	}
-	if err := z.mgr.DestroyLater(sid); !errors.Is(err, session.ErrShuttingDown) {
+	if err := z.mgr.DestroyLater(context.Background(), sid); !errors.Is(err, session.ErrShuttingDown) {
 		t.Fatalf("DestroyLater after Shutdown = %v, want ErrShuttingDown", err)
 	}
 	// A second Shutdown and Close are harmless.
@@ -256,7 +256,7 @@ func TestInterruptedGradingRecordsNoResult(t *testing.T) {
 // Destroying in the background is work Shutdown waits for.
 func TestDestroyLater(t *testing.T) {
 	mgr, drv, sid := readySession(t)
-	if err := mgr.DestroyLater(sid); err != nil {
+	if err := mgr.DestroyLater(context.Background(), sid); err != nil {
 		t.Fatal(err)
 	}
 	if err := mgr.Shutdown(context.Background()); err != nil {
@@ -265,7 +265,7 @@ func TestDestroyLater(t *testing.T) {
 	if len(drv.Destroyed) != 1 || drv.Destroyed[0] != sid {
 		t.Fatalf("destroyed %v, want [%s]", drv.Destroyed, sid)
 	}
-	if err := mgr.DestroyLater("nope"); !errors.Is(err, session.ErrNotFound) {
+	if err := mgr.DestroyLater(context.Background(), "nope"); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("DestroyLater of an unknown session = %v", err)
 	}
 }

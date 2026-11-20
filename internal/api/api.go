@@ -43,7 +43,7 @@ type Server struct {
 	// AllowedOrigins are extra WebSocket origin patterns (dev server).
 	AllowedOrigins []string
 	// OnRating is called when a learner rates a question.
-	OnRating func(track, question string, stars int)
+	OnRating func(ctx context.Context, track, question string, stars int)
 	// OnTerminal is called when a terminal connects (delta +1) or leaves (-1).
 	OnTerminal func(delta int)
 
@@ -135,7 +135,7 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
 }
 
-func (s *Server) fail(w http.ResponseWriter, err error) {
+func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, session.ErrNotFound):
 		writeErr(w, 404, "not found")
@@ -146,7 +146,8 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	case errors.Is(err, session.ErrLimit):
 		writeErr(w, 429, "Too many active sessions. End one before starting another.")
 	default:
-		s.Log.Error("request failed", "err", err)
+		// With the request's context the line carries its trace.
+		s.Log.ErrorContext(r.Context(), "request failed", "route", r.Pattern, "err", err)
 		writeErr(w, 500, err.Error())
 	}
 }
@@ -165,7 +166,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) *session.Sessio
 		err = session.ErrNotFound
 	}
 	if err != nil {
-		s.fail(w, err)
+		s.fail(w, r, err)
 		return nil
 	}
 	return v
@@ -255,13 +256,13 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	case session.ModePractice:
 		ses, err = s.Sessions.Practice(req.Track, s.owner(r))
 	case session.ModeExam:
-		ses, err = s.Sessions.NewExam(req.Track, session.ExamOptions{Minutes: req.Minutes, Questions: req.Questions, Owner: s.owner(r)})
+		ses, err = s.Sessions.NewExamContext(r.Context(), req.Track, session.ExamOptions{Minutes: req.Minutes, Questions: req.Questions, Owner: s.owner(r)})
 	default:
 		writeErr(w, 400, "mode must be practice or exam")
 		return
 	}
 	if err != nil {
-		s.fail(w, err)
+		s.fail(w, r, err)
 		return
 	}
 	v, _ := s.Sessions.View(ses.ID)
@@ -312,8 +313,8 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 	if v == nil {
 		return
 	}
-	if err := s.Sessions.DestroyLater(v.ID); err != nil {
-		s.fail(w, err)
+	if err := s.Sessions.DestroyLater(r.Context(), v.ID); err != nil {
+		s.fail(w, r, err)
 		return
 	}
 	writeJSON(w, 202, map[string]string{"status": "destroying"})
@@ -325,7 +326,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Sessions.Start(v.ID); err != nil {
-		s.fail(w, err)
+		s.fail(w, r, err)
 		return
 	}
 	v, _ = s.Sessions.View(v.ID)
@@ -338,7 +339,7 @@ func (s *Server) finishSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Sessions.Finish(r.Context(), v.ID); err != nil {
-		s.fail(w, err)
+		s.fail(w, r, err)
 		return
 	}
 	v, _ = s.Sessions.View(v.ID)
@@ -402,7 +403,7 @@ func (s *Server) getQuestion(w http.ResponseWriter, r *http.Request) {
 		if v.Mode == session.ModePractice && len(qs.Order) == 0 {
 			// Preparing a choice question only draws the order of its options,
 			// so a question opened for the first time is prepared on the spot.
-			if v, qs = s.prepared(w, v, q); v == nil {
+			if v, qs = s.prepared(w, r, v, q); v == nil {
 				return
 			}
 			out["state"] = qs
@@ -414,13 +415,13 @@ func (s *Server) getQuestion(w http.ResponseWriter, r *http.Request) {
 
 // prepared prepares a choice question of a practice session and returns the
 // session and the question's state as they are afterwards.
-func (s *Server) prepared(w http.ResponseWriter, v *session.Session, q *catalog.Question) (*session.Session, *session.QState) {
-	err := s.Sessions.Prepare(v.ID, q.ID, false)
+func (s *Server) prepared(w http.ResponseWriter, r *http.Request, v *session.Session, q *catalog.Question) (*session.Session, *session.QState) {
+	err := s.Sessions.PrepareContext(r.Context(), v.ID, q.ID, false)
 	if err == nil {
 		v, err = s.Sessions.View(v.ID)
 	}
 	if err != nil {
-		s.fail(w, err)
+		s.fail(w, r, err)
 		return nil, nil
 	}
 	for _, x := range v.Questions {
@@ -428,7 +429,7 @@ func (s *Server) prepared(w http.ResponseWriter, v *session.Session, q *catalog.
 			return v, x
 		}
 	}
-	s.fail(w, session.ErrNotFound)
+	s.fail(w, r, session.ErrNotFound)
 	return nil, nil
 }
 
@@ -448,13 +449,13 @@ func (s *Server) patchQuestion(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Answer != nil {
 		if err := s.Sessions.Answer(v.ID, q.ID, *req.Answer); err != nil {
-			s.fail(w, err)
+			s.fail(w, r, err)
 			return
 		}
 	}
 	if req.Flagged != nil || req.Note != nil || req.Answer == nil {
 		if err := s.Sessions.Patch(v.ID, q.ID, req.Flagged, req.Note); err != nil {
-			s.fail(w, err)
+			s.fail(w, r, err)
 			return
 		}
 	}
@@ -466,8 +467,8 @@ func (s *Server) prepare(w http.ResponseWriter, r *http.Request) {
 	if v == nil {
 		return
 	}
-	if err := s.Sessions.Prepare(v.ID, q.ID, r.URL.Query().Get("reset") == "1"); err != nil {
-		s.fail(w, err)
+	if err := s.Sessions.PrepareContext(r.Context(), v.ID, q.ID, r.URL.Query().Get("reset") == "1"); err != nil {
+		s.fail(w, r, err)
 		return
 	}
 	writeJSON(w, 202, map[string]string{"status": "preparing"})
@@ -489,14 +490,14 @@ func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Answer != nil {
 			if err := s.Sessions.Answer(v.ID, q.ID, *req.Answer); err != nil {
-				s.fail(w, err)
+				s.fail(w, r, err)
 				return
 			}
 		}
 	}
 	res, err := s.Sessions.Check(r.Context(), v.ID, q.ID)
 	if err != nil {
-		s.fail(w, err)
+		s.fail(w, r, err)
 		return
 	}
 	writeJSON(w, 200, res)
@@ -513,7 +514,7 @@ func (s *Server) hint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Sessions.Reveal(v.ID, q.ID, n); err != nil {
-		s.fail(w, err)
+		s.fail(w, r, err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"n": n, "markdown": render(q.Hints[n-1], v.Envs[q.Environment])})
@@ -528,19 +529,19 @@ func (s *Server) solution(w http.ResponseWriter, r *http.Request) {
 		// The solution of a choice question is its answer key. Opening it
 		// reveals the question: it can be answered again only after a reset.
 		if v.Mode == session.ModePractice {
-			if v, _ = s.prepared(w, v, q); v == nil {
+			if v, _ = s.prepared(w, r, v, q); v == nil {
 				return
 			}
 		}
 		if err := s.Sessions.Reveal(v.ID, q.ID, 0); err != nil {
-			s.fail(w, err)
+			s.fail(w, r, err)
 			return
 		}
 		writeJSON(w, 200, map[string]any{"markdown": solutionMarkdown(q.Choice), "review": review(q.Choice)})
 		return
 	}
 	if err := s.Sessions.Reveal(v.ID, q.ID, 0); err != nil {
-		s.fail(w, err)
+		s.fail(w, r, err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"markdown": render(q.SolutionMd, v.Envs[q.Environment])})
@@ -579,7 +580,7 @@ func (s *Server) tutor(w http.ResponseWriter, r *http.Request) {
 	}
 	text, err := s.Tutor.Explain(ctx, q, render(q.Task, v.Envs[q.Environment]), qs.Last, state, req.Ask)
 	if err != nil {
-		s.Log.Error("tutor", "err", err)
+		s.Log.ErrorContext(ctx, "tutor", "err", err)
 		writeErr(w, 502, "The tutor could not answer: "+err.Error())
 		return
 	}
@@ -724,11 +725,11 @@ func (s *Server) rate(w http.ResponseWriter, r *http.Request) {
 	}
 	q := t.Question(r.PathValue("q"))
 	if err := s.Store.AddRating(store.Rating{Track: t.ID, QuestionID: q.ID, Owner: s.owner(r), Stars: req.Stars, Comment: comment, At: time.Now()}); err != nil {
-		s.fail(w, err)
+		s.fail(w, r, err)
 		return
 	}
 	if s.OnRating != nil {
-		s.OnRating(t.ID, q.ID, req.Stars)
+		s.OnRating(r.Context(), t.ID, q.ID, req.Stars)
 	}
 	writeJSON(w, 201, map[string]string{"status": "ok"})
 }
@@ -785,12 +786,12 @@ func (s *Server) progress(w http.ResponseWriter, r *http.Request) {
 	}
 	attempts, err := s.Store.Attempts(t.ID, s.owner(r))
 	if err != nil {
-		s.fail(w, err)
+		s.fail(w, r, err)
 		return
 	}
 	exams, err := s.Store.Exams(t.ID, s.owner(r))
 	if err != nil {
-		s.fail(w, err)
+		s.fail(w, r, err)
 		return
 	}
 	qp := map[string]*questionProgress{}

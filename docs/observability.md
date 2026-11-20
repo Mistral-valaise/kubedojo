@@ -90,10 +90,37 @@ The `question` label has one value per question (58 today). No metric carries us
 
 ## Traces and logs
 
-- **Traces**: one span per API request (named by route), plus `sandbox.provision` spans. The terminal
-  WebSocket, health checks and static files are not traced.
+- **Traces**: one span per API request (named by route). The terminal WebSocket, health checks and
+  static files are not traced. Work on a session is traced below the request that started it, also
+  when it goes on after the request was answered:
+
+  | Span | Children | When |
+  |---|---|---|
+  | `question.prepare` | `sandbox.provision`, `question.setup` | a practice question is prepared |
+  | `exam.provision` | `sandbox.provision`, `question.setup` per question | an exam environment is built |
+  | `sandbox.provision` | `sandbox.host.acquire`, `sandbox.env.create`, `sandbox.terminal.connect` | a cluster or a Linux host is created |
+  | `question.check` | | a question is graded |
+  | `exam.grade` | `question.check` per question | an exam is graded |
+  | `sandbox.destroy` | | a sandbox is removed |
+
+  Spans carry `kubedojo.session.id`, `kubedojo.track`, `kubedojo.mode` and, where it applies,
+  `kubedojo.question` and `kubedojo.environment`. Work the server starts itself (an exam whose time
+  is up, an idle sandbox) is a trace of its own.
 - **Logs**: structured, to stderr (JSON in `serve` mode) and to OTLP, with `service.name=kubedojo`.
-  Session lifecycle messages carry a `session` attribute.
+  Session lifecycle messages carry a `session` attribute, and every line written inside a span
+  carries its trace and span ID.
+
+### How the signals are linked
+
+| From | To | By |
+|---|---|---|
+| a metric sample | the trace that produced it | exemplars on `http_server_request_duration_seconds`, `kubedojo_sandbox_provision_duration_seconds`, `kubedojo_check_runs_total` and the score histograms |
+| a trace | its log lines | the trace ID on the log line |
+| a log line | its trace | the same |
+| a trace | request rate, error rate and latency of its route | the `service.name` and `http.route` of the span |
+
+The links are real identifiers, never matching timestamps. Session and user never become metric
+labels: they exist on spans and log lines only.
 
 ## Dashboards
 
