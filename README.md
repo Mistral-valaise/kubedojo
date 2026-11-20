@@ -260,14 +260,23 @@ created.
 
 ### Observability
 
-kubedojo speaks OpenTelemetry. Point `OTEL_EXPORTER_OTLP_ENDPOINT` (or `telemetry.otlpEndpoint` in the
-chart) at an OTLP/HTTP receiver such as Grafana Alloy and you get traces, metrics and logs. The chart
-ships three Grafana dashboards — platform health, sessions & sandboxes, learning analytics — and alert
-rules. Try them locally with `kubedojo up --observability`.
+```sh
+kubedojo up --observability
+```
+
+starts Grafana next to kubedojo, on <http://127.0.0.1:3000>, with Prometheus, Loki, Tempo and an
+OpenTelemetry Collector in one container. You get five dashboards, seven alert rules and working
+links between the signals: from a slow sandbox start in a graph to its trace, from the trace to its
+log lines, and back. It needs Docker and nothing else.
 
 ![Grafana dashboard for kubedojo](docs/images/grafana.png)
 
-Details and the metric reference: [docs/observability.md](docs/observability.md).
+kubedojo speaks OpenTelemetry, so your own stack works as well: point
+`OTEL_EXPORTER_OTLP_ENDPOINT` (or `telemetry.otlpEndpoint` in the chart) at an OTLP/HTTP receiver
+such as Grafana Alloy. The chart ships the dashboards and the alert rules.
+
+The local stack, a first investigation, the metric reference and troubleshooting:
+[docs/observability.md](docs/observability.md).
 
 ## Scope and limits
 
