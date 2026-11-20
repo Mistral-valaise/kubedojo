@@ -1,0 +1,64 @@
+title: Run a container with the capabilities it needs
+domain: microservice-vulnerabilities
+difficulty: medium
+minutes: 7
+environment: base
+tags: [capabilities, securitycontext, least-privilege]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Deployment `gateway` in Namespace `sec-egret` serves HTTP on port `80`. At startup it hands its
+  content directory to the user `nobody` with `chown` — the only privileged thing it does. Its
+  container was given the capabilities `NET_ADMIN` and `SYS_TIME` "to be safe", on top of the
+  runtime's default set.
+
+  Change the Deployment so that its container
+
+  - drops **all** capabilities and adds back only the one it needs, `CHOWN`,
+  - cannot gain more privileges than its parent process,
+  - still starts and serves on port `80`.
+
+  Do not change the image, the command or the port.
+hints:
+  - "`securityContext.capabilities` of the container: `drop: [\"ALL\"]`, `add: [\"CHOWN\"]`. In Kubernetes the names have no `CAP_` prefix."
+  - "The second requirement is `allowPrivilegeEscalation: false`."
+  - "Check what the process really has: `kubectl -n sec-egret exec deploy/gateway -- grep Cap /proc/1/status`. `CapEff: 0000000000000001` is CHOWN alone."
+checks:
+  - id: spec
+    title: The container drops ALL and adds only CHOWN
+    type: exec
+    run: |-
+      kubectl -n sec-egret get deploy gateway -o json | jq -r '.spec.template.spec.containers[0].securityContext.capabilities | "drop=\((.drop // []) | sort | join(",")) add=\((.add // []) | sort | join(","))"'
+    expect: {equals: "drop=ALL add=CHOWN"}
+    explain: >-
+      The runtime gives every container about fourteen capabilities by default, among them NET_RAW and SETUID. Dropping ALL and adding back what the process needs is the only way to know what it has.
+  - id: effective
+    title: The running process holds exactly CHOWN
+    type: exec
+    timeout: 120s
+    run: |-
+      kubectl -n sec-egret rollout status deploy gateway --timeout=60s >/dev/null 2>&1
+      kubectl -n sec-egret exec deploy/gateway -- grep CapEff: /proc/1/status | awk '{print $2}'
+    expect: {equals: "0000000000000001"}
+    explain: >-
+      CapEff is the bitmask the kernel checks. Bit 0 (0x1) is CAP_CHOWN, needed to change the owner of a file. Decode a mask with `capsh --decode=<mask>`.
+  - id: no-escalation
+    title: Privilege escalation is disabled
+    type: resource
+    resource: deployment/gateway
+    namespace: sec-egret
+    jsonpath: "{.spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation}"
+    expect: {equals: "false"}
+    explain: >-
+      allowPrivilegeEscalation: false sets no_new_privs on the process, so a setuid binary or file capabilities inside the image cannot give the capabilities back.
+  - id: serves
+    title: The gateway still answers on port 80
+    type: exec
+    timeout: 120s
+    retry: 30s
+    run: |-
+      kubectl -n sec-egret get deploy gateway -o jsonpath='{.status.readyReplicas}/{.status.updatedReplicas}/{.status.replicas} ' ; kubectl -n sec-egret exec deploy/gateway -- wget -qO- -T 3 http://127.0.0.1:80/
+    expect: {equals: "1/1/1 gateway-ok"}
+    guard: true
+    explain: >-
+      Dropping ALL without adding CHOWN back makes the startup fail with "chown: Operation not permitted" and the Pod crash-loop. Hardening that breaks the workload gets reverted.

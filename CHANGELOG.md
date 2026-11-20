@@ -4,6 +4,13 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+### Added
+
+- **Eight more CKS questions**, 29 in total: anonymous API access, audit log forensics, container
+  drift, dropping capabilities, host account lockdown, manifest static analysis, blocking the
+  metadata endpoint and the kubelet's default seccomp profile. They were merged in November but
+  never reached `main`. `docs/cks-coverage.md` maps every question to the curriculum.
+
 ### Changed
 
 - The tour video has sound and is cut to the music: a music bed, a few sound effects on visible
