@@ -3,7 +3,8 @@
 # without pulling gigabytes from a registry.
 #
 # Build with `make sandbox-host` (it exports the three images next to this file).
-FROM docker:29-dind
+# Pinned by digest: the entrypoint relies on how this image starts dockerd.
+FROM docker:29.10.0-dind@sha256:4bbc7223f81db790097c6dea42fb93e05b8fead4f0431fbe6ccaba6e8473201c
 COPY node.tar terminal.tar linux.tar /images/
 COPY entrypoint.sh /usr/local/bin/kubedojo-sandbox-host
 RUN chmod 0755 /usr/local/bin/kubedojo-sandbox-host

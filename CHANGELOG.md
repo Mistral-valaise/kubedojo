@@ -104,10 +104,19 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
 
 ### Added
 
+- **Hosted mode is tested on k3s.** A script installs kubedojo on a fresh single-node k3s and takes
+  it through a learner's sessions, the observability stack, backup, upgrade, rollback, uninstall
+  and reinstall (`make e2e-hosted`, the workflow `hosted`). `docs/deployment-k3s.md` is the same
+  walk on a real host, with two values files in the chart's `examples/`.
+- **The chart is published** as `oci://ghcr.io/mistral-valaise/charts/kubedojo` with every release.
 - **`kubedojo doctor --kubernetes`** checks a cluster before kubedojo is installed into it: node
   architecture, whether the sandboxes fit, storage, Pod Security, admission of a privileged Pod
   and, with `--deep`, whether the CNI enforces NetworkPolicies. **`kubedojo doctor --hosted`**, run
   in the server's Pod, starts a probe sandbox and creates a cluster in it.
+- The server image verifies the checksum of the `kind` binary it downloads. The images the chart
+  runs besides kubedojo's own are pinned by digest, and a release keeps the node, terminal and
+  Linux images it was built with under tags that are not overwritten.
+- `SECURITY.md` lists what hosted mode relies on and where each protection ends.
 - **`kubedojo backup` and `kubedojo restore`.** A backup is a consistent snapshot of the progress
   database and can be taken while the server runs. Copying the database file, which the docs
   recommended, is not consistent: SQLite keeps the latest writes in a second file. `restore` checks

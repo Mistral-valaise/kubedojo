@@ -26,3 +26,7 @@ images/sandbox-host/*.tar
 
 # Local source of the tour video; only the rendered file under docs/media is tracked.
 /media/
+
+# Measurements of the hosted end-to-end run
+test/e2e/report.txt
+hosted-report.txt

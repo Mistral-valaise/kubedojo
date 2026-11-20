@@ -1,0 +1,19 @@
+# Values of the end-to-end test (test/e2e/run.sh): a small single-node k3s.
+maxSessions: 3
+sandbox:
+  resources:
+    cpuRequest: 500m
+    cpuLimit: "4"
+    memoryRequest: 2Gi
+    memoryLimit: 5Gi
+    ephemeralStorageRequest: 8Gi
+    ephemeralStorageLimit: 20Gi
+registryCache:
+  persistence: {size: 5Gi}
+ingress:
+  enabled: true
+  host: kubedojo.localhost
+  # The test cluster is reachable from this machine only.
+  allowUnauthenticated: true
+lgtm:
+  persistence: {enabled: true, size: 5Gi}

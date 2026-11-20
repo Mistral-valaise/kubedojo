@@ -1,0 +1,39 @@
+# kubedojo on a single k3s host in your own network: a mini-PC at home, a VM
+# in a lab. Reachable over the LAN or a VPN only, without a login.
+#
+#   helm install kubedojo oci://ghcr.io/mistral-valaise/charts/kubedojo --version <release> \
+#     -n kubedojo -f k3s-private.yaml --wait --timeout 10m
+#
+# Sized for a 32 GB host with 8 cores and 200 GB of disk. For 16 GB use
+# maxSessions: 2; for 64 GB, maxSessions: 10 and memoryLimit: 8Gi.
+# The walk-through is docs/deployment-k3s.md.
+
+maxSessions: 5
+idleTTL: 3h           # sandboxes nobody used for this long are removed
+
+sandbox:
+  resources:
+    cpuRequest: "1"
+    cpuLimit: "4"
+    memoryRequest: 4Gi
+    memoryLimit: 6Gi                  # maxSessions x this stays below the host's memory minus 3 GB
+    ephemeralStorageRequest: 10Gi
+    ephemeralStorageLimit: 30Gi       # maxSessions x this must fit on the disk
+
+registryCache:
+  persistence: {size: 20Gi}           # the images questions pull, downloaded once
+
+ingress:
+  enabled: true
+  host: kubedojo.home.arpa            # CHANGE: a name that resolves to this host in your network
+  # Nobody outside your network or VPN reaches this host: no login. Everyone
+  # who does reach it can become root on the machine. Do not forward a port
+  # of your router to it.
+  allowUnauthenticated: true
+
+# Grafana with dashboards and alert rules, for evaluation: one Pod.
+#   kubectl -n kubedojo port-forward svc/kubedojo-lgtm 3000
+lgtm:
+  enabled: true
+  retention: 168h
+  persistence: {enabled: true, size: 10Gi}

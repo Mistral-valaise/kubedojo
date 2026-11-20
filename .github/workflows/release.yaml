@@ -53,7 +53,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: K8S_VERSION=${{ env.K8S_VERSION }}
-          tags: ${{ env.REGISTRY }}/kubedojo-node:${{ env.K8S_VERSION }}
+          # The second tag never moves: a sandbox host image, and with it a
+          # release, always gets the node image it was built and tested with.
+          tags: |
+            ${{ env.REGISTRY }}/kubedojo-node:${{ env.K8S_VERSION }}
+            ${{ env.REGISTRY }}/kubedojo-node:${{ env.K8S_VERSION }}-${{ github.ref_name }}
       - name: Terminal image
         uses: docker/build-push-action@v7
         with:
@@ -61,7 +65,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: K8S_VERSION=${{ env.K8S_VERSION }}
-          tags: ${{ env.REGISTRY }}/kubedojo-terminal:${{ env.K8S_VERSION }}
+          tags: |
+            ${{ env.REGISTRY }}/kubedojo-terminal:${{ env.K8S_VERSION }}
+            ${{ env.REGISTRY }}/kubedojo-terminal:${{ env.K8S_VERSION }}-${{ github.ref_name }}
       # The tag names the Debian release; the image knows no Kubernetes version.
       - name: Linux image
         uses: docker/build-push-action@v7
@@ -69,20 +75,43 @@ jobs:
           context: images/linux
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ env.REGISTRY }}/kubedojo-linux:trixie
+          tags: |
+            ${{ env.REGISTRY }}/kubedojo-linux:trixie
+            ${{ env.REGISTRY }}/kubedojo-linux:trixie-${{ github.ref_name }}
       # The sandbox host carries the node, terminal and linux images as tarballs.
       # It is built for amd64 only; build it yourself with `make sandbox-host`
       # for arm64 sandbox nodes.
       - name: Sandbox host image (amd64)
         run: |
-          docker pull --platform linux/amd64 $REGISTRY/kubedojo-node:$K8S_VERSION
-          docker pull --platform linux/amd64 $REGISTRY/kubedojo-terminal:$K8S_VERSION
-          docker pull --platform linux/amd64 $REGISTRY/kubedojo-linux:trixie
-          docker tag $REGISTRY/kubedojo-node:$K8S_VERSION kubedojo/node:$K8S_VERSION
-          docker tag $REGISTRY/kubedojo-terminal:$K8S_VERSION kubedojo/terminal:$K8S_VERSION
-          docker tag $REGISTRY/kubedojo-linux:trixie kubedojo/linux:trixie
+          # By the tags of this release, which nothing overwrites.
+          docker pull --platform linux/amd64 $REGISTRY/kubedojo-node:$K8S_VERSION-${{ github.ref_name }}
+          docker pull --platform linux/amd64 $REGISTRY/kubedojo-terminal:$K8S_VERSION-${{ github.ref_name }}
+          docker pull --platform linux/amd64 $REGISTRY/kubedojo-linux:trixie-${{ github.ref_name }}
+          docker tag $REGISTRY/kubedojo-node:$K8S_VERSION-${{ github.ref_name }} kubedojo/node:$K8S_VERSION
+          docker tag $REGISTRY/kubedojo-terminal:$K8S_VERSION-${{ github.ref_name }} kubedojo/terminal:$K8S_VERSION
+          docker tag $REGISTRY/kubedojo-linux:trixie-${{ github.ref_name }} kubedojo/linux:trixie
           docker save -o images/sandbox-host/node.tar kubedojo/node:$K8S_VERSION
           docker save -o images/sandbox-host/terminal.tar kubedojo/terminal:$K8S_VERSION
           docker save -o images/sandbox-host/linux.tar kubedojo/linux:trixie
           docker build --platform linux/amd64 -t $REGISTRY/kubedojo-sandbox-host:${{ github.ref_name }} images/sandbox-host
           docker push $REGISTRY/kubedojo-sandbox-host:${{ github.ref_name }}
+
+  # The chart, as an OCI artifact next to the images it installs:
+  #   helm install kubedojo oci://ghcr.io/mistral-valaise/charts/kubedojo --version <x.y.z>
+  # Its version and appVersion are the tag, so that a chart always installs
+  # the images of its own release.
+  chart:
+    needs: [images]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
+      - name: Package and push
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          version=${VERSION#v}
+          helm lint deploy/helm/kubedojo
+          helm package deploy/helm/kubedojo --version "$version" --app-version "$version"
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
+          helm push "kubedojo-$version.tgz" oci://ghcr.io/mistral-valaise/charts
