@@ -1,0 +1,60 @@
+title: Make RuntimeDefault the default seccomp profile
+domain: system-hardening
+difficulty: medium
+minutes: 8
+environment: secure
+tags: [seccomp, kubelet, runtimedefault, syscalls]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Containers that do not ask for a seccomp profile run `Unconfined` on this cluster: every system call
+  is available to them. Deployment `reports` in Namespace `sec-avocet` is such a workload.
+
+  1. Configure the kubelet on node `{{worker}}` so that containers without an explicit seccomp profile
+     get the container runtime's default profile (`RuntimeDefault`).
+  2. Make sure the running Pod of Deployment `reports` is confined by it afterwards.
+
+  Do **not** add a seccomp profile to the Deployment itself — the node default must do the work.
+hints:
+  - "The kubelet setting is `seccompDefault: true` in `/var/lib/kubelet/config.yaml` on the node (`ssh {{worker}}`, then `sudo -i`). Restart the kubelet afterwards."
+  - "The setting applies to containers created from then on. A running container keeps what it started with: `kubectl -n sec-avocet rollout restart deployment reports`."
+  - "`kubectl -n sec-avocet exec deploy/reports -- grep Seccomp: /proc/1/status` shows `0` (unconfined) or `2` (filtered)."
+checks:
+  - id: kubelet
+    title: The kubelet on the worker enables seccompDefault
+    type: exec
+    on: worker
+    run: |-
+      grep -E '^seccompDefault:' /var/lib/kubelet/config.yaml | awk '{print $2}' | xargs
+    expect: {equals: "true"}
+    explain: >-
+      With seccompDefault the kubelet applies RuntimeDefault to every container that does not set a profile. Without it the default is Unconfined, for backwards compatibility.
+  - id: confined
+    title: The running Pod of reports is confined by a seccomp filter
+    type: exec
+    timeout: 120s
+    run: |-
+      kubectl -n sec-avocet rollout status deploy reports --timeout=60s >/dev/null 2>&1
+      kubectl -n sec-avocet exec deploy/reports -- grep Seccomp: /proc/1/status | awk '{print $2}'
+    expect: {equals: "2"}
+    explain: >-
+      Seccomp mode 2 means a filter is attached to the process. The kubelet setting only affects containers started after the change, so the workload has to be restarted.
+  - id: node-default
+    title: The Deployment sets no seccomp profile of its own
+    type: exec
+    run: |-
+      kubectl -n sec-avocet get deploy reports -o json | jq -r '[.spec.template.spec.securityContext.seccompProfile, (.spec.template.spec.containers[].securityContext.seccompProfile)] | map(select(. != null)) | length'
+    expect: {equals: "0"}
+    guard: true
+    explain: >-
+      Setting the profile per workload works, but it leaves every other workload on the node unconfined. The node default covers them all.
+  - id: ready
+    title: The kubelet runs and the node is Ready
+    type: exec
+    run: |-
+      kubectl get node ${KD_HOST}-worker -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+    expect: {equals: "True"}
+    guard: true
+    retry: 60s
+    explain: >-
+      A typo in the kubelet configuration stops the kubelet from starting and the node goes NotReady. `journalctl -u kubelet` shows the parse error.

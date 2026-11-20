@@ -17,6 +17,7 @@ internal/webui/dist/*
 *.db-wal
 .kubedojo/
 .env
+.claude/
 .DS_Store
 images/sandbox-host/*.tar
 /node_modules/

@@ -97,7 +97,7 @@ func (t *Tutor) Explain(ctx context.Context, q *catalog.Question, task string, r
 			case 429:
 				return "", errors.New("the Anthropic API rate limit was reached, try again in a moment")
 			}
-			return "", fmt.Errorf("Anthropic API error (HTTP %d)", apiErr.StatusCode)
+			return "", fmt.Errorf("the Anthropic API answered with HTTP %d", apiErr.StatusCode)
 		}
 		return "", err
 	}
