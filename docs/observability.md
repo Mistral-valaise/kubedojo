@@ -84,6 +84,10 @@ Names as they appear in Prometheus/Mimir:
 | `kubedojo_question_rating` | histogram | `track`, `question` | learner ratings, 1–5 stars (`_sum / _count` is the average) |
 | `kubedojo_exams_finished_total` | counter | `track`, `result` | finished exam simulations |
 | `kubedojo_exam_score_percent` | histogram | `track` | exam results |
+| `kubedojo_sandbox_containers` | gauge | `role` | local only: running sandbox containers |
+| `kubedojo_sandbox_memory_usage_bytes` | gauge | `role` | local only: memory the sandbox containers use |
+| `kubedojo_sandbox_cpu_usage` | gauge | `role` | local only: CPU cores the sandbox containers use |
+| `kubedojo_docker_memory_limit_bytes` | gauge | | local only: memory Docker has |
 | `http_server_request_duration_seconds` | histogram | `http_route`, `http_request_method`, `http_response_status_code` | API latency (OTel HTTP semantic conventions) |
 
 The `question` label has one value per question (212 today). No metric carries user or session ids.
@@ -127,13 +131,32 @@ labels: they exist on spans and log lines only.
 In [`deploy/helm/kubedojo/dashboards`](../deploy/helm/kubedojo/dashboards), installed by the chart as
 ConfigMaps labelled `grafana_dashboard: "1"` for the Grafana sidecar:
 
-| Dashboard | Answers |
-|---|---|
-| **Platform health** | Is it up, fast and error free? Request rate, errors, latency, slow routes, warning and error logs |
-| **Sessions & sandboxes** | Do we have capacity? Active sessions, start times and failures, memory and CPU per sandbox Pod |
-| **Learning analytics** | What do people practise and where do they struggle? Pass rates, hardest and lowest rated questions, exam results |
+| Dashboard | Answers | Where |
+|---|---|---|
+| **Platform health** | Is it up, fast and error free? Request rate, errors, latency with exemplars, slow routes, recent traces, warning and error logs | everywhere |
+| **Sessions & sandboxes** | Do we have capacity? Active sessions, sandbox starts and failures, time to a ready sandbox with exemplars | everywhere |
+| **Learning analytics** | What do people practise and where do they struggle? Pass rates, share of points, hardest and lowest rated questions, exam results | everywhere |
+| **Sandbox containers** | What do the sandboxes of a local kubedojo use? Memory and CPU of the kind nodes, the terminal and the Linux hosts, against the memory Docker has | `kubedojo up --observability` |
+| **Telemetry pipeline** | Is telemetry arriving? What the collector receives, hands on, refuses and queues | `kubedojo up --observability`, `lgtm.enabled` |
+| **Sandbox Pods** | What do the sandbox Pods of hosted mode use? Memory, CPU, phases, restarts | the chart's ConfigMaps |
 
-The sandbox Pod panels need cAdvisor and kube-state-metrics in the same data source.
+A dashboard is only installed where its data exists, so none of them shows empty panels for metrics
+that cannot be there. The directory says which: `dashboards/` works with kubedojo's own telemetry,
+`dashboards/local/` with a local Docker, `dashboards/lgtm/` with the single-container stack, and
+`dashboards/kubernetes/` needs kubelet/cAdvisor and kube-state-metrics in the same data source.
+
+Sandbox containers are measured by kubedojo itself: every 30 seconds it asks Docker for the memory
+and CPU of the containers that run its images. The metrics carry the kind of container (`role`:
+`node`, `terminal`, `linux`), never a session. There is no disk metric.
+
+### Changing a dashboard
+
+`make lint-dashboards` checks every query without a Grafana: it must parse as PromQL, and it may only
+use metrics listed in
+[`observability/metrics.json`](../deploy/helm/kubedojo/observability/metrics.json) for the place the
+dashboard is installed. The kubedojo part of that file is generated from the instruments
+(`UPDATE_CATALOG=1 go test ./internal/telemetry/`), so a renamed metric fails the build until its
+dashboards follow. LogQL and TraceQL are not parsed; they are run against the real stack.
 
 ## Alerts
 

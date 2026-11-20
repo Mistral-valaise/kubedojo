@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -146,9 +147,13 @@ type file struct {
 // files returns what is mounted: the dashboards as one directory, and each
 // provisioning file on its own.
 func (s *Stack) files() (dash []file, prov []file, err error) {
-	names, err := fs.Glob(dashboards.FS, "*.json")
-	if err != nil {
-		return nil, nil, err
+	var names []string
+	for _, pattern := range dashboards.Local {
+		m, err := fs.Glob(dashboards.FS, pattern)
+		if err != nil {
+			return nil, nil, err
+		}
+		names = append(names, m...)
 	}
 	sort.Strings(names)
 	for _, n := range names {
@@ -156,7 +161,8 @@ func (s *Stack) files() (dash []file, prov []file, err error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		dash = append(dash, file{rel: filepath.Join("dashboards", n), data: b})
+		// One flat directory: Grafana's provider puts them all in one folder.
+		dash = append(dash, file{rel: filepath.Join("dashboards", path.Base(n)), data: b})
 	}
 	prov = []file{
 		{rel: "kubedojo.yaml", target: provisioning.DashboardProviderPath, data: provisioning.DashboardProvider},

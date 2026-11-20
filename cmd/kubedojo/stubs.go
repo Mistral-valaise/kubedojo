@@ -6,9 +6,13 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/Mistral-valaise/kubedojo/internal/checker"
+	"github.com/Mistral-valaise/kubedojo/internal/dockerhost"
 	"github.com/Mistral-valaise/kubedojo/internal/k8shost"
+	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 	"github.com/Mistral-valaise/kubedojo/internal/session"
 	"github.com/Mistral-valaise/kubedojo/internal/telemetry"
 )
@@ -58,4 +62,47 @@ func hostProvider(ctx context.Context, kind string, log *slog.Logger) (session.H
 		return p, nil
 	}
 	return nil, fmt.Errorf("unknown sandbox host %q (use local or kubernetes)", kind)
+}
+
+// sampleSandboxes measures the sandbox containers of a local kubedojo every
+// 30 seconds until ctx ends, and returns a function that reports the last
+// measurement. Measuring takes `docker stats` about two seconds, too long for
+// the callback of a metric.
+func sampleSandboxes(ctx context.Context, drv *sandbox.Kind, log *slog.Logger) func() (map[string]telemetry.SandboxUsage, int64) {
+	var mu sync.Mutex
+	last, total := map[string]telemetry.SandboxUsage{}, int64(0)
+	measure := func() {
+		mctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		usage, mem, err := drv.Usage(mctx, dockerhost.Local())
+		if err != nil {
+			if ctx.Err() == nil {
+				log.Debug("sandbox usage", "err", err)
+			}
+			return
+		}
+		next := map[string]telemetry.SandboxUsage{}
+		for role, u := range usage {
+			next[role] = telemetry.SandboxUsage{Containers: u.Containers, MemoryBytes: u.MemoryBytes, CPU: u.CPU}
+		}
+		mu.Lock()
+		last, total = next, mem
+		mu.Unlock()
+	}
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for measure(); ; measure() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
+	return func() (map[string]telemetry.SandboxUsage, int64) {
+		mu.Lock()
+		defer mu.Unlock()
+		return last, total
+	}
 }

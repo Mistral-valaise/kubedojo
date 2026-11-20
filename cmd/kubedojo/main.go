@@ -268,6 +268,9 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 	defer mgr.Close()
 	mgr.SetMaxTerminals(*maxTerminals)
 	tel.ObserveSessions(mgr.ActiveCount)
+	if tel.Enabled && *hosts == "local" {
+		tel.ObserveSandboxes(sampleSandboxes(ctx, drv, log))
+	}
 
 	srv := &api.Server{Catalog: cat, Sessions: mgr, Store: st, UI: webui.FS(), Log: log, Version: version,
 		UserHeader: *userHeader, OnTerminal: tel.Terminal, OnRating: tel.Rated, Tutor: newTutor(log)}

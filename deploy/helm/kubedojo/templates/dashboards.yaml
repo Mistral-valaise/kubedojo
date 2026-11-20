@@ -1,5 +1,6 @@
 {{- if .Values.dashboards.enabled }}
-{{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+{{- /* kubedojo's own dashboards, and those that read Kubernetes metrics. */}}
+{{- range $path, $_ := .Files.Glob "dashboards/{*,kubernetes/*}.json" }}
 ---
 apiVersion: v1
 kind: ConfigMap

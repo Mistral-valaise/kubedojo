@@ -82,7 +82,8 @@
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -137,7 +138,8 @@
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -193,7 +195,8 @@
               }
             ]
           },
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -253,7 +256,8 @@
               }
             ]
           },
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -342,8 +346,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (mode, result) (increase(kubedojo_sandbox_provision_duration_seconds_count[$__interval]))",
-          "legendFormat": "{{mode}} \u00b7 {{result}}",
+          "expr": "sum by (mode, result) (increase(kubedojo_sandbox_provision_duration_seconds_count[$__rate_interval]))",
+          "legendFormat": "{{mode}} · {{result}}",
           "refId": "A"
         }
       ],
@@ -378,7 +382,7 @@
       "id": 7,
       "type": "timeseries",
       "title": "Time to a ready sandbox",
-      "description": "",
+      "description": "The dots are exemplars: single sandbox starts. Click one to open its trace and see where the time went.",
       "gridPos": {
         "x": 0,
         "y": 12,
@@ -397,7 +401,8 @@
           },
           "expr": "histogram_quantile(0.5, sum by (le, mode) (rate(kubedojo_sandbox_provision_duration_seconds_bucket{result=\"ok\"}[1h])))",
           "legendFormat": "p50 {{mode}}",
-          "refId": "A"
+          "refId": "A",
+          "exemplar": true
         },
         {
           "datasource": {
@@ -406,7 +411,8 @@
           },
           "expr": "histogram_quantile(0.95, sum by (le, mode) (rate(kubedojo_sandbox_provision_duration_seconds_bucket{result=\"ok\"}[1h])))",
           "legendFormat": "p95 {{mode}}",
-          "refId": "B"
+          "refId": "B",
+          "exemplar": true
         }
       ],
       "fieldConfig": {
@@ -482,231 +488,6 @@
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": false
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
-    },
-    {
-      "id": 9,
-      "type": "row",
-      "title": "Sandbox Pods (needs kubelet/cAdvisor and kube-state-metrics in the same data source)",
-      "gridPos": {
-        "x": 0,
-        "y": 20,
-        "w": 24,
-        "h": 1
-      },
-      "collapsed": false,
-      "panels": []
-    },
-    {
-      "id": 10,
-      "type": "timeseries",
-      "title": "Memory per sandbox Pod",
-      "description": "",
-      "gridPos": {
-        "x": 0,
-        "y": 21,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (pod) (container_memory_working_set_bytes{pod=~\"kd-sandbox-.*\", container!=\"\"})",
-          "legendFormat": "{{pod}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 12,
-            "showPoints": "never",
-            "stacking": {
-              "mode": "none"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
-    },
-    {
-      "id": 11,
-      "type": "timeseries",
-      "title": "CPU per sandbox Pod",
-      "description": "",
-      "gridPos": {
-        "x": 12,
-        "y": 21,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{pod=~\"kd-sandbox-.*\", container!=\"\"}[$__rate_interval]))",
-          "legendFormat": "{{pod}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "cores",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 12,
-            "showPoints": "never",
-            "stacking": {
-              "mode": "none"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
-    },
-    {
-      "id": 12,
-      "type": "timeseries",
-      "title": "Sandbox Pods by phase",
-      "description": "",
-      "gridPos": {
-        "x": 0,
-        "y": 29,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (phase) (kube_pod_status_phase{pod=~\"kd-sandbox-.*\"} == 1)",
-          "legendFormat": "{{phase}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 35,
-            "showPoints": "never",
-            "stacking": {
-              "mode": "normal"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
-    },
-    {
-      "id": 13,
-      "type": "timeseries",
-      "title": "Sandbox Pod restarts",
-      "description": "",
-      "gridPos": {
-        "x": 12,
-        "y": 29,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{pod=~\"kd-sandbox-.*\"}[$__interval]))",
-          "legendFormat": "{{pod}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 12,
-            "showPoints": "never",
-            "stacking": {
-              "mode": "none"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
         },
         "tooltip": {
           "mode": "multi",

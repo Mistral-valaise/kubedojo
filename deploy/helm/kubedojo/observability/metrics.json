@@ -1,0 +1,140 @@
+{
+  "comment": "Metrics that dashboards and alert rules may query. tools/obslint checks every query against this file. 'kubedojo' is generated from the instruments: UPDATE_CATALOG=1 go test ./internal/telemetry/",
+  "kubedojo": [
+    {
+      "name": "kubedojo_check_runs_total",
+      "type": "counter",
+      "labels": [
+        "mode",
+        "question",
+        "result",
+        "track"
+      ]
+    },
+    {
+      "name": "kubedojo_docker_memory_limit_bytes",
+      "type": "gauge",
+      "labels": []
+    },
+    {
+      "name": "kubedojo_exam_score_percent",
+      "type": "histogram",
+      "labels": [
+        "track"
+      ]
+    },
+    {
+      "name": "kubedojo_exams_finished_total",
+      "type": "counter",
+      "labels": [
+        "result",
+        "track"
+      ]
+    },
+    {
+      "name": "kubedojo_question_rating",
+      "type": "histogram",
+      "labels": [
+        "question",
+        "track"
+      ]
+    },
+    {
+      "name": "kubedojo_question_score_ratio",
+      "type": "histogram",
+      "labels": [
+        "mode",
+        "track"
+      ]
+    },
+    {
+      "name": "kubedojo_sandbox_containers",
+      "type": "gauge",
+      "labels": [
+        "role"
+      ]
+    },
+    {
+      "name": "kubedojo_sandbox_cpu_usage",
+      "type": "gauge",
+      "labels": [
+        "role"
+      ]
+    },
+    {
+      "name": "kubedojo_sandbox_memory_usage_bytes",
+      "type": "gauge",
+      "labels": [
+        "role"
+      ]
+    },
+    {
+      "name": "kubedojo_sandbox_provision_duration_seconds",
+      "type": "histogram",
+      "labels": [
+        "mode",
+        "result",
+        "track"
+      ]
+    },
+    {
+      "name": "kubedojo_sessions_active",
+      "type": "gauge",
+      "labels": [
+        "mode"
+      ]
+    },
+    {
+      "name": "kubedojo_terminal_connections",
+      "type": "gauge",
+      "labels": []
+    }
+  ],
+  "localOnly": [
+    "kubedojo_sandbox_containers",
+    "kubedojo_sandbox_cpu_usage",
+    "kubedojo_sandbox_memory_usage_bytes",
+    "kubedojo_docker_memory_limit_bytes"
+  ],
+  "external": [
+    {
+      "name": "http_server_request_duration_seconds",
+      "type": "histogram",
+      "where": [
+        "shared",
+        "local",
+        "lgtm",
+        "kubernetes"
+      ],
+      "source": "otelhttp, the HTTP instrumentation of the API"
+    },
+    {
+      "prefix": "otelcol_",
+      "where": [
+        "lgtm"
+      ],
+      "source": "the OpenTelemetry Collector inside grafana/otel-lgtm"
+    },
+    {
+      "prefix": "traces_",
+      "where": [
+        "lgtm"
+      ],
+      "source": "Tempo's metrics generator inside grafana/otel-lgtm"
+    },
+    {
+      "prefix": "container_",
+      "where": [
+        "kubernetes"
+      ],
+      "source": "kubelet/cAdvisor"
+    },
+    {
+      "prefix": "kube_pod_",
+      "where": [
+        "kubernetes"
+      ],
+      "source": "kube-state-metrics"
+    }
+  ]
+}

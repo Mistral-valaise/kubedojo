@@ -157,6 +157,43 @@ func (t *Telemetry) ObserveSessions(count func() (practice, exam int)) {
 		}))
 }
 
+// SandboxUsage is what the sandbox containers of one role use together.
+type SandboxUsage struct {
+	Containers  int
+	MemoryBytes int64
+	CPU         float64 // in cores
+}
+
+// ObserveSandboxes registers the gauges of a local kubedojo's sandbox
+// containers. sample returns the last measurement by role (node, terminal,
+// linux) and the memory Docker has; it must be cheap, the measuring happens
+// elsewhere. In hosted mode sandboxes are Pods and their numbers come from
+// the cluster, so these gauges are not registered there.
+func (t *Telemetry) ObserveSandboxes(sample func() (byRole map[string]SandboxUsage, dockerMemory int64)) {
+	containers, _ := t.meter.Int64ObservableGauge("kubedojo.sandbox.containers",
+		metric.WithDescription("Running sandbox containers of a local kubedojo, by role."))
+	memory, _ := t.meter.Int64ObservableGauge("kubedojo.sandbox.memory.usage", metric.WithUnit("By"),
+		metric.WithDescription("Memory used by the sandbox containers of a local kubedojo, by role."))
+	cpu, _ := t.meter.Float64ObservableGauge("kubedojo.sandbox.cpu.usage", metric.WithUnit("{cpu}"),
+		metric.WithDescription("CPU cores used by the sandbox containers of a local kubedojo, by role."))
+	limit, _ := t.meter.Int64ObservableGauge("kubedojo.docker.memory.limit", metric.WithUnit("By"),
+		metric.WithDescription("Memory Docker has: the machine's, or the VM's with Docker Desktop."))
+	_, _ = t.meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+		byRole, total := sample()
+		// Every role every time: a series that stops is a gap, not a zero.
+		for _, role := range []string{"node", "terminal", "linux"} {
+			u, a := byRole[role], metric.WithAttributes(attribute.String("role", role))
+			o.ObserveInt64(containers, int64(u.Containers), a)
+			o.ObserveInt64(memory, u.MemoryBytes, a)
+			o.ObserveFloat64(cpu, u.CPU, a)
+		}
+		if total > 0 {
+			o.ObserveInt64(limit, total)
+		}
+		return nil
+	}, containers, memory, cpu, limit)
+}
+
 func result(err error) string {
 	if err != nil {
 		return "error"

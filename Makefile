@@ -3,7 +3,7 @@ LINUX_IMAGE ?= kubedojo/linux:trixie
 VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS     := -s -w -X main.version=$(VERSION)
 
-.PHONY: all build go web images server-image sandbox-host test e2e lint content-test dev clean
+.PHONY: all build go web images server-image sandbox-host test e2e lint lint-dashboards content-test dev clean
 
 all: build
 
@@ -39,6 +39,9 @@ e2e: ## browser tests of the terminal keyboard (downloads Chromium once)
 
 lint: go ## validate the content
 	./bin/kubedojo content lint
+
+lint-dashboards: ## check the queries of the Grafana dashboards against the metrics kubedojo exports
+	cd tools/obslint && go test -count=1 ./...
 
 content-test: go ## prove every question against a real cluster
 	./bin/kubedojo content test
