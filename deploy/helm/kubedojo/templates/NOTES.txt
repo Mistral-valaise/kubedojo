@@ -26,3 +26,8 @@ kubedojo is installed.
   Grafana (evaluation stack):
     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "kubedojo.name" . }}-lgtm 3000:3000
 {{- end }}
+
+Prove that a sandbox works here (it starts one, creates a cluster in it and
+removes it again; about a minute):
+
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kubedojo.name" . }} -c kubedojo -- kubedojo doctor --hosted --cluster

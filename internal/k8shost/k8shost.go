@@ -56,6 +56,10 @@ type Config struct {
 
 const sessionLabel = "kubedojo.dev/session"
 
+// ProbePrefix starts the session ID of a sandbox that `kubedojo doctor
+// --hosted` creates to prove that sandboxes work.
+const ProbePrefix = "probe"
+
 type Provider struct {
 	cfg    Config
 	api    string
@@ -413,7 +417,13 @@ func (p *Provider) Reconcile(ctx context.Context, live func(sessionID string) bo
 	var removed []string
 	for _, pod := range list.Items {
 		id := pod.Metadata.Labels[sessionLabel]
-		if id == "" || live(id) || time.Since(pod.Metadata.CreationTimestamp) < p.orphanAge {
+		age := time.Since(pod.Metadata.CreationTimestamp)
+		if id == "" || live(id) || age < p.orphanAge {
+			continue
+		}
+		// The probe of `kubedojo doctor --hosted` is no session of the
+		// server. It removes its Pod itself; only a forgotten one is cleaned up.
+		if strings.HasPrefix(id, ProbePrefix) && age < 30*time.Minute {
 			continue
 		}
 		if err := p.delete(ctx, pod.Metadata.Name); err != nil {
