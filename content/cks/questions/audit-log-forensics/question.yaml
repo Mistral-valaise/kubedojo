@@ -1,0 +1,46 @@
+title: Reconstruct an incident from the audit log
+domain: runtime-security
+difficulty: hard
+minutes: 10
+environment: base
+tags: [audit, forensics, jq, incident]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  Last night the Secret `db-credentials` disappeared from Namespace `payments` of a production
+  cluster. The API server's audit log of that night was copied to `/opt/course/forensics/audit.log`
+  (one JSON event per line).
+
+  Answer three questions, each in its own file:
+
+  1. Which identity **successfully** deleted the Secret? Write the full user name to
+     `/opt/course/forensics/user`.
+  2. From which source IP did that request come? Write it to `/opt/course/forensics/source-ip`.
+  3. Before deleting the Secret, the same identity gave itself more permissions. Write the name of
+     the ClusterRoleBinding it created to `/opt/course/forensics/binding`.
+hints:
+  - "`jq -c 'select(.objectRef.resource==\"secrets\" and .objectRef.name==\"db-credentials\")' audit.log` shows every event about the Secret. Look at `verb` and `responseStatus.code`."
+  - "A denied request is in the log too (code 403). Only a 2xx answer changed anything. Each request is logged per stage; `ResponseComplete` carries the status."
+  - "Then follow the identity: `jq -c 'select(.user.username==\"<name>\") | [.requestReceivedTimestamp, .verb, .objectRef.resource, .objectRef.name, .responseStatus.code]' audit.log`."
+checks:
+  - id: user
+    title: The identity that deleted the Secret
+    type: file
+    path: /opt/course/forensics/user
+    expect: {equals: "system:serviceaccount:ci:deploy-bot"}
+    explain: >-
+      Two identities sent a delete request. The one of user dana was answered with 403 and changed nothing; the ServiceAccount's request returned 200. Always read the response code, not only the verb.
+  - id: source-ip
+    title: The source IP of the delete request
+    type: file
+    path: /opt/course/forensics/source-ip
+    expect: {equals: "10.244.2.91"}
+    explain: >-
+      sourceIPs tells where a request entered. A ServiceAccount token used from an address outside the Pod network of its workload is a sign that the token was stolen.
+  - id: binding
+    title: The ClusterRoleBinding the attacker created
+    type: file
+    path: /opt/course/forensics/binding
+    expect: {equals: "ci-maintenance"}
+    explain: >-
+      The usual order of an attack: gain a foothold, escalate privileges, then act. The create of a ClusterRoleBinding minutes before the delete is the escalation — and it is still in the cluster after the incident.

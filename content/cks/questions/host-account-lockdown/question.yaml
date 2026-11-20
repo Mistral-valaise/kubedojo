@@ -1,0 +1,66 @@
+title: Reduce privileges of host accounts
+domain: system-hardening
+difficulty: medium
+minutes: 8
+environment: secure
+tags: [sudo, users, least-privilege, node]
+task: |
+  Solve this question on: `ssh {{worker}}`
+
+  A review of the local accounts on node `{{worker}}` produced two findings:
+
+  1. `svc-backup` is a service account for the backup agent. It may run **any** command as root
+     without a password. It only ever needs to restart the kubelet. Restrict it so that the one command
+     it may run with `sudo` (as root, without a password) is exactly:
+
+     `/usr/bin/systemctl restart kubelet`
+
+  2. `jmiller` left the company. The account must not be usable any more: lock its password, set its
+     login shell to `/usr/sbin/nologin` and remove its SSH `authorized_keys`. Keep the account and its
+     home directory — files are still owned by it.
+hints:
+  - "Sudo rules live in `/etc/sudoers.d/`. Edit with `visudo -f /etc/sudoers.d/svc-backup`; it refuses to save a broken file. `sudo -l -U svc-backup` shows the result."
+  - "A rule has the form `user host=(runas) NOPASSWD: /full/path/to/command args`."
+  - "`usermod -L jmiller` locks the password, `usermod -s /usr/sbin/nologin jmiller` changes the shell. `passwd -S jmiller` shows `L` for a locked account."
+checks:
+  - id: sudo-rule
+    title: svc-backup may only restart the kubelet
+    type: exec
+    on: worker
+    run: |-
+      id svc-backup >/dev/null || exit 1
+      sudo -l -U svc-backup | sed -n '/may run the following commands/,$p' | tail -n +2 | sed 's/^ *//' | grep -v '^$'
+    expect: {matches: '^\((root|ALL)( : ALL)?\) NOPASSWD: /usr/bin/systemctl restart kubelet$'}
+    explain: >-
+      "NOPASSWD: ALL" makes the account equivalent to root: whoever compromises the backup agent owns the node. Listing the full command with its arguments leaves nothing to choose.
+  - id: sudo-denied
+    title: svc-backup cannot run other commands as root
+    type: exec
+    on: worker
+    run: |-
+      id svc-backup >/dev/null || exit 1
+      visudo -c >/dev/null 2>&1 || { echo "the sudoers configuration is broken (visudo -c)" >&2; exit 1; }
+      a=$(su -s /bin/sh svc-backup -c 'sudo -n /usr/bin/id -u' 2>/dev/null); b=$(su -s /bin/sh svc-backup -c 'sudo -n /usr/bin/systemctl stop kubelet --dry-run' >/dev/null 2>&1 && echo allowed || echo denied)
+      echo "id=[$a] stop=$b"
+    expect: {equals: "id=[] stop=denied"}
+    explain: >-
+      The rule has to match command and arguments. "/usr/bin/systemctl" without arguments would allow every systemctl subcommand — including starting a shell through an editor or a pager.
+  - id: locked
+    title: The account jmiller is locked and has no login shell
+    type: exec
+    on: worker
+    run: |-
+      echo "$(passwd -S jmiller | awk '{print $2}') $(getent passwd jmiller | cut -d: -f7)"
+    expect: {oneOf: ["L /usr/sbin/nologin", "L /sbin/nologin"]}
+    explain: >-
+      A locked password alone still allows logins with an SSH key; a nologin shell alone still allows a password to be used with other services. Do both.
+  - id: keys
+    title: jmiller has no authorized SSH keys
+    type: exec
+    on: worker
+    run: |-
+      [ -d /home/jmiller ] || { echo "the home directory /home/jmiller is gone" >&2; exit 1; }
+      [ -s /home/jmiller/.ssh/authorized_keys ] && echo present || echo none
+    expect: {equals: none}
+    explain: >-
+      SSH keys do not expire and are not affected by a locked password. They are the usual way a former employee keeps access.
