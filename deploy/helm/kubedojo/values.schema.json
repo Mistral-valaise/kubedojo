@@ -1,0 +1,364 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "kubedojo chart values",
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "object",
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string"
+        },
+        "pullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    "maxSessions": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "description": "Sessions that may own a sandbox at the same time. Each reserves sandbox.resources on a node."
+    },
+    "maxTerminals": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16
+    },
+    "idleTTL": {
+      "type": [
+        "string",
+        "integer"
+      ],
+      "pattern": "^(0|([0-9]+(\\.[0-9]+)?(s|m|h))+)$",
+      "description": "A duration such as 3h or 90m; 0 keeps idle sandboxes forever."
+    },
+    "resources": {
+      "type": "object"
+    },
+    "persistence": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "size": {
+          "type": "string",
+          "pattern": "^[0-9]+(\\.[0-9]+)?(m|k|M|G|T|Ki|Mi|Gi|Ti)?$",
+          "description": "A Kubernetes quantity such as 500m, 2, 3Gi or 10G."
+        },
+        "storageClass": {
+          "type": "string"
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "ClusterIP",
+            "NodePort",
+            "LoadBalancer"
+          ]
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "className": {
+          "type": "string"
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "host": {
+          "type": "string"
+        },
+        "tls": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "secretName": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "sandbox": {
+      "type": "object",
+      "properties": {
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string"
+            }
+          }
+        },
+        "kubernetesVersion": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "nodeImage": {
+          "type": "string"
+        },
+        "terminalImage": {
+          "type": "string"
+        },
+        "linuxImage": {
+          "type": "string"
+        },
+        "resources": {
+          "type": "object",
+          "properties": {
+            "cpuRequest": {
+              "type": [
+                "string",
+                "integer",
+                "number"
+              ],
+              "pattern": "^[0-9]+(\\.[0-9]+)?m?$",
+              "description": "CPU cores such as 500m, 1 or \"2\"."
+            },
+            "cpuLimit": {
+              "type": [
+                "string",
+                "integer",
+                "number"
+              ],
+              "pattern": "^([0-9]+(\\.[0-9]+)?m?)?$",
+              "description": "CPU cores, or empty for no limit."
+            },
+            "memoryRequest": {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(m|k|M|G|T|Ki|Mi|Gi|Ti)?$",
+              "description": "A Kubernetes quantity such as 500m, 2, 3Gi or 10G."
+            },
+            "memoryLimit": {
+              "type": "string",
+              "pattern": "^([0-9]+(\\.[0-9]+)?(m|k|M|G|T|Ki|Mi|Gi|Ti)?)?$",
+              "description": "A Kubernetes quantity, or empty for no limit."
+            },
+            "ephemeralStorageRequest": {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(m|k|M|G|T|Ki|Mi|Gi|Ti)?$",
+              "description": "A Kubernetes quantity such as 500m, 2, 3Gi or 10G."
+            },
+            "ephemeralStorageLimit": {
+              "type": "string",
+              "pattern": "^([0-9]+(\\.[0-9]+)?(m|k|M|G|T|Ki|Mi|Gi|Ti)?)?$",
+              "description": "A Kubernetes quantity, or empty for no limit."
+            }
+          },
+          "required": [
+            "cpuRequest",
+            "memoryRequest",
+            "ephemeralStorageRequest"
+          ],
+          "additionalProperties": false,
+          "description": "What one sandbox Pod requests and may use. The server checks request <= limit and the bounds at start."
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "tolerationKey": {
+          "type": "string"
+        },
+        "registryMirror": {
+          "type": "string"
+        },
+        "networkPolicy": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "registryCache": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string",
+          "minLength": 1
+        },
+        "persistence": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "size": {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(m|k|M|G|T|Ki|Mi|Gi|Ti)?$",
+              "description": "A Kubernetes quantity such as 500m, 2, 3Gi or 10G."
+            },
+            "storageClass": {
+              "type": "string"
+            }
+          }
+        },
+        "resources": {
+          "type": "object"
+        }
+      }
+    },
+    "oidc": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "issuerURL": {
+          "type": "string"
+        },
+        "clientID": {
+          "type": "string"
+        },
+        "existingSecret": {
+          "type": "string"
+        },
+        "emailDomains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "image": {
+          "type": "string",
+          "minLength": 1
+        },
+        "extraArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "tutor": {
+      "type": "object",
+      "properties": {
+        "existingSecret": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "properties": {
+        "otlpEndpoint": {
+          "type": "string"
+        },
+        "resourceAttributes": {
+          "type": "object"
+        }
+      }
+    },
+    "dashboards": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "label": {
+          "type": "string"
+        },
+        "labelValue": {
+          "type": "string"
+        },
+        "folderAnnotation": {
+          "type": "string"
+        },
+        "folder": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        }
+      }
+    },
+    "alerts": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "lgtm": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resources": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

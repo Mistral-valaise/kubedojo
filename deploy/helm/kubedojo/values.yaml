@@ -47,10 +47,20 @@ sandbox:
   nodeImage: ""      # defaults to kubedojo/node:<kubernetesVersion> (preloaded in the sandbox host image)
   terminalImage: ""  # defaults to kubedojo/terminal:<kubernetesVersion>
   linuxImage: ""     # host of tracks without a cluster; defaults to kubedojo/linux:trixie (preloaded as well)
+  # What one sandbox gets. Requests are reserved on the node: maxSessions
+  # times the requests must fit, or sandboxes stay Pending. Limits are what one
+  # sandbox may use at most; an empty limit is no limit. A sandbox with one
+  # cluster uses 2-3 GB of memory, a full exam with two clusters 3-5 GB.
+  # Sizing examples: docs/deployment.md.
   resources:
     cpuRequest: "1"
+    cpuLimit: "4"
     memoryRequest: 3Gi
     memoryLimit: 8Gi
+    # The node's disk: images and the clusters' filesystems. A sandbox above
+    # the limit is evicted, which ends that session.
+    ephemeralStorageRequest: 10Gi
+    ephemeralStorageLimit: 30Gi
   # Schedule sandbox Pods onto a dedicated pool, e.g. {kubedojo.dev/pool: sandbox}
   nodeSelector: {}
   # Taint key that pool carries with effect NoSchedule, e.g. kubedojo.dev/sandbox

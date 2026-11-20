@@ -32,6 +32,15 @@ func telemetryHooks(t *telemetry.Telemetry) session.Hooks {
 	}
 }
 
+// envOrEmpty is env for a setting whose empty value means something: a limit
+// that is set to nothing is no limit, a limit that is not set is the default.
+func envOrEmpty(key, def string) string {
+	if v, ok := os.LookupEnv(key); ok {
+		return v
+	}
+	return def
+}
+
 // hostProvider selects where sandboxes run.
 func hostProvider(ctx context.Context, kind string, log *slog.Logger) (session.HostProvider, error) {
 	switch kind {
@@ -46,19 +55,24 @@ func hostProvider(ctx context.Context, kind string, log *slog.Logger) (session.H
 		}
 		image := env("KUBEDOJO_SANDBOX_IMAGE", "ghcr.io/mistral-valaise/kubedojo-sandbox-host:v"+strings.TrimPrefix(version, "v"))
 		p, err := k8shost.New(k8shost.Config{
-			Namespace:    os.Getenv("KUBEDOJO_SANDBOX_NAMESPACE"),
-			Image:        image,
-			CPURequest:   env("KUBEDOJO_SANDBOX_CPU_REQUEST", "1"),
-			MemRequest:   env("KUBEDOJO_SANDBOX_MEMORY_REQUEST", "3Gi"),
-			MemLimit:     env("KUBEDOJO_SANDBOX_MEMORY_LIMIT", "8Gi"),
-			NodeSelector: sel,
-			Toleration:   os.Getenv("KUBEDOJO_SANDBOX_TOLERATION"),
-			PullSecret:   os.Getenv("KUBEDOJO_SANDBOX_PULL_SECRET"),
+			Namespace: os.Getenv("KUBEDOJO_SANDBOX_NAMESPACE"),
+			Image:     image,
+			// The defaults fit one cluster with room for a second, as an exam
+			// has; see docs/deployment.md for sizing.
+			CPURequest:       env("KUBEDOJO_SANDBOX_CPU_REQUEST", "1"),
+			CPULimit:         envOrEmpty("KUBEDOJO_SANDBOX_CPU_LIMIT", "4"),
+			MemRequest:       env("KUBEDOJO_SANDBOX_MEMORY_REQUEST", "3Gi"),
+			MemLimit:         envOrEmpty("KUBEDOJO_SANDBOX_MEMORY_LIMIT", "8Gi"),
+			EphemeralRequest: env("KUBEDOJO_SANDBOX_EPHEMERAL_REQUEST", "10Gi"),
+			EphemeralLimit:   envOrEmpty("KUBEDOJO_SANDBOX_EPHEMERAL_LIMIT", "30Gi"),
+			NodeSelector:     sel,
+			Toleration:       os.Getenv("KUBEDOJO_SANDBOX_TOLERATION"),
+			PullSecret:       os.Getenv("KUBEDOJO_SANDBOX_PULL_SECRET"),
 		})
 		if err != nil {
 			return nil, err
 		}
-		log.Info("sandboxes run as pods", "image", image)
+		log.Info("sandboxes run as pods", "image", image, "namespace", p.Namespace())
 		return p, nil
 	}
 	return nil, fmt.Errorf("unknown sandbox host %q (use local or kubernetes)", kind)

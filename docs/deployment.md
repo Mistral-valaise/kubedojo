@@ -94,10 +94,50 @@ with `--registry-cache=false`.
 | Exam session | 3–5 GB | two clusters and all task setups |
 | Session start | about 1 min | about 30 s to start the sandbox host and load its images, then about 35 s per cluster |
 
-`sandbox.resources.memoryRequest` (default 3Gi) drives scheduling; `maxSessions` caps concurrency; `maxTerminals` (default 4) caps the terminal tabs one session may have
-open — each is a shell in the sandbox and a WebSocket to the server;
-`idleTTL` (default 3h) removes sandboxes nobody uses. Sandbox Pods use `emptyDir` for Docker's data:
-plan about 10 GB of ephemeral storage per session.
+### What one sandbox gets
+
+| Value | Default | |
+|---|---|---|
+| `sandbox.resources.cpuRequest` / `cpuLimit` | `1` / `4` | CPU cores |
+| `sandbox.resources.memoryRequest` / `memoryLimit` | `3Gi` / `8Gi` | memory |
+| `sandbox.resources.ephemeralStorageRequest` / `ephemeralStorageLimit` | `10Gi` / `30Gi` | the node's disk: Docker's data in an `emptyDir` |
+
+- **Requests are reserved.** The scheduler places a sandbox only on a node that still has the
+  requests free. `maxSessions` times the requests must fit, or sandboxes stay `Pending`.
+- **Limits are per sandbox, not per node.** With the defaults a sandbox reserves 3 Gi and may use
+  8 Gi. Five sandboxes reserve 15 Gi and may together try to use 40 Gi. On a node with less, the
+  kernel kills processes in the sandbox that goes over its limit first, or the kubelet evicts Pods
+  when the node itself runs out. Size for what sessions really use (the table above), not for the
+  requests alone.
+- **A limit that is reached ends the session.** Memory: the cluster inside loses containers.
+  Ephemeral storage: the kubelet evicts the Pod. kubedojo cannot move a sandbox.
+- **An empty limit is no limit.** Requests cannot be empty.
+- The server checks the values at start: a request above its limit, less than 1 Gi of memory or
+  8 Gi of disk (the preloaded images take about 5 GB of it), or more than 64 cores, 256 Gi of
+  memory or 1 Ti of disk stop it with a message. The chart's schema rejects values that are not
+  quantities.
+
+Other settings: `maxSessions` caps how many sessions own a sandbox, `maxTerminals` (default 4) caps
+the terminal tabs of one session (each is a shell in the sandbox and a WebSocket to the server), and
+`idleTTL` (default 3h) removes sandboxes nobody uses.
+
+### How many sessions fit on one node
+
+A single-node k3s host also runs k3s itself, the kubedojo server, the image cache and, if you enable
+it, the evaluation observability stack. These numbers are **estimates from the figures above, not
+measurements**: about 1.5 GB for k3s and the system, 0.5 GB for kubedojo and the cache, 1 GB for
+`lgtm.enabled`, and 4 GB per session as a planning value between practice and exam.
+
+| Host | Memory left for sandboxes | `maxSessions` | `memoryRequest` / `memoryLimit` | Disk for sandboxes |
+|---|---|---|---|---|
+| 16 GB, 4 cores | about 13 GB | 2 | `4Gi` / `6Gi` | 60 GB |
+| 32 GB, 8 cores | about 29 GB | 5 | `4Gi` / `6Gi` | 150 GB |
+| 64 GB, 16 cores | about 61 GB | 10 | `4Gi` / `8Gi` | 300 GB |
+
+The rule behind the table: `maxSessions × memoryLimit` stays below the memory left for sandboxes, so
+that no combination of sessions can exhaust the node. That costs capacity; if your sessions are
+mostly practice, a lower request with the same limit fits more of them and accepts the risk. Disk is
+`maxSessions × ephemeralStorageLimit`, plus 20 GB for the image cache and the system.
 
 Nodes need cgroup v2 and should allow many inotify watches and processes:
 
