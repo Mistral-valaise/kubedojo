@@ -85,7 +85,7 @@ Names as they appear in Prometheus/Mimir:
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `kubedojo_sessions_active` | gauge | `mode` | live sessions; each owns a sandbox |
+| `kubedojo_sessions_active` | gauge | `mode` | live sessions; each owns a sandbox, except in the theory tracks |
 | `kubedojo_terminal_connections` | gauge | | open browser terminals |
 | `kubedojo_sandboxes_active` | gauge | | sessions that own a sandbox; these count against the session limit |
 | `kubedojo_sandboxes_limit` | gauge | | the session limit (`--max-sessions`) |
@@ -101,7 +101,7 @@ Names as they appear in Prometheus/Mimir:
 | `kubedojo_docker_memory_limit_bytes` | gauge | | local only: memory Docker has |
 | `http_server_request_duration_seconds` | histogram | `http_route`, `http_request_method`, `http_response_status_code` | API latency (OTel HTTP semantic conventions) |
 
-The `question` label has one value per question (58 today). No metric carries user or session ids.
+The `question` label has one value per question (212 today). No metric carries user or session ids.
 
 ## Traces and logs
 

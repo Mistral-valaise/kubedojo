@@ -1,0 +1,61 @@
+title: Fix the findings of a manifest review
+domain: supply-chain-security
+difficulty: medium
+minutes: 8
+environment: base
+tags: [static-analysis, manifest, hostpath, privileged, review]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A static analysis of `/opt/course/static/deployment.yaml` — a manifest waiting to be merged —
+  reported four findings:
+
+  | Finding | Requirement |
+  |---|---|
+  | container runs privileged | must not be privileged and must not allow privilege escalation |
+  | Pod shares the node's network namespace | must use the Pod network |
+  | container runtime socket mounted from the node | no `hostPath` volumes at all |
+  | image tag `latest` | use `nginx:1.27-alpine` |
+
+  Fix all four **in the file**. Keep everything else as it is: name, Namespace, labels, replicas, the
+  container port and the `cache` volume. The file must remain a valid Deployment manifest.
+
+  You do not need to apply it to the cluster.
+hints:
+  - "Read the manifest top to bottom: `hostNetwork` is in the Pod spec, `privileged` in the container's `securityContext`, the socket is a volume **and** a volumeMount — remove both."
+  - "\"Must not allow privilege escalation\" is its own field: `allowPrivilegeEscalation: false`. Removing `privileged: true` does not set it."
+  - "Validate without touching the cluster: `kubectl apply --dry-run=client -f /opt/course/static/deployment.yaml`."
+checks:
+  - id: privileged
+    title: The container is not privileged and cannot escalate
+    type: exec
+    run: |-
+      kubectl create --dry-run=client -o json -f /opt/course/static/deployment.yaml 2>/dev/null | jq -r '.spec.template.spec.containers[] | "privileged=\(.securityContext.privileged // false) escalation=\(.securityContext.allowPrivilegeEscalation | if . == null then "unset" else tostring end)"'
+    expect: {equals: "privileged=false escalation=false"}
+    explain: >-
+      A privileged container has every capability and sees all devices of the node: it is root on the node. allowPrivilegeEscalation defaults to true, so it has to be switched off explicitly.
+  - id: host
+    title: The Pod uses no host namespaces and no hostPath volumes
+    type: exec
+    run: |-
+      kubectl create --dry-run=client -o json -f /opt/course/static/deployment.yaml 2>/dev/null | jq -r '.spec.template.spec | "hostNetwork=\(.hostNetwork // false) hostPID=\(.hostPID // false) hostIPC=\(.hostIPC // false) hostPath=\([.volumes[]? | select(.hostPath)] | length) mounts=\([.containers[].volumeMounts[]?.name] | sort | join(","))"'
+    expect: {equals: "hostNetwork=false hostPID=false hostIPC=false hostPath=0 mounts=cache"}
+    explain: >-
+      The container runtime socket is an API to start containers on the node — with any image, any mount, privileged. Mounting it into a Pod hands the node to that Pod. hostNetwork lets the Pod reach services bound to the node's localhost.
+  - id: image
+    title: The image is pinned to nginx:1.27-alpine
+    type: exec
+    run: |-
+      kubectl create --dry-run=client -o json -f /opt/course/static/deployment.yaml 2>/dev/null | jq -r '[.spec.template.spec.containers[].image] | join(" ")'
+    expect: {equals: "nginx:1.27-alpine"}
+    explain: >-
+      latest is whatever was pushed last: two nodes can run different software from the same manifest, and a rollback does not bring the old version back. Pin a version — or better, a digest.
+  - id: intact
+    title: The rest of the manifest is unchanged and valid
+    type: exec
+    guard: true
+    run: |-
+      kubectl create --dry-run=client -o json -f /opt/course/static/deployment.yaml 2>/dev/null | jq -r '"\(.kind) \(.metadata.name) \(.metadata.namespace) \(.metadata.labels.app) replicas=\(.spec.replicas) port=\(.spec.template.spec.containers[0].ports[0].containerPort) cache=\([.spec.template.spec.volumes[]? | select(.name=="cache" and .emptyDir != null)] | length)"'
+    expect: {equals: "Deployment exporter sec-sandpiper exporter replicas=2 port=8080 cache=1"}
+    explain: >-
+      A security fix that also changes names, replicas or ports is a functional change hidden in a hardening commit. Keep the diff to what the findings ask for.
