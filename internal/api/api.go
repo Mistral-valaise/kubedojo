@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
@@ -45,11 +46,34 @@ type Server struct {
 	OnRating func(track, question string, stars int)
 	// OnTerminal is called when a terminal connects (delta +1) or leaves (-1).
 	OnTerminal func(delta int)
+
+	draining atomic.Bool
+}
+
+// Drain makes the server report that it is not ready, so that a load balancer
+// stops sending requests while it shuts down.
+func (s *Server) Drain() { s.draining.Store(true) }
+
+// ready answers a readiness probe: the database answers and the server is not
+// shutting down. /api/health stays a pure liveness check.
+func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
+	if s.draining.Load() {
+		writeErr(w, 503, "shutting down")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.Store.Ping(ctx); err != nil {
+		writeErr(w, 503, "the database does not answer")
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "ready"})
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
+	mux.HandleFunc("GET /api/ready", s.ready)
 	mux.HandleFunc("GET /api/config", s.config)
 	mux.HandleFunc("GET /api/path", s.path)
 	mux.HandleFunc("GET /api/tracks", s.tracks)
@@ -288,13 +312,10 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 	if v == nil {
 		return
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if err := s.Sessions.Destroy(ctx, v.ID); err != nil {
-			s.Log.Error("destroy session", "session", v.ID, "err", err)
-		}
-	}()
+	if err := s.Sessions.DestroyLater(v.ID); err != nil {
+		s.fail(w, err)
+		return
+	}
 	writeJSON(w, 202, map[string]string{"status": "destroying"})
 }
 
@@ -541,7 +562,10 @@ func (s *Server) tutor(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Ask string `json:"ask"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, 400, "invalid JSON")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
 	state := ""

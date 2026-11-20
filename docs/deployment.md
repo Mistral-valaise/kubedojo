@@ -119,6 +119,12 @@ See [`values.yaml`](../deploy/helm/kubedojo/values.yaml) for every option, and
 
 - **Upgrades** restart the server Pod. Running sandboxes survive; sessions resume from the database.
   Open terminals reconnect with one click.
+- **Shutdown.** On SIGTERM the server stops taking requests (`/api/ready` answers 503, `/api/health`
+  stays 200) and waits for running operations: an exam being graded, a cluster being created. After
+  `--shutdown-grace` (`KUBEDOJO_SHUTDOWN_GRACE`, default 25s) it cancels what is left. Such an exam is
+  not graded with failed checks; the session shows "interrupted by a server restart". Set the Pod's
+  `terminationGracePeriodSeconds` a little above the grace period, or Kubernetes kills the server
+  first.
 - **Backup**: the PVC holds a single SQLite file, `/data/kubedojo.db`.
 - **Stuck sandboxes**: `kubectl -n kubedojo get pod -l app.kubernetes.io/component=sandbox`; deleting a
   sandbox Pod ends that session's environment.

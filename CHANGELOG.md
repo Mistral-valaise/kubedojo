@@ -18,6 +18,24 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
   the project name and ends with a QR code to the repository. Credits are in
   `docs/media/CREDITS.md`.
 
+### Fixed
+
+- **Stopping the server no longer loses work.** On SIGTERM or Ctrl+C the server waits for running
+  operations (an exam being graded, a cluster being created) for up to `--shutdown-grace`
+  (`KUBEDOJO_SHUTDOWN_GRACE`, default 25s). An exam whose grading is cut off is marked as interrupted;
+  before, it could be recorded as failed with zero points. A second Ctrl+C stops at once.
+- A history entry that cannot be written is logged. Before, a failed write lost an exam result
+  without a trace.
+- A database migration that fails stops the server at start with the reason, instead of being
+  ignored.
+- The tutor request body is limited to 8 KiB like every other request.
+
+### Added
+
+- `GET /api/ready` for readiness probes: it fails while the server shuts down or when the database
+  does not answer. `/api/health` remains the liveness check.
+- `KUBEDOJO_MAX_SESSIONS`, the environment variable for `--max-sessions`.
+
 ### Security
 
 - Built with Go 1.26.11. Releases up to 0.4.0 were built with Go 1.26.5, which has known

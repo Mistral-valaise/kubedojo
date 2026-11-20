@@ -2,8 +2,11 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -37,23 +40,53 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, err
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate %s: %w", path, err)
+	}
+	return &Store{db: db}, nil
+}
+
+// migrate brings a database of an older release up to date. Every step can
+// run again on a database that already has it.
+func migrate(db *sql.DB) error {
 	// Databases created before per-user history get the owner column added.
 	for _, table := range []string{"attempts", "exams"} {
-		_, _ = db.Exec("ALTER TABLE " + table + " ADD COLUMN owner TEXT NOT NULL DEFAULT ''")
+		if err := addColumn(db, table, "owner TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
 	}
 	// Exams recorded before quick rounds were told apart get their size from
 	// the session they belong to, as far as that session is still stored.
 	for _, col := range []string{"questions", "minutes"} {
-		_, _ = db.Exec("ALTER TABLE exams ADD COLUMN " + col + " INTEGER NOT NULL DEFAULT 0")
+		if err := addColumn(db, "exams", col+" INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
 	}
-	_, _ = db.Exec(`UPDATE exams SET
+	_, err := db.Exec(`UPDATE exams SET
 		questions = COALESCE((SELECT json_array_length(data, '$.questions') FROM sessions WHERE id = exams.session_id), 0),
 		minutes = COALESCE((SELECT json_extract(data, '$.durationMinutes') FROM sessions WHERE id = exams.session_id), 0)
 		WHERE questions = 0`)
-	return &Store{db: db}, nil
+	return err
+}
+
+// addColumn adds a column unless the table already has it. SQLite has no
+// ADD COLUMN IF NOT EXISTS, so the one expected error is told apart by its text.
+func addColumn(db *sql.DB, table, def string) error {
+	_, err := db.Exec("ALTER TABLE " + table + " ADD COLUMN " + def)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("add column %s to %s: %w", def, table, err)
+	}
+	return nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// Ping reports whether the database answers.
+func (s *Store) Ping(ctx context.Context) error {
+	var one int
+	return s.db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+}
 
 func (s *Store) SaveSession(id, mode, track, status string, created time.Time, v any) error {
 	b, err := json.Marshal(v)
