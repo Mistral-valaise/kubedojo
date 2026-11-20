@@ -1,6 +1,6 @@
 module github.com/Mistral-valaise/kubedojo/tools/obslint
 
-go 1.26.7
+go 1.26.11
 
 require (
 	github.com/prometheus/prometheus v0.316.0
