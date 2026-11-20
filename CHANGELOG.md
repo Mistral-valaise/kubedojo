@@ -111,6 +111,10 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
 
 ### Added
 
+- **`kubedojo doctor --kubernetes`** checks a cluster before kubedojo is installed into it: node
+  architecture, whether the sandboxes fit, storage, Pod Security, admission of a privileged Pod
+  and, with `--deep`, whether the CNI enforces NetworkPolicies. **`kubedojo doctor --hosted`**, run
+  in the server's Pod, starts a probe sandbox and creates a cluster in it.
 - **`kubedojo backup` and `kubedojo restore`.** A backup is a consistent snapshot of the progress
   database and can be taken while the server runs. Copying the database file, which the docs
   recommended, is not consistent: SQLite keeps the latest writes in a second file. `restore` checks

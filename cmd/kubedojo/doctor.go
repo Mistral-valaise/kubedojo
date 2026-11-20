@@ -69,8 +69,22 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	c.register(fl)
 	build := fl.Bool("build", false, "build missing sandbox images")
 	track := fl.String("track", "", "check only what this track needs")
+	kubernetes := fl.Bool("kubernetes", false, "check a Kubernetes cluster before installing kubedojo into it (uses kubectl)")
+	kubeContext := fl.String("context", "", "--kubernetes: kubectl context (default: the current one)")
+	namespace := fl.String("namespace", "kubedojo", "--kubernetes: the Namespace kubedojo is installed into")
+	sessions := fl.Int("max-sessions", 5, "--kubernetes: how many sessions must fit (the chart's maxSessions)")
+	deep := fl.Bool("deep", false, "--kubernetes: also prove that NetworkPolicies are enforced (starts two small Pods)")
+	arch := fl.String("sandbox-arch", "amd64", "--kubernetes: architecture of the sandbox host image; the published one is amd64. \"any\" if you built your own")
+	hosted := fl.Bool("hosted", false, "inside the server's Pod: start a probe sandbox and prove that it works")
+	cluster := fl.Bool("cluster", false, "--hosted: also create a cluster in the probe sandbox (about a minute)")
 	if err := fl.Parse(args); err != nil {
 		return err
+	}
+	if *kubernetes {
+		return doctorKubernetes(ctx, *kubeContext, *namespace, *sessions, *deep, *arch)
+	}
+	if *hosted {
+		return doctorHosted(ctx, c.driver(), *cluster)
 	}
 	n := everything
 	if *track != "" {

@@ -36,6 +36,10 @@ func quantity(s string) (float64, error) {
 	return v * factor, nil
 }
 
+// Quantity parses a Kubernetes resource quantity: cores for CPU, bytes for
+// memory and storage.
+func Quantity(s string) (float64, error) { return quantity(s) }
+
 const gi = float64(1 << 30)
 
 // Bounds of what one sandbox may ask for. The lower ones are what a sandbox

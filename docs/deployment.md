@@ -187,6 +187,59 @@ ingress:
   tls: {enabled: true, secretName: kubedojo-tls}
 ```
 
+## Check the cluster first
+
+Two checks, one before the installation and one after. Neither changes anything that stays.
+
+**Before**, from your machine, with `kubectl` and the kubedojo binary:
+
+```bash
+kubedojo doctor --kubernetes --max-sessions 5 --deep
+```
+
+```text
+  ✓ the cluster answers: Kubernetes v1.35.5+k3s1
+  ✓ node mini: amd64, kernel 6.8.0, containerd://2.2.3-k3s1, kubelet v1.35.5+k3s1
+  ✓ node mini has room for 8 sandbox(es): 7.3 CPU, 29.1 Gi memory, 180 Gi disk free of requests; CPU runs out first
+  ✓ room for 8 sandboxes, 5 wanted (each requests 1 CPU, 3Gi memory, 10Gi disk)
+  ✓ default StorageClass local-path
+  ✓ ingress controller(s): traefik
+  ✓ the Namespace kubedojo admits privileged Pods
+  ✓ the API server admits a privileged Pod with /lib/modules in kubedojo (dry run)
+  ✓ the CNI enforces NetworkPolicies: an isolated Pod could not be reached
+```
+
+| It checks | It fails when |
+|---|---|
+| the nodes: architecture, kernel, runtime | a node is not `amd64`, the architecture of the published sandbox host image (`--sandbox-arch any` if you built your own) |
+| free CPU, memory and disk against what the sandboxes request | fewer sandboxes fit than `--max-sessions`; it names the resource that runs out first |
+| a default StorageClass | there is none |
+| the Pod Security level of the Namespace | it is `baseline` or `restricted` |
+| admission of a privileged Pod with a `hostPath` | the API server refuses it in a server-side dry run |
+| ingress controllers | never; it lists them |
+| node addresses | never; it warns about public ones and prints the `extraExceptCIDRs` to set |
+| with `--deep`: NetworkPolicy enforcement | a Pod that a policy isolates can be reached. Then every sandbox's Docker port would be open to the cluster |
+
+`--deep` starts two small Pods and a policy in the Namespace and removes them. The other checks only
+read. Use `--context` and `--namespace` for another cluster or Namespace; the sandbox requests are
+read from the same `KUBEDOJO_SANDBOX_*` variables the server uses.
+
+**After**, in the server's Pod:
+
+```bash
+kubectl -n kubedojo exec deploy/kubedojo -c kubedojo -- kubedojo doctor --hosted --cluster
+```
+
+```text
+  ✓ the sandbox Pod is ready after 33s
+  ✓ Docker in the sandbox answers: 29.10.0 cgroup 2
+  ✓ a cluster was created in the sandbox in 27s
+```
+
+It uses the server's own configuration: the image, the resources, the node selector. A Pod that does
+not start reports why, and a Docker that does not answer means the server cannot reach the sandbox,
+which is a NetworkPolicy or the CNI. The probe Pod is removed afterwards.
+
 ## Install
 
 ```bash

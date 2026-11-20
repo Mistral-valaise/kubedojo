@@ -41,6 +41,7 @@ Usage:
   kubedojo up        Start kubedojo locally and open it in your browser
   kubedojo serve     Run the server only (containers, Kubernetes)
   kubedojo doctor    Check that this machine can run sandboxes
+                     (--kubernetes: check a cluster before installing kubedojo into it)
   kubedojo down      Remove every sandbox kubedojo created
   kubedojo ratings   Show the feedback learners left on questions
   kubedojo backup    Write a consistent copy of the progress database (the server may run)
