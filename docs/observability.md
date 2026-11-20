@@ -34,7 +34,7 @@ Names as they appear in Prometheus/Mimir:
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `kubedojo_sessions_active` | gauge | `mode` | live sessions; each owns a sandbox |
+| `kubedojo_sessions_active` | gauge | `mode` | live sessions; each owns a sandbox, except in the theory tracks |
 | `kubedojo_terminal_connections` | gauge | | open browser terminals |
 | `kubedojo_sandbox_provision_duration_seconds` | histogram | `track`, `mode`, `result` | time until a cluster (practice) or a whole exam environment is ready |
 | `kubedojo_check_runs_total` | counter | `track`, `question`, `mode`, `result` | graded questions |
