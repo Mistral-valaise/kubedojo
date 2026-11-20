@@ -116,6 +116,10 @@ func (h *watchedHosts) Acquire(context.Context, string, func(string, ...any)) (d
 	return dockerhost.Local(), nil
 }
 
+func (h *watchedHosts) Lookup(context.Context, string) (dockerhost.Host, bool, error) {
+	return dockerhost.Local(), true, nil
+}
+
 func (h *watchedHosts) Release(context.Context, string) error {
 	h.released.Add(1)
 	return nil

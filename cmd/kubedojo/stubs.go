@@ -68,9 +68,17 @@ func hostProvider(ctx context.Context, kind string, log *slog.Logger) (session.H
 			NodeSelector:     sel,
 			Toleration:       os.Getenv("KUBEDOJO_SANDBOX_TOLERATION"),
 			PullSecret:       os.Getenv("KUBEDOJO_SANDBOX_PULL_SECRET"),
+			// Set by the chart; without them sandboxes are neither owned by
+			// the installation nor told apart from another one's.
+			Instance:        os.Getenv("KUBEDOJO_INSTANCE"),
+			OwnerDeployment: os.Getenv("KUBEDOJO_OWNER_DEPLOYMENT"),
+			StartTimeout:    envDuration("KUBEDOJO_SANDBOX_START_TIMEOUT", 0),
 		})
 		if err != nil {
 			return nil, err
+		}
+		if err := p.AdoptOwner(ctx); err != nil {
+			log.Warn("sandbox Pods will not be removed with the installation", "err", err)
 		}
 		log.Info("sandboxes run as pods", "image", image, "namespace", p.Namespace())
 		return p, nil
