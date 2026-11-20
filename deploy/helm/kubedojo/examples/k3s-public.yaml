@@ -1,0 +1,61 @@
+# kubedojo on a single k3s host with a public address: a rented VM. HTTPS
+# with a certificate from Let's Encrypt, and a login at your identity provider.
+#
+#   helm install kubedojo oci://ghcr.io/mistral-valaise/charts/kubedojo --version <release> \
+#     -n kubedojo -f k3s-public.yaml --wait --timeout 10m
+#
+# Before: a DNS record for the host, cert-manager with a ClusterIssuer named
+# "letsencrypt", and the Secret kubedojo-oidc. docs/deployment-k3s.md has all
+# three.
+#
+# This is still a pilot for people you trust. Every session is a root shell
+# in a privileged Pod; the login decides who gets one, not what they can do.
+#
+# Sized for a 32 GB VM with 8 cores and 200 GB of disk.
+
+maxSessions: 5
+idleTTL: 2h           # a VM costs money while idle sandboxes hold its memory
+
+sandbox:
+  resources:
+    cpuRequest: "1"
+    cpuLimit: "4"
+    memoryRequest: 4Gi
+    memoryLimit: 6Gi
+    ephemeralStorageRequest: 10Gi
+    ephemeralStorageLimit: 30Gi
+  networkPolicy:
+    # CHANGE: the public address of the VM. It is not in the private ranges
+    # the policy blocks; without this line every sandbox can reach the VM's
+    # kubelet, its API server and its SSH. `kubedojo doctor --kubernetes`
+    # prints the value.
+    extraExceptCIDRs: [203.0.113.10/32]
+
+registryCache:
+  persistence: {size: 20Gi}
+
+ingress:
+  enabled: true
+  host: kubedojo.example.com          # CHANGE
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  tls:
+    enabled: true
+    secretName: kubedojo-tls          # cert-manager creates it
+
+oidc:
+  enabled: true
+  issuerURL: https://login.example.com/realms/main    # CHANGE
+  clientID: kubedojo                                   # CHANGE
+  existingSecret: kubedojo-oidc       # keys client-secret and cookie-secret
+  emailDomains: [example.com]         # CHANGE: who may log in. "*" is everyone your provider knows
+
+# Grafana for evaluation, with a login of its own. It is not published:
+#   kubectl -n kubedojo create secret generic kubedojo-grafana \
+#     --from-literal=admin-user=admin --from-literal=admin-password="$(openssl rand -base64 18)"
+#   kubectl -n kubedojo port-forward svc/kubedojo-lgtm 3000
+lgtm:
+  enabled: true
+  retention: 168h
+  persistence: {enabled: true, size: 10Gi}
+  adminSecret: kubedojo-grafana

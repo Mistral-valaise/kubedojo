@@ -107,7 +107,7 @@ sandbox:
 # registryCache.enabled=false and sandbox.registryMirror to use your own mirror.
 registryCache:
   enabled: true
-  image: registry:2
+  image: registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
   persistence:
     enabled: true
     size: 20Gi
@@ -129,7 +129,7 @@ oidc:
   # The session cookie is only sent over HTTPS. Turn this off only for a test
   # over plain HTTP: with it on, a login over HTTP loops forever.
   cookieSecure: true
-  image: quay.io/oauth2-proxy/oauth2-proxy:v7.9.0
+  image: quay.io/oauth2-proxy/oauth2-proxy:v7.9.0@sha256:37c1570c0427e02fc7c947ef2c04e8995b8347b7abc9fcf1dbb4e376a4b221a7
   extraArgs: []
 
 # -- AI tutor (optional). Secret with the key `api-key`.

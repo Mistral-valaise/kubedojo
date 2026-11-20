@@ -77,6 +77,11 @@ jobs:
           helm lint deploy/helm/kubedojo $opts --set ingress.enabled=true --set ingress.allowUnauthenticated=true
           helm template kubedojo deploy/helm/kubedojo $opts --set ingress.enabled=true --set ingress.allowUnauthenticated=true > /dev/null
           helm template kubedojo deploy/helm/kubedojo $opts $oidc --set ingress.enabled=true --set ingress.tls.enabled=true > /dev/null
+          # The values files people start from must keep working.
+          for f in deploy/helm/kubedojo/examples/*.yaml; do
+            helm lint deploy/helm/kubedojo -f "$f"
+            helm template kubedojo deploy/helm/kubedojo -f "$f" > /dev/null
+          done
           # An ingress without a login must be refused.
           if helm template kubedojo deploy/helm/kubedojo --set ingress.enabled=true > /dev/null 2>&1; then
             echo "::error::the chart publishes kubedojo without authentication"; exit 1

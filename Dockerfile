@@ -18,8 +18,14 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}"
 FROM alpine:3.22
 ARG TARGETARCH
 ARG KIND_VERSION=v0.33.0
+# The checksums of kind ${KIND_VERSION}, from its release page. A new version
+# needs new ones: the build fails on a download that does not match.
+ARG KIND_SHA256_amd64=aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+ARG KIND_SHA256_arm64=20022bee6cfcd5086cb7234d218e3454e6090022f2a8f55d1fa7fcf42c3867a2
 RUN apk add --no-cache ca-certificates docker-cli tini \
- && wget -qO /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-${TARGETARCH}" \
+ && wget -qO /usr/local/bin/kind "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-${TARGETARCH}" \
+ && eval "sum=\$KIND_SHA256_${TARGETARCH}" \
+ && echo "${sum}  /usr/local/bin/kind" | sha256sum -c - \
  && chmod 0755 /usr/local/bin/kind \
  && adduser -D -u 10001 kubedojo && mkdir -p /data && chown kubedojo /data
 COPY --from=build /kubedojo /usr/local/bin/kubedojo

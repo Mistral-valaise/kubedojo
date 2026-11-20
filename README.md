@@ -248,15 +248,19 @@ flowchart LR
 ```
 
 ```bash
-helm install kubedojo deploy/helm/kubedojo -n kubedojo --create-namespace \
-  --set ingress.enabled=true --set ingress.host=kubedojo.example.com \
-  --set oidc.enabled=true --set oidc.issuerURL=... --set oidc.clientID=... --set oidc.existingSecret=kubedojo-oidc \
-  --set sandbox.nodeSelector."kubedojo\.dev/pool"=sandbox --set sandbox.tolerationKey=kubedojo.dev/sandbox \
-  --set telemetry.otlpEndpoint=http://alloy.monitoring.svc:4318
+kubedojo doctor --kubernetes --deep          # is this cluster fit for it?
+kubectl create namespace kubedojo
+kubectl label namespace kubedojo pod-security.kubernetes.io/enforce=privileged
+helm install kubedojo oci://ghcr.io/mistral-valaise/charts/kubedojo --version <release> \
+  -n kubedojo -f my-values.yaml --wait
+kubectl -n kubedojo exec deploy/kubedojo -c kubedojo -- kubedojo doctor --hosted --cluster
 ```
 
 In hosted mode every session gets its own Pod running Docker-in-Docker, in which the same sandbox is
-created.
+created. It is tested on single-node **k3s**: a mini-PC or a VM is enough for a handful of people.
+[docs/deployment-k3s.md](docs/deployment-k3s.md) goes from an empty machine to a learner in the
+browser and back, with two values files to start from; [docs/deployment.md](docs/deployment.md) is
+the reference, including what is tested and what is not.
 
 > [!WARNING]
 > Sandbox Pods are **privileged**. Hosted mode is for one team that trusts each other, on a dedicated

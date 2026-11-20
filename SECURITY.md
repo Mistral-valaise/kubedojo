@@ -20,7 +20,23 @@ threat model:
   dedicated, tainted node pool without cloud credentials, keep the NetworkPolicy enabled and put
   authentication in front. See [docs/deployment.md](docs/deployment.md).
 - kubedojo is **not** a hardened multi-tenant service. Do not offer it to untrusted users without
-  VM-level isolation.
+  VM-level isolation. A login (OIDC) and the NetworkPolicy are not that isolation: they decide who
+  gets a sandbox and what a sandbox can reach over the network, not what a user can do to the node
+  from inside one.
+
+What hosted mode relies on, and where that ends:
+
+| Protection | What it does | What it does not do |
+|---|---|---|
+| OIDC login | only people your identity provider admits get sessions; each has their own | limit what an admitted user can do |
+| NetworkPolicy of the sandboxes | only the server reaches a sandbox's Docker daemon; sandboxes do not reach private addresses | protect when the CNI does not enforce policies, against processes with host networking on the node, or for IPv6. A node's public address must be listed by hand (`extraExceptCIDRs`) |
+| Docker daemon of a sandbox | listens on TCP 2375 **without authentication or TLS** | protect itself: whoever reaches the port is root in the sandbox and, through it, on the node. Mutual TLS is planned |
+| Resource limits of a sandbox | CPU, memory and disk of one session are bounded (cgroup v2 nodes) | stop a user who is root on the node from leaving the cgroup |
+| ServiceAccount of the server | Pods in its own Namespace, and reading its own Deployment | contain a compromised server: creating Pods in a Namespace that admits privileged ones is root on the nodes |
+| `/lib/modules` | mounted read-only from the node into every sandbox | hide the node's kernel modules from a session |
+
+`kubedojo doctor --kubernetes --deep` checks before an installation that privileged Pods are
+admitted where they should be and that NetworkPolicies are enforced.
 
 Reports that amount to "a user can break out of a sandbox onto the sandbox node" describe this known
 limit. Reports about reaching *other users' sandboxes*, the kubedojo server, its database, or the

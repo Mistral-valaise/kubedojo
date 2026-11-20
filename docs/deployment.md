@@ -3,6 +3,34 @@
 Hosted mode is meant for **one team that trusts each other** (single-tenant). Read the security section
 before exposing it.
 
+Starting from an empty machine? [deployment-k3s.md](deployment-k3s.md) is a guide to copy and paste
+for a single k3s host, the setup this project tests. This document is the reference.
+
+## What is tested, and what is not
+
+| | |
+|---|---|
+| Single-node k3s (Traefik, local-path, kube-router) on amd64, in Docker | tested on every change to the chart and nightly, by [`test/e2e/run.sh`](../test/e2e/run.sh) |
+| Other Kubernetes distributions | not tested. The requirements are below; `kubedojo doctor --kubernetes --deep` checks most of them |
+| OpenShift | not supported as it comes: sandbox Pods need the `privileged` SCC from a cluster administrator. Untried |
+
+What the chart needs from a cluster:
+
+- **Privileged Pods** with a `hostPath` (`/lib/modules`, read-only) in kubedojo's Namespace.
+- **cgroup v2** on the nodes, or a sandbox's limits do not cover its clusters.
+- **A CNI that enforces NetworkPolicies.** The Docker daemon of a sandbox has no authentication.
+- **amd64 nodes** for the published sandbox host image.
+- **A default StorageClass** with `ReadWriteOnce` volumes, for the history and the image cache.
+- Raised inotify limits on the nodes (see *Sizing*).
+
+**What 0.4.0 already had, and what came after.** The chart of 0.4.0 already had the server, the sandbox
+Pods, the image cache, the OIDC proxy, the NetworkPolicy, the dashboards and the alert rules. None
+of it had been run on a cluster by this project's CI. Since then, tested on k3s: installation,
+sandboxes with clusters, the ingress with long-lived terminals, the NetworkPolicy, limits that cover
+the clusters, cleanup of sandbox Pods, backup, upgrade, rollback and uninstall. New: the preflight,
+the bounds on CPU and disk, the schema, the evaluation stack's settings, and the published chart.
+Still untested: OIDC against a real provider, TLS, and anything but k3s.
+
 ## Architecture
 
 ```text
@@ -242,13 +270,25 @@ which is a NetworkPolicy or the CNI. The probe Pod is removed afterwards.
 
 ## Install
 
+The chart is published with every release, next to the images it installs:
+
 ```bash
-helm install kubedojo deploy/helm/kubedojo -n kubedojo --create-namespace -f my-values.yaml
+kubectl create namespace kubedojo
 kubectl label namespace kubedojo pod-security.kubernetes.io/enforce=privileged
+helm install kubedojo oci://ghcr.io/mistral-valaise/charts/kubedojo --version <release> \
+  -n kubedojo -f my-values.yaml --wait --timeout 10m
 ```
 
-See [`values.yaml`](../deploy/helm/kubedojo/values.yaml) for every option, and
+The label comes first: without it the first sandbox is refused. From a checkout,
+`deploy/helm/kubedojo` takes the place of the `oci://` address.
+
+Two complete values files to start from are in
+[`examples/`](../deploy/helm/kubedojo/examples): a private host without a login, and a public one
+with HTTPS and OIDC. See [`values.yaml`](../deploy/helm/kubedojo/values.yaml) for every option, and
 [observability.md](observability.md) for telemetry, dashboards and alerts.
+
+All images are pinned: kubedojo's own to the release, the others (`registry`, `oauth2-proxy`,
+`grafana/otel-lgtm`, the Docker-in-Docker base) by digest.
 
 ## Operations
 

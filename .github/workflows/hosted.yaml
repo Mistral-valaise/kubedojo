@@ -1,0 +1,106 @@
+name: hosted
+# Hosted mode end to end, on a fresh single-node k3s (k3d): preflight, install,
+# a sandbox with a cluster, a learner's sessions through the ingress, the
+# observability stack, backup, upgrade, rollback, uninstall and reinstall.
+# See test/e2e/run.sh. It is slow and heavy, so it runs when what it proves
+# changes, every night, and on request.
+on:
+  pull_request:
+    paths:
+      - deploy/**
+      - internal/k8shost/**
+      - internal/session/**
+      - images/sandbox-host/**
+      - test/e2e/**
+      - Dockerfile
+      - .github/workflows/hosted.yaml
+  schedule:
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  K8S_VERSION: v1.37.0
+  K3D_VERSION: v5.9.0
+
+jobs:
+  hosted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: {go-version-file: go.mod}
+      # The images exist three times on the way into a sandbox: built, imported
+      # into the k3s node, and loaded by the sandbox's Docker.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      # A cluster in a sandbox in a k3s node needs more inotify instances than the runner allows.
+      - run: sudo sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_user_watches=1048576
+      - uses: docker/setup-buildx-action@v4
+      - name: Node image
+        uses: docker/build-push-action@v7
+        with:
+          context: images/node
+          load: true
+          build-args: K8S_VERSION=${{ env.K8S_VERSION }}
+          tags: kubedojo/node:${{ env.K8S_VERSION }}
+          cache-from: type=gha,scope=node
+      - name: Terminal image
+        uses: docker/build-push-action@v7
+        with:
+          context: images/terminal
+          load: true
+          build-args: K8S_VERSION=${{ env.K8S_VERSION }}
+          tags: kubedojo/terminal:${{ env.K8S_VERSION }}
+          cache-from: type=gha,scope=terminal
+      - name: Linux image
+        uses: docker/build-push-action@v7
+        with:
+          context: images/linux
+          load: true
+          tags: kubedojo/linux:trixie
+          cache-from: type=gha,scope=linux
+      - name: Sandbox host image
+        run: |
+          docker save -o images/sandbox-host/node.tar kubedojo/node:$K8S_VERSION
+          docker save -o images/sandbox-host/terminal.tar kubedojo/terminal:$K8S_VERSION
+          docker save -o images/sandbox-host/linux.tar kubedojo/linux:trixie
+          docker build -t kubedojo/sandbox-host:e2e images/sandbox-host
+          rm images/sandbox-host/*.tar
+      - name: Server image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          build-args: VERSION=e2e
+          tags: kubedojo/server:e2e
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,scope=server,mode=max
+      - uses: azure/setup-helm@v5
+      - name: k3d
+        run: |
+          curl -fsSL -o /tmp/k3d "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
+          sudo install -m 0755 /tmp/k3d /usr/local/bin/k3d
+          k3d version
+      - run: make go
+      - name: Hosted mode, end to end
+        env:
+          SERVER_IMAGE: kubedojo/server:e2e
+          SANDBOX_IMAGE: kubedojo/sandbox-host:e2e
+          REPORT: hosted-report.txt
+        run: test/e2e/run.sh
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: hosted-report
+          path: hosted-report.txt
+          if-no-files-found: warn
