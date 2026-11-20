@@ -456,7 +456,16 @@ func (m *Manager) clock() {
 			}
 			for _, id := range due {
 				m.log.InfoContext(m.base, "exam time is up", "session", id)
-				_ = m.Finish(m.base, id)
+				if err := m.Finish(m.base, id); errors.Is(err, ErrSandboxGone) {
+					// Nothing is left to grade. Without this the exam would
+					// stay running and be found due again on every tick.
+					m.mu.Lock()
+					if s := m.byID[id]; s != nil && s.Status == StatusRunning {
+						s.Status, s.Error = StatusError, "the sandbox of this exam no longer exists; it could not be graded"
+						m.save(s)
+					}
+					m.mu.Unlock()
+				}
 			}
 		}
 	}
@@ -1042,6 +1051,11 @@ func (m *Manager) CheckOnce(ctx context.Context, id, qid string, once func(*cata
 	if qs.Status != "ready" {
 		return nil, fmt.Errorf("%w: question is not ready", ErrConflict)
 	}
+	// Without its sandbox every check would fail with a grader error, and the
+	// attempt would be recorded as a failed one.
+	if _, err := m.existing(ctx, s); err != nil {
+		return nil, err
+	}
 	ctx, end := m.span(ctx, "question.check", s, "kubedojo.question", q.ID)
 	res := checker.RunOnce(ctx, q, m.runner(s, q), once)
 	m.update(s, func() { qs.Last = &res })
@@ -1084,6 +1098,17 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 	}
 	m.mu.Lock()
 	if s.Mode != ModeExam || s.Status != StatusRunning {
+		m.mu.Unlock()
+		return fmt.Errorf("%w: session cannot be finished in state %s", ErrConflict, s.Status)
+	}
+	m.mu.Unlock()
+	// An exam whose sandbox is gone cannot be graded: every check would
+	// fail, and the exam would be recorded with zero points.
+	if _, err := m.existing(ctx, s); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	if s.Status != StatusRunning {
 		m.mu.Unlock()
 		return fmt.Errorf("%w: session cannot be finished in state %s", ErrConflict, s.Status)
 	}
