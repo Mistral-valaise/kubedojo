@@ -113,6 +113,10 @@ with `--registry-cache=false`.
 - **A limit that is reached ends the session.** Memory: the cluster inside loses containers.
   Ephemeral storage: the kubelet evicts the Pod. kubedojo cannot move a sandbox.
 - **An empty limit is no limit.** Requests cannot be empty.
+- **The limits cover the clusters inside.** The sandbox host puts the containers of its Docker
+  daemon below the Pod's own cgroup. `kubectl top pod` therefore shows what a session really uses,
+  about 1 GB for one idle two-node cluster. This needs cgroup v2 on the node; on cgroup v1 the Pod
+  logs a warning and only the Docker daemon itself is limited.
 - The server checks the values at start: a request above its limit, less than 1 Gi of memory or
   8 Gi of disk (the preloaded images take about 5 GB of it), or more than 64 cores, 256 Gi of
   memory or 1 Ti of disk stop it with a message. The chart's schema rejects values that are not
