@@ -110,10 +110,12 @@ kubedojo up          Start kubedojo locally and open it in your browser
 kubedojo doctor      Check that this machine can run sandboxes
 kubedojo down        Remove every sandbox kubedojo created
 kubedojo ratings     Show the feedback learners left on questions
+kubedojo observability up | status | stop | reset
 kubedojo content lint | test | export
 ```
 
-Useful flags for `up`: `--observability` (local Grafana with dashboards), `--addr`, `--no-open`,
+Useful flags for `up`: `--observability` (local Grafana with dashboards; ports and retention are in
+[docs/observability.md](docs/observability.md#the-local-stack)), `--addr`, `--no-open`,
 `--kubernetes-version`, `--registry-cache=false`. Set `ANTHROPIC_API_KEY` to enable the optional AI tutor.
 </details>
 

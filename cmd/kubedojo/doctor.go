@@ -15,6 +15,7 @@ import (
 	"github.com/Mistral-valaise/kubedojo/images"
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/dockerhost"
+	"github.com/Mistral-valaise/kubedojo/internal/observability"
 	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 )
 
@@ -233,6 +234,15 @@ func cmdDown(ctx context.Context, args []string) error {
 	}
 	// The cache container goes too; its volume (the downloaded images) stays.
 	_, _ = out(ctx, "docker", "rm", "-f", "kubedojo-registry-cache")
+	// So does the observability stack: its metrics, logs and traces stay in
+	// their volume until `kubedojo observability reset`.
+	if stack, err := observability.New(observability.Options{DataDir: c.dataDir}, out); err == nil {
+		if removed, err := stack.Stop(ctx); err != nil {
+			fmt.Println("observability stack:", err)
+		} else if removed {
+			fmt.Println("stopped the observability stack")
+		}
+	}
 	names, _ := out(ctx, "docker", "ps", "-a", "--filter", "ancestor="+drv.NodeImage, "--format", `{{.Label "io.x-k8s.kind.cluster"}}`)
 	seen := map[string]bool{}
 	for _, n := range strings.Fields(names) {

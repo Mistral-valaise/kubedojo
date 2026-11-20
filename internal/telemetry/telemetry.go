@@ -49,15 +49,18 @@ type Telemetry struct {
 	meter     metric.Meter
 }
 
-// Enabled reports whether an OTLP endpoint is configured.
-func endpointConfigured() bool {
+// Endpoint returns the configured OTLP endpoint: the general one, or the
+// first endpoint of a single signal. It is empty when telemetry is off.
+func Endpoint() string {
 	for _, k := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"} {
-		if os.Getenv(k) != "" {
-			return true
+		if v := os.Getenv(k); v != "" {
+			return v
 		}
 	}
-	return false
+	return ""
 }
+
+func endpointConfigured() bool { return Endpoint() != "" }
 
 // Setup configures the global providers. base is the logger that keeps
 // writing to stderr; the returned Telemetry.Logger additionally ships logs.
