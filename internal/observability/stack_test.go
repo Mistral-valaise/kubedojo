@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // docker is a Docker with at most one container and one volume. It answers
@@ -142,6 +144,7 @@ func TestUpStartsAPinnedLoopbackStack(t *testing.T) {
 		"block-retention=168h",
 		":/otel-lgtm/kubedojo-dashboards:ro",
 		":/otel-lgtm/grafana/conf/provisioning/dashboards/kubedojo.yaml:ro",
+		":/otel-lgtm/grafana/conf/provisioning/datasources/grafana-datasources.yaml:ro",
 	} {
 		if !strings.Contains(line, want) {
 			t.Errorf("docker run lacks %q:\n%s", want, line)
@@ -450,5 +453,25 @@ func TestCheckEndpoints(t *testing.T) {
 		case c.fail != "" && (err == nil || !strings.Contains(err.Error(), c.fail) || !strings.Contains(err.Error(), "--observability")):
 			t.Errorf("%s: error %v does not name %s and the flag", name, err, c.fail)
 		}
+	}
+}
+
+// The chart's evaluation stack mounts the same provisioning files, so it must
+// run the image they were written for.
+func TestChartRunsTheSameImage(t *testing.T) {
+	raw, err := os.ReadFile("../../deploy/helm/kubedojo/values.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		LGTM struct {
+			Image string `yaml:"image"`
+		} `yaml:"lgtm"`
+	}
+	if err := yaml.Unmarshal(raw, &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.LGTM.Image != Image {
+		t.Fatalf("values.yaml runs %q, kubedojo up --observability runs %q", v.LGTM.Image, Image)
 	}
 }

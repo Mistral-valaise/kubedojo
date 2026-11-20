@@ -28,6 +28,12 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
 - New commands `kubedojo observability up | status | stop | reset`. `kubedojo down` stops the stack
   and keeps its data.
 - An address that is in use (`--addr`) is reported before the sandbox checks run, not after.
+- **Signals are linked in Grafana.** The local stack and the chart's `lgtm.enabled` provision their
+  own data sources: from a trace to its logs and to the request metrics of its route, from a log
+  line to its trace, and from a latency sample to the trace behind it (exemplars).
+- Helm: `lgtm.image` is pinned to the tested version, and `lgtm.enabled` no longer breaks when
+  `dashboards.enabled` is off or `dashboards.namespace` is set. The stack has its own copy of the
+  dashboards.
 
 ### Fixed
 

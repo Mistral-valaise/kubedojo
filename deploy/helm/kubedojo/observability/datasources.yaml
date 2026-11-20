@@ -1,0 +1,86 @@
+# Grafana data sources of the single-container stack (grafana/otel-lgtm), used
+# by `kubedojo up --observability` and by the chart's lgtm.enabled. It replaces
+# the file the image ships and keeps its UIDs, so dashboards and alert rules
+# can name them.
+#
+# Grafana expands environment variables in this file, so every dollar sign
+# that belongs to a query or a link is doubled.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    url: http://127.0.0.1:9090
+    editable: true
+    jsonData:
+      # kubedojo exports metrics every 15 seconds. With the image's 60s,
+      # $$__rate_interval is four minutes and short spikes disappear.
+      timeInterval: 15s
+      # Metrics → traces: a histogram sample carries the trace that produced it.
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+          urlDisplayLabel: "Trace: $${__value.raw}"
+
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    url: http://127.0.0.1:3200
+    editable: true
+    jsonData:
+      # Traces → logs: the log lines written inside this trace.
+      tracesToLogsV2:
+        customQuery: true
+        datasourceUid: loki
+        spanStartTimeShift: "-1m"
+        spanEndTimeShift: "1m"
+        query: '{$${__tags}} | trace_id = "$${__trace.traceId}"'
+        tags:
+          - key: service.name
+            value: service_name
+      # Traces → metrics: the request metrics of the span's service and route.
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: "-10m"
+        spanEndTimeShift: "10m"
+        tags:
+          - key: service.name
+            value: service_name
+          - key: http.route
+            value: http_route
+        queries:
+          - name: Request rate
+            query: 'sum(rate(http_server_request_duration_seconds_count{$$__tags}[$$__rate_interval]))'
+          - name: Error rate (5xx)
+            query: 'sum(rate(http_server_request_duration_seconds_count{$$__tags, http_response_status_code=~"5.."}[$$__rate_interval])) / sum(rate(http_server_request_duration_seconds_count{$$__tags}[$$__rate_interval]))'
+          - name: Latency p95
+            query: 'histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{$$__tags}[$$__rate_interval])))'
+      serviceMap:
+        datasourceUid: prometheus
+      search:
+        hide: false
+      nodeGraph:
+        enabled: true
+      lokiSearch:
+        datasourceUid: loki
+
+  - name: Loki
+    type: loki
+    uid: loki
+    url: http://127.0.0.1:3100
+    editable: true
+    jsonData:
+      # Logs → traces: a log line written inside a span links to its trace.
+      derivedFields:
+        - name: trace_id
+          matcherType: label
+          matcherRegex: trace_id
+          url: "$${__value.raw}"
+          datasourceUid: tempo
+          urlDisplayLabel: "Trace: $${__value.raw}"
+
+  - name: Pyroscope
+    type: grafana-pyroscope-datasource
+    uid: pyroscope
+    url: http://127.0.0.1:4040
