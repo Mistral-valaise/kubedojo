@@ -15,7 +15,7 @@ COPY --from=web /out ./internal/webui/dist
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /kubedojo ./cmd/kubedojo
 
-FROM alpine:3.22
+FROM alpine:3.24
 ARG TARGETARCH
 ARG KIND_VERSION=v0.33.0
 # The checksums of kind ${KIND_VERSION}, from its release page. A new version
