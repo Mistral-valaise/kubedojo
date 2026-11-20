@@ -1,0 +1,68 @@
+title: Close anonymous access to the API
+domain: cluster-hardening
+difficulty: medium
+minutes: 8
+environment: base
+tags: [rbac, anonymous, unauthenticated, clusterrolebinding]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  A scan from outside the cluster found that the Kubernetes API answers requests that carry **no
+  credentials at all**:
+
+  ```bash
+  curl -sk https://127.0.0.1:6443/api/v1/namespaces/kube-system/configmaps | head
+  curl -sk https://127.0.0.1:6443/api/v1/nodes | head
+  ```
+
+  1. Find everything that grants these permissions to unauthenticated clients and remove it.
+  2. Write the names of the objects you removed to `/opt/course/anonymous/removed`, one per line.
+
+  Anonymous access to the health and version endpoints (`/healthz`, `/readyz`, `/version`) is intended
+  and must keep working. Do not change permissions of authenticated users.
+hints:
+  - "Requests without credentials run as user `system:anonymous` in group `system:unauthenticated`. Both can be subjects of a binding."
+  - "List bindings with their subjects: `kubectl get clusterrolebindings -o json | jq -r '.items[] | select(any(.subjects[]?; .name==\"system:anonymous\" or .name==\"system:unauthenticated\")) | .metadata.name'`."
+  - "`system:public-info-viewer` is the built-in binding for `/healthz`, `/version` and friends. Leave it alone. Test with `kubectl auth can-i list nodes --as system:anonymous --as-group system:unauthenticated`."
+checks:
+  - id: configmaps
+    title: Anonymous clients cannot read ConfigMaps
+    type: exec
+    run: |-
+      curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:6443/api/v1/namespaces/kube-system/configmaps
+    expect: {equals: "403"}
+    explain: >-
+      ConfigMaps in kube-system hold the kubeadm and kubelet configuration. The binding to the group system:unauthenticated gave the built-in view role to everyone who can reach the API port.
+  - id: nodes
+    title: Anonymous clients cannot list Nodes
+    type: exec
+    run: |-
+      curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:6443/api/v1/nodes
+    expect: {equals: "403"}
+    explain: >-
+      There were two grants: one to the group, one to the user system:anonymous. Removing the first one that turns up is not enough — search for both subjects.
+  - id: removed
+    title: The removed bindings are documented
+    type: file
+    path: /opt/course/anonymous/removed
+    expect: {sameLines: [kd-legacy-dashboard, kd-node-inventory]}
+    explain: >-
+      Writing down what was removed is what makes a hardening change reviewable, and reversible if a forgotten integration depended on it.
+  - id: public-info
+    title: Health and version endpoints still answer anonymous requests
+    type: exec
+    run: |-
+      echo "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:6443/version) $(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:6443/readyz)"
+    expect: {equals: "200 200"}
+    guard: true
+    explain: >-
+      Load balancers and the kubelet probe these endpoints without credentials. Deleting system:public-info-viewer, or disabling anonymous auth altogether, breaks them.
+  - id: others-intact
+    title: Bindings of authenticated subjects are untouched
+    type: exec
+    run: |-
+      kubectl auth can-i list pods -n default --as system:serviceaccount:sec-avocet-ops:inventory
+    expect: {equals: "yes"}
+    guard: true
+    explain: >-
+      The binding kd-inventory-reader looks similar but belongs to a ServiceAccount. Hardening must not take down legitimate access.
