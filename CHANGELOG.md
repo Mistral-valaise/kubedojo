@@ -83,6 +83,10 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
   termination grace period together. The readiness probe uses `/api/ready`, and the server has
   probes behind the OIDC proxy too, where it had none. New: `extraEnv`, `extraEnvFrom`,
   `oidc.cookieSecure`.
+- Helm: the evaluation stack (`lgtm.enabled`) has a retention (`lgtm.retention`, 168h), an optional
+  volume (`lgtm.persistence`), an optional login (`lgtm.adminSecret`) and a memory limit, and keeps
+  recent traces across a restart like the local stack does. `telemetry.headersSecret` sends
+  credentials to your own OTLP receiver.
 - The server checks the sandbox resources at start and names what is wrong, and the chart has a
   schema: a misspelled key or a value like `3GB` fails `helm install` instead of a session.
 

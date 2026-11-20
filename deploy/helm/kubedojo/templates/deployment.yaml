@@ -118,6 +118,10 @@ spec:
               value: {{ . | quote }}
             - name: OTEL_SERVICE_NAME
               value: kubedojo
+            {{- with ($.Values.telemetry.headersSecret).name }}
+            - name: OTEL_EXPORTER_OTLP_HEADERS
+              valueFrom: {secretKeyRef: {name: {{ . }}, key: {{ default "headers" $.Values.telemetry.headersSecret.key }}}}
+            {{- end }}
             - name: K8S_POD_NAME
               valueFrom: {fieldRef: {fieldPath: metadata.name}}
             - name: K8S_NAMESPACE

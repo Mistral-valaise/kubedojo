@@ -479,3 +479,37 @@ func TestChartRunsTheSameImage(t *testing.T) {
 		t.Fatalf("values.yaml runs %q, kubedojo up --observability runs %q", v.LGTM.Image, Image)
 	}
 }
+
+// The chart's evaluation stack is the same container. The flags it is started
+// with are written a second time, in a Helm template; this keeps them equal.
+func TestChartStartsTheStackWithTheSameFlags(t *testing.T) {
+	raw, err := os.ReadFile("../../deploy/helm/kubedojo/templates/lgtm.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The chart writes the retention as a template value.
+	chart := strings.ReplaceAll(string(raw), "{{ $keep }}", "168h")
+	s := newStack(t, &docker{}, Options{})
+	_, prov, err := s.files()
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, _ := s.args(prov)
+	n := 0
+	for i, a := range args {
+		if a != "-e" {
+			continue
+		}
+		name, value, _ := strings.Cut(args[i+1], "=")
+		if !strings.HasSuffix(name, "_EXTRA_ARGS") {
+			continue
+		}
+		n++
+		if !strings.Contains(chart, "- name: "+name) || !strings.Contains(chart, `value: "`+value+`"`) {
+			t.Errorf("templates/lgtm.yaml does not set %s to\n  %s", name, value)
+		}
+	}
+	if n != 3 {
+		t.Fatalf("%d of the three *_EXTRA_ARGS were compared", n)
+	}
+}

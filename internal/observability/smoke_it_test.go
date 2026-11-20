@@ -174,3 +174,41 @@ func (w testWriter) Write(p []byte) (int, error) {
 	w.t.Log(strings.TrimRight(string(p), "\n"))
 	return len(p), nil
 }
+
+// TestVerifyRunningStack runs the end-to-end checks against a stack somebody
+// else started: the chart's lgtm.enabled behind two port-forwards, for one.
+//
+//	kubectl port-forward svc/kubedojo-lgtm 13000:3000 14318:4318 &
+//	KUBEDOJO_VERIFY_GRAFANA_PORT=13000 KUBEDOJO_VERIFY_OTLP_PORT=14318 \
+//	  go test -count=1 -run VerifyRunningStack -v ./internal/observability/
+//
+// The stack of the chart has no local sandbox dashboard, which the count of
+// dashboards allows for.
+func TestVerifyRunningStack(t *testing.T) {
+	g, o := os.Getenv("KUBEDOJO_VERIFY_GRAFANA_PORT"), os.Getenv("KUBEDOJO_VERIFY_OTLP_PORT")
+	if g == "" || o == "" {
+		t.Skip("set KUBEDOJO_VERIFY_GRAFANA_PORT and KUBEDOJO_VERIFY_OTLP_PORT")
+	}
+	var gp, op int
+	if _, err := fmt.Sscan(g, &gp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fmt.Sscan(o, &op); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(Options{DataDir: t.TempDir(), GrafanaPort: gp, OTLPPort: op}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range s.Verify(context.Background(), 90*time.Second) {
+		switch {
+		case c.Err == nil:
+			t.Logf("ok: %s", c.Name)
+		case strings.Contains(c.Name, "dashboards") && os.Getenv("KUBEDOJO_VERIFY_CHART") != "":
+			// One dashboard is for the Docker containers of a local kubedojo.
+			t.Logf("expected in a cluster: %s: %v", c.Name, c.Err)
+		default:
+			t.Errorf("%s: %v", c.Name, c.Err)
+		}
+	}
+}
