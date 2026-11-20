@@ -72,9 +72,15 @@ jobs:
       # The optional parts of the chart are not rendered with the defaults.
       - name: Chart with every option
         run: |
-          opts="--set lgtm.enabled=true --set alerts.enabled=true --set ingress.enabled=true --set dashboards.enabled=false"
-          helm lint deploy/helm/kubedojo $opts
-          helm template kubedojo deploy/helm/kubedojo $opts > /dev/null
+          opts="--set lgtm.enabled=true --set alerts.enabled=true --set dashboards.enabled=false"
+          oidc="--set oidc.enabled=true --set oidc.issuerURL=https://login.example.com --set oidc.clientID=kubedojo --set oidc.existingSecret=kubedojo-oidc"
+          helm lint deploy/helm/kubedojo $opts --set ingress.enabled=true --set ingress.allowUnauthenticated=true
+          helm template kubedojo deploy/helm/kubedojo $opts --set ingress.enabled=true --set ingress.allowUnauthenticated=true > /dev/null
+          helm template kubedojo deploy/helm/kubedojo $opts $oidc --set ingress.enabled=true --set ingress.tls.enabled=true > /dev/null
+          # An ingress without a login must be refused.
+          if helm template kubedojo deploy/helm/kubedojo --set ingress.enabled=true > /dev/null 2>&1; then
+            echo "::error::the chart publishes kubedojo without authentication"; exit 1
+          fi
       # values.schema.json must stop values that cannot work.
       - name: Chart rejects bad values
         run: |

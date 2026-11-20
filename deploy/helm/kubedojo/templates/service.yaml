@@ -26,37 +26,3 @@ spec:
     requests:
       storage: {{ .Values.persistence.size }}
 {{- end }}
-{{- if .Values.ingress.enabled }}
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ include "kubedojo.name" . }}
-  labels: {{- include "kubedojo.labels" . | nindent 4 }}
-  annotations:
-    # The terminal is a long-lived WebSocket.
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    {{- with .Values.ingress.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-spec:
-  {{- with .Values.ingress.className }}
-  ingressClassName: {{ . }}
-  {{- end }}
-  {{- if .Values.ingress.tls.enabled }}
-  tls:
-    - hosts: [{{ .Values.ingress.host | quote }}]
-      secretName: {{ .Values.ingress.tls.secretName }}
-  {{- end }}
-  rules:
-    - host: {{ .Values.ingress.host | quote }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "kubedojo.name" . }}
-                port: {name: http}
-{{- end }}

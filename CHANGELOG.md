@@ -78,6 +78,18 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
   sandbox created its containers' cgroups at the root of the node, outside the Pod. The clusters of
   a session did not count against the Pod's memory and CPU limits, and `kubectl top` showed 300 MB
   for a Pod that used a gigabyte. The sandbox host now keeps them below the Pod's cgroup.
+- **Helm: an ingress without a login is refused.** `ingress.enabled` without `oidc.enabled` fails
+  with an explanation; `ingress.allowUnauthenticated: true` says that access is restricted some
+  other way. **Breaking** for releases that publish kubedojo without OIDC.
+- Helm: the Ingress no longer carries ingress-nginx annotations. If you use ingress-nginx, set the
+  two timeout annotations in `ingress.annotations`; with Traefik nothing is needed.
+- Helm: the NetworkPolicy of the sandboxes is scoped to the release, and
+  `sandbox.networkPolicy.extraExceptCIDRs` keeps sandboxes away from more addresses, such as the
+  public address of a node.
+- Helm: `shutdownGraceSeconds` (default 60) sets the server's shutdown grace period and the Pod's
+  termination grace period together. The readiness probe uses `/api/ready`, and the server has
+  probes behind the OIDC proxy too, where it had none. New: `extraEnv`, `extraEnvFrom`,
+  `oidc.cookieSecure`.
 - The server checks the sandbox resources at start and names what is wrong, and the chart has a
   schema: a misspelled key or a value like `3GB` fails `helm install` instead of a session.
 

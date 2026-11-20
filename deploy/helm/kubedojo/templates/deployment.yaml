@@ -1,6 +1,10 @@
 {{- $name := include "kubedojo.name" . -}}
 {{- $tag := default (printf "v%s" .Chart.AppVersion) .Values.image.tag -}}
 {{- $k8s := .Values.sandbox.kubernetesVersion -}}
+{{- /* Values that are newer than 0.4.0 get their default here as well as in
+       values.yaml: `helm upgrade --reuse-values` keeps the values of the old
+       release and does not see new defaults. */}}
+{{- $grace := int (default 60 .Values.shutdownGraceSeconds) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,6 +22,9 @@ spec:
       labels: {{- include "kubedojo.selector" . | nindent 8 }}
     spec:
       serviceAccountName: {{ $name }}
+      # On SIGTERM the server waits for running work: an exam being graded,
+      # a cluster being created. Kubernetes must not kill it first.
+      terminationGracePeriodSeconds: {{ add $grace 15 }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -44,6 +51,8 @@ spec:
           env:
             - name: HOME
               value: /tmp
+            - name: KUBEDOJO_SHUTDOWN_GRACE
+              value: "{{ $grace }}s"
             - name: KUBEDOJO_SANDBOX_NAMESPACE
               valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
             - name: KUBEDOJO_SANDBOX_IMAGE
@@ -74,15 +83,15 @@ spec:
             - name: KUBEDOJO_SANDBOX_CPU_REQUEST
               value: {{ .cpuRequest | quote }}
             - name: KUBEDOJO_SANDBOX_CPU_LIMIT
-              value: {{ .cpuLimit | default "" | quote }}
+              value: {{ (hasKey . "cpuLimit" | ternary .cpuLimit "4") | default "" | toString | quote }}
             - name: KUBEDOJO_SANDBOX_MEMORY_REQUEST
               value: {{ .memoryRequest | quote }}
             - name: KUBEDOJO_SANDBOX_MEMORY_LIMIT
               value: {{ .memoryLimit | default "" | quote }}
             - name: KUBEDOJO_SANDBOX_EPHEMERAL_REQUEST
-              value: {{ .ephemeralStorageRequest | quote }}
+              value: {{ .ephemeralStorageRequest | default "10Gi" | quote }}
             - name: KUBEDOJO_SANDBOX_EPHEMERAL_LIMIT
-              value: {{ .ephemeralStorageLimit | default "" | quote }}
+              value: {{ (hasKey . "ephemeralStorageLimit" | ternary .ephemeralStorageLimit "30Gi") | default "" | toString | quote }}
             {{- end }}
             {{- if .Values.sandbox.nodeSelector }}
             - name: KUBEDOJO_SANDBOX_NODE_SELECTOR
@@ -116,14 +125,31 @@ spec:
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: "service.namespace={{ $.Release.Namespace }},k8s.namespace.name=$(K8S_NAMESPACE),k8s.pod.name=$(K8S_POD_NAME){{ range $k, $v := $.Values.telemetry.resourceAttributes }},{{ $k }}={{ $v }}{{ end }}"
             {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom: {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - {name: http, containerPort: 4400}
           {{- if not .Values.oidc.enabled }}
+          # Ready: the database answers and the server is not shutting down.
           readinessProbe:
-            httpGet: {path: /api/health, port: http}
+            httpGet: {path: /api/ready, port: http}
             periodSeconds: 5
           livenessProbe:
             httpGet: {path: /api/health, port: http}
+            periodSeconds: 20
+            failureThreshold: 5
+          {{- else }}
+          # Behind the OIDC proxy the server listens on localhost only, where
+          # the kubelet cannot reach it: the probes run inside the container.
+          readinessProbe:
+            exec: {command: [wget, -q, -O, /dev/null, "http://127.0.0.1:4400/api/ready"]}
+            periodSeconds: 5
+          livenessProbe:
+            exec: {command: [wget, -q, -O, /dev/null, "http://127.0.0.1:4400/api/health"]}
             periodSeconds: 20
             failureThreshold: 5
           {{- end }}
@@ -147,7 +173,7 @@ spec:
             - --reverse-proxy=true
             - --pass-user-headers=true
             - --skip-provider-button=true
-            - --cookie-secure=true
+            - --cookie-secure={{ ne (toString .Values.oidc.cookieSecure) "false" }}
             {{- range .Values.oidc.emailDomains }}
             - --email-domain={{ . }}
             {{- end }}

@@ -1,7 +1,52 @@
+{{- /* Sandbox Pods expose an unauthenticated Docker daemon. Nothing but the
+       kubedojo server of this release may connect to them, and they may not
+       reach the cluster's own Pods, its nodes or its API server. The internet
+       stays open for image pulls.
+
+       Two policies with the same rules: one for the sandbox Pods of this
+       release, and one for sandbox Pods without a release label, which
+       kubedojo up to 0.4.0 created. Without the second, sandboxes that are
+       running during an upgrade would lose their protection. */}}
+{{- define "kubedojo.sandboxPolicy" -}}
+policyTypes: [Ingress, Egress]
+ingress:
+  - from:
+      - podSelector:
+          matchLabels: {{- include "kubedojo.selector" . | nindent 12 }}
+    ports:
+      - {protocol: TCP, port: 2375}
+egress:
+  - to:
+      - namespaceSelector: {}
+        podSelector:
+          matchLabels: {k8s-app: kube-dns}
+    ports:
+      - {protocol: UDP, port: 53}
+      - {protocol: TCP, port: 53}
+  {{- if .Values.registryCache.enabled }}
+  - to:
+      - podSelector:
+          matchLabels: {app.kubernetes.io/name: kubedojo, app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: registry-cache}
+    ports:
+      - {protocol: TCP, port: 5000}
+  {{- end }}
+  - to:
+      - ipBlock:
+          cidr: 0.0.0.0/0
+          # Private and link-local ranges, where Pods, Services and most
+          # nodes live. A node with a public address is not in them: list it
+          # in sandbox.networkPolicy.extraExceptCIDRs.
+          except:
+            - 10.0.0.0/8
+            - 172.16.0.0/12
+            - 192.168.0.0/16
+            - 169.254.0.0/16
+            - 100.64.0.0/10
+            {{- range (default list .Values.sandbox.networkPolicy.extraExceptCIDRs) }}
+            - {{ . }}
+            {{- end }}
+{{- end }}
 {{- if .Values.sandbox.networkPolicy.enabled }}
-# Sandbox Pods expose an unauthenticated Docker daemon. Nothing but the
-# kubedojo server may connect to them, and they may not reach the cluster's
-# own Pods or API server (the internet stays open for image pulls).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -12,30 +57,20 @@ spec:
     matchLabels:
       app.kubernetes.io/name: kubedojo
       app.kubernetes.io/component: sandbox
-  policyTypes: [Ingress, Egress]
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels: {{- include "kubedojo.selector" . | nindent 14 }}
-      ports:
-        - {protocol: TCP, port: 2375}
-  egress:
-    - to:
-        - namespaceSelector: {}
-          podSelector:
-            matchLabels: {k8s-app: kube-dns}
-      ports:
-        - {protocol: UDP, port: 53}
-        - {protocol: TCP, port: 53}
-    {{- if .Values.registryCache.enabled }}
-    - to:
-        - podSelector:
-            matchLabels: {app.kubernetes.io/name: kubedojo, app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: registry-cache}
-      ports:
-        - {protocol: TCP, port: 5000}
-    {{- end }}
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10]
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- include "kubedojo.sandboxPolicy" . | nindent 2 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kubedojo.name" . }}-sandbox-unlabelled
+  labels: {{- include "kubedojo.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kubedojo
+      app.kubernetes.io/component: sandbox
+    matchExpressions:
+      - {key: app.kubernetes.io/instance, operator: DoesNotExist}
+  {{- include "kubedojo.sandboxPolicy" . | nindent 2 }}
 {{- end }}

@@ -1,0 +1,35 @@
+{{- if .Values.ingress.enabled }}
+{{- if and (not .Values.oidc.enabled) (not .Values.ingress.allowUnauthenticated) }}
+{{- fail "\n\ningress.enabled without oidc.enabled would publish kubedojo without a login: everyone who reaches the host gets a root shell in a privileged Pod.\nEnable oidc, or set ingress.allowUnauthenticated=true if access is restricted some other way (a VPN, an authenticating proxy in front)." }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "kubedojo.name" . }}
+  labels: {{- include "kubedojo.labels" . | nindent 4 }}
+  {{- /* No annotations of its own: they are specific to the ingress
+         controller. The terminal is a long-lived WebSocket; what each
+         controller needs for it is in docs/deployment.md and in examples/. */}}
+  {{- with .Values.ingress.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts: [{{ .Values.ingress.host | quote }}]
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "kubedojo.name" . }}
+                port: {name: http}
+{{- end }}

@@ -39,9 +39,25 @@ should be assumed able to become root on the node that runs the Pod.
    Do not run other workloads on these nodes. Ideally they live in their own network segment and have no
    cloud credentials (no instance role, metadata service blocked).
 
-2. **NetworkPolicy** (on by default, needs a CNI that enforces it): only the server can reach a
-   sandbox's Docker port, and sandboxes cannot reach private address ranges — your cluster's Pods,
-   Services and API server. Internet egress stays open for image pulls.
+2. **NetworkPolicy** (on by default, needs a CNI that enforces it): only the server of the same
+   release can reach a sandbox's Docker port, and sandboxes cannot reach private address ranges —
+   your cluster's Pods, Services and, where it has a private address, the API server. Internet
+   egress stays open for image pulls.
+
+   - **The Docker port has no authentication.** The daemon of a sandbox listens on TCP 2375 without
+     TLS. The NetworkPolicy is what keeps other Pods away from it. What it does not cover: a
+     process with host networking on the same node, and a cluster whose CNI does not enforce
+     policies. k3s enforces them unless it was started with `--disable-network-policy`. Mutual TLS
+     for this port is planned, not done.
+   - **A node with a public address is not in the private ranges.** On a VPS, sandboxes could reach
+     the node's kubelet, API server and SSH. List such addresses:
+
+     ```yaml
+     sandbox:
+       networkPolicy:
+         extraExceptCIDRs: [203.0.113.10/32]
+     ```
+   - IPv6 egress is not allowed by the policy.
 
 3. **Authentication.** Without it, everyone who can open the URL gets a shell. Enable OIDC:
 
@@ -60,6 +76,9 @@ should be assumed able to become root on the node that runs the Pod.
    ```
    Redirect URL to register: `https://<host>/oauth2/callback`. Each user then has their own sessions
    and history.
+
+   The chart refuses `ingress.enabled` without `oidc.enabled`. If access is restricted some other
+   way, a VPN or an authenticating proxy in front, say so with `ingress.allowUnauthenticated: true`.
 
 4. **Pod Security.** The Namespace needs the `privileged` Pod Security level for sandbox Pods.
 
@@ -150,6 +169,24 @@ Nodes need cgroup v2 and should allow many inotify watches and processes:
 sysctl -w fs.inotify.max_user_watches=524288 fs.inotify.max_user_instances=512
 ```
 
+## Ingress
+
+The chart creates a plain `Ingress` and sets no annotations: they are specific to the controller. The
+terminal is a WebSocket that stays open for as long as a learner works. The server sends a ping every
+25 seconds, so a proxy that counts pings as traffic never sees the connection idle.
+
+| Controller | What it needs |
+|---|---|
+| **Traefik** (the default of k3s) | Nothing. Tested with k3s v1.35: a terminal that was idle for 95 seconds kept working. |
+| **ingress-nginx** | `nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"` and `proxy-send-timeout: "3600"` in `ingress.annotations`. Not tested by this project's CI. |
+
+```yaml
+ingress:
+  enabled: true
+  host: kubedojo.example.com
+  tls: {enabled: true, secretName: kubedojo-tls}
+```
+
 ## Install
 
 ```bash
@@ -162,6 +199,9 @@ See [`values.yaml`](../deploy/helm/kubedojo/values.yaml) for every option, and
 
 ## Operations
 
+- **Upgrade with `helm upgrade --reset-then-reuse-values`**, not `--reuse-values`: the latter keeps
+  the values of the old release and does not see defaults that are new in the chart. The templates
+  tolerate missing new values, but you would not get new settings you might want.
 - **Upgrades** restart the server Pod. Running sandboxes survive; sessions resume from the database.
   Open terminals reconnect with one click.
 - **Shutdown.** On SIGTERM the server stops taking requests (`/api/ready` answers 503, `/api/health`
@@ -169,7 +209,8 @@ See [`values.yaml`](../deploy/helm/kubedojo/values.yaml) for every option, and
   `--shutdown-grace` (`KUBEDOJO_SHUTDOWN_GRACE`, default 25s) it cancels what is left. Such an exam is
   not graded with failed checks; the session shows "interrupted by a server restart". Set the Pod's
   `terminationGracePeriodSeconds` a little above the grace period, or Kubernetes kills the server
-  first.
+  first. The chart does both from one value, `shutdownGraceSeconds` (default 60): the grace period,
+  and 15 seconds more for the Pod.
 - **Backup**: the PVC holds a single SQLite file, `/data/kubedojo.db`.
 - **Sandbox Pods** carry the labels `app.kubernetes.io/component=sandbox`,
   `app.kubernetes.io/instance=<release>` and `kubedojo.dev/session=<id>`:
