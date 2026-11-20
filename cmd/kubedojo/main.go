@@ -175,11 +175,12 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 	c.register(fl)
 	addr := fl.String("addr", env("KUBEDOJO_ADDR", "127.0.0.1:4400"), "listen address")
 	noOpen := fl.Bool("no-open", false, "do not open the browser")
-	maxSessions := fl.Int("max-sessions", 3, "maximum number of live sessions")
+	maxSessions := fl.Int("max-sessions", envInt("KUBEDOJO_MAX_SESSIONS", 3), "maximum number of live sessions")
 	maxTerminals := fl.Int("max-terminals", envInt("KUBEDOJO_MAX_TERMINALS", session.DefaultMaxTerminals), "maximum number of terminal tabs one session may have open")
 	userHeader := fl.String("user-header", env("KUBEDOJO_USER_HEADER", ""), "trusted header carrying the user name (behind an OIDC proxy)")
 	hosts := fl.String("sandbox-host", env("KUBEDOJO_SANDBOX_HOST", "local"), "where sandboxes run: local | kubernetes")
 	idleTTL := fl.Duration("idle-ttl", envDuration("KUBEDOJO_IDLE_TTL", 0), "remove sandboxes that were not used for this long (0 = never)")
+	grace := fl.Duration("shutdown-grace", envDuration("KUBEDOJO_SHUTDOWN_GRACE", 25*time.Second), "on shutdown, wait this long for running operations (grading, provisioning) before cancelling them")
 	observability := fl.Bool("observability", false, "start a local Grafana LGTM stack and send traces, metrics and logs to it")
 	devOrigin := fl.String("dev-origin", env("KUBEDOJO_DEV_ORIGIN", ""), "extra allowed WebSocket origin (UI dev server)")
 	if err := fl.Parse(args); err != nil {
@@ -261,9 +262,28 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 	case err := <-errc:
 		return err
 	}
+	// Shut down in the order of dependence: no new requests, then the running
+	// operations, and only then (deferred above) telemetry and the database.
+	srv.Drain()
+	// A second Ctrl+C or SIGTERM ends the process at once.
+	signal.Reset(os.Interrupt, syscall.SIGTERM)
 	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return hs.Shutdown(sctx)
+	if err := hs.Shutdown(sctx); err != nil {
+		_ = hs.Close()
+	}
+	if n := mgr.Running(); n > 0 {
+		log.Info("waiting for running operations", "operations", n, "grace", grace.String())
+		if local {
+			fmt.Printf("\n  Waiting up to %s for %d running operation(s). Press Ctrl+C again to stop now.\n", *grace, n)
+		}
+	}
+	gctx, gcancel := context.WithTimeout(context.Background(), *grace)
+	defer gcancel()
+	if err := mgr.Shutdown(gctx); err != nil {
+		log.Warn("shutdown", "err", err)
+	}
+	return nil
 }
 
 func openBrowser(url string) {

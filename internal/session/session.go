@@ -38,6 +38,8 @@ var (
 	ErrNotFound = errors.New("not found")
 	ErrConflict = errors.New("conflict")
 	ErrLimit    = errors.New("session limit reached")
+	// ErrShuttingDown is returned for work that would start while the server stops.
+	ErrShuttingDown = fmt.Errorf("%w: the server is shutting down", ErrConflict)
 )
 
 type LogLine struct {
@@ -178,6 +180,13 @@ type Manager struct {
 	byID   map[string]*Session
 	stopCh chan struct{}
 	settle time.Duration
+	// Background work (provisioning, preparing, grading, destroying, the clock)
+	// runs on base and is counted in work, so that Shutdown can wait for it
+	// and cancel what is left. closed is guarded by mu.
+	base   context.Context
+	cancel context.CancelFunc
+	work   sync.WaitGroup
+	closed bool
 }
 
 type Config struct {
@@ -199,6 +208,7 @@ type Config struct {
 func NewManager(c Config) (*Manager, error) {
 	m := &Manager{cat: c.Catalog, st: c.Store, drv: c.Driver, hosts: c.Hosts, log: c.Logger,
 		max: c.MaxSessions, ttl: c.IdleTTL, hooks: c.Hooks, byID: map[string]*Session{}, stopCh: make(chan struct{})}
+	m.base, m.cancel = context.WithCancel(context.Background())
 	if m.hosts == nil {
 		m.hosts = LocalHosts()
 	}
@@ -224,11 +234,11 @@ func NewManager(c Config) (*Manager, error) {
 		// Operations interrupted by a restart cannot be resumed.
 		switch s.Status {
 		case StatusProvisioning, StatusGrading:
-			s.Status, s.Error = StatusError, "interrupted by a server restart"
+			s.Status, s.Error = StatusError, interrupted
 		}
 		for _, q := range s.Questions {
 			if q.Status == "preparing" {
-				q.Status, q.Error = "error", "interrupted by a server restart"
+				q.Status, q.Error = "error", interrupted
 			}
 		}
 		if s.TouchedAt.IsZero() {
@@ -236,14 +246,101 @@ func NewManager(c Config) (*Manager, error) {
 		}
 		m.byID[s.ID] = s
 	}
+	m.work.Add(1)
 	go m.clock()
 	return m, nil
 }
 
-func (m *Manager) Close() { close(m.stopCh) }
+// interrupted is the error a session or question carries when the server
+// stopped while it was being provisioned, prepared or graded.
+const interrupted = "interrupted by a server restart"
+
+// begin counts one piece of background work. It reports false once the server
+// is shutting down; the caller must then not start it. The caller holds m.mu
+// and calls m.work.Done when the work has ended.
+func (m *Manager) begin() bool {
+	if m.closed {
+		return false
+	}
+	m.work.Add(1)
+	return true
+}
+
+// reason is what a failed operation tells the learner.
+func (m *Manager) reason(err error) string {
+	if m.base.Err() != nil {
+		return interrupted
+	}
+	return err.Error()
+}
+
+// Shutdown stops the manager. It starts no new work, closes every terminal
+// and waits for running operations — an exam being graded, a cluster being
+// created — until ctx ends. What is still running then is cancelled and
+// recorded as interrupted; Shutdown reports that with an error.
+func (m *Manager) Shutdown(ctx context.Context) error {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil
+	}
+	m.closed = true
+	ids := make([]string, 0, len(m.byID))
+	for id := range m.byID {
+		ids = append(ids, id)
+	}
+	m.mu.Unlock()
+	close(m.stopCh)
+	for _, id := range ids {
+		m.terms.closeAll(id)
+	}
+	done := make(chan struct{})
+	go func() { m.work.Wait(); close(done) }()
+	select {
+	case <-done:
+		m.cancel()
+		return nil
+	case <-ctx.Done():
+	}
+	m.cancel()
+	// Cancelled operations notice within moments and persist their state.
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+	}
+	return fmt.Errorf("running operations were interrupted: %w", ctx.Err())
+}
+
+// Close stops the manager at once: running operations are cancelled.
+func (m *Manager) Close() {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = m.Shutdown(ctx)
+}
+
+// Running reports how many background operations of sessions are in progress.
+func (m *Manager) Running() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, s := range m.byID {
+		if s.Status == StatusProvisioning || s.Status == StatusGrading {
+			n++
+			continue
+		}
+		for _, q := range s.Questions {
+			if q.Status == "preparing" {
+				n++
+				break
+			}
+		}
+	}
+	return n
+}
 
 // clock ends exams whose time is up.
 func (m *Manager) clock() {
+	defer m.work.Done()
 	t := time.NewTicker(3 * time.Second)
 	defer t.Stop()
 	for {
@@ -266,13 +363,13 @@ func (m *Manager) clock() {
 			m.mu.Unlock()
 			for _, id := range idle {
 				m.log.Info("removing idle sandbox", "session", id)
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				ctx, cancel := context.WithTimeout(m.base, 5*time.Minute)
 				_ = m.Destroy(ctx, id)
 				cancel()
 			}
 			for _, id := range due {
 				m.log.Info("exam time is up", "session", id)
-				_ = m.Finish(context.Background(), id)
+				_ = m.Finish(m.base, id)
 			}
 		}
 	}
@@ -433,6 +530,10 @@ func (m *Manager) NewExam(track string, opt ExamOptions) (*Session, error) {
 		m.mu.Unlock()
 		return nil, ErrLimit
 	}
+	if !m.begin() {
+		m.mu.Unlock()
+		return nil, ErrShuttingDown
+	}
 	s := &Session{ID: newID(), Mode: ModeExam, Track: track, Status: StatusProvisioning, CreatedAt: time.Now().UTC(), TouchedAt: time.Now().UTC(),
 		DurationMinutes: opt.Minutes, Envs: map[string]string{}, Keys: keys, Owner: opt.Owner}
 	for _, q := range picked {
@@ -442,7 +543,10 @@ func (m *Manager) NewExam(track string, opt ExamOptions) (*Session, error) {
 	m.save(s)
 	m.mu.Unlock()
 
-	go m.provisionExam(s, t)
+	go func() {
+		defer m.work.Done()
+		m.provisionExam(s, t)
+	}()
 	return s, nil
 }
 
@@ -499,7 +603,7 @@ func pickQuestions(t *catalog.Track, n int, driver string) []*catalog.Question {
 func (m *Manager) provisionExam(s *Session, t *catalog.Track) {
 	s.op.Lock()
 	defer s.op.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+	ctx, cancel := context.WithTimeout(m.base, 25*time.Minute)
 	defer cancel()
 	logf := m.logf(s)
 	start := time.Now()
@@ -537,7 +641,7 @@ func (m *Manager) provisionExam(s *Session, t *catalog.Track) {
 	}
 	if err != nil {
 		logf("Provisioning failed: %v", err)
-		m.update(s, func() { s.Status, s.Error = StatusError, err.Error() })
+		m.update(s, func() { s.Status, s.Error = StatusError, m.reason(err) })
 		return
 	}
 	logf("Environment ready in %s. Start the %s when you are.", time.Since(start).Round(time.Second), wordsOf(t).assessment)
@@ -671,6 +775,10 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 		m.mu.Unlock()
 		return nil
 	}
+	if !m.begin() {
+		m.mu.Unlock()
+		return ErrShuttingDown
+	}
 	wasReady := qs.Status == "ready" || qs.Status == "error" || qs.Last != nil
 	qs.Status, qs.Error = "preparing", ""
 	if reset {
@@ -680,9 +788,10 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 	m.mu.Unlock()
 
 	go func() {
+		defer m.work.Done()
 		s.op.Lock()
 		defer s.op.Unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		ctx, cancel := context.WithTimeout(m.base, 15*time.Minute)
 		defer cancel()
 		logf := m.logf(s)
 		start := time.Now()
@@ -710,7 +819,7 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 		}
 		m.update(s, func() {
 			if err != nil {
-				qs.Status, qs.Error = "error", err.Error()
+				qs.Status, qs.Error = "error", m.reason(err)
 			} else {
 				qs.Status = "ready"
 			}
@@ -815,8 +924,7 @@ func (m *Manager) CheckOnce(ctx context.Context, id, qid string, once func(*cata
 	res := checker.RunOnce(ctx, q, m.runner(s, q), once)
 	m.update(s, func() { qs.Last = &res })
 	if mode == ModePractice {
-		_ = m.st.AddAttempt(store.Attempt{SessionID: s.ID, Mode: mode, Track: s.Track, Domain: q.Domain,
-			QuestionID: q.ID, Score: res.Score, Max: res.Max, At: res.At, Owner: s.Owner})
+		m.record(s, q, mode, res)
 	}
 	if m.hooks.Checked != nil {
 		m.hooks.Checked(s.Track, q.ID, mode, res)
@@ -856,6 +964,10 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 		m.mu.Unlock()
 		return fmt.Errorf("%w: session cannot be finished in state %s", ErrConflict, s.Status)
 	}
+	if !m.begin() {
+		m.mu.Unlock()
+		return ErrShuttingDown
+	}
 	s.Status = StatusGrading
 	now := time.Now().UTC()
 	s.FinishedAt = &now
@@ -863,9 +975,10 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 	m.mu.Unlock()
 
 	go func() {
+		defer m.work.Done()
 		s.op.Lock()
 		defer s.op.Unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		ctx, cancel := context.WithTimeout(m.base, 20*time.Minute)
 		defer cancel()
 		t := m.cat.Tracks[s.Track]
 		logf := m.logf(s)
@@ -904,9 +1017,44 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 			case <-ctx.Done():
 			}
 		}
+		// Checks that were cut off by a shutdown failed for no fault of the
+		// learner. Such an exam is not graded; it is marked as interrupted.
+		if m.base.Err() != nil {
+			m.update(s, func() { s.Status, s.Error = StatusError, interrupted })
+			return
+		}
 		m.conclude(s, t, results)
 	}()
-	_ = ctx
+	return nil
+}
+
+// record stores one graded question in the learner's history.
+func (m *Manager) record(s *Session, q *catalog.Question, mode string, res checker.Result) {
+	if err := m.st.AddAttempt(store.Attempt{SessionID: s.ID, Mode: mode, Track: s.Track, Domain: q.Domain,
+		QuestionID: q.ID, Score: res.Score, Max: res.Max, At: res.At, Owner: s.Owner}); err != nil {
+		m.log.Error("the attempt was not recorded", "session", s.ID, "question", q.ID, "err", err)
+	}
+}
+
+// DestroyLater tears the sandbox down in the background.
+func (m *Manager) DestroyLater(id string) error {
+	if _, err := m.get(id); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	ok := m.begin()
+	m.mu.Unlock()
+	if !ok {
+		return ErrShuttingDown
+	}
+	go func() {
+		defer m.work.Done()
+		ctx, cancel := context.WithTimeout(m.base, 5*time.Minute)
+		defer cancel()
+		if err := m.Destroy(ctx, id); err != nil {
+			m.log.Error("destroy session", "session", id, "err", err)
+		}
+	}()
 	return nil
 }
 
@@ -925,8 +1073,7 @@ func (m *Manager) conclude(s *Session, t *catalog.Track, results []checker.Resul
 		rep.Max += res.Max
 		dom[q.Domain].Score += res.Score
 		dom[q.Domain].Max += res.Max
-		_ = m.st.AddAttempt(store.Attempt{SessionID: s.ID, Mode: ModeExam, Track: s.Track, Domain: q.Domain,
-			QuestionID: q.ID, Score: res.Score, Max: res.Max, At: res.At, Owner: s.Owner})
+		m.record(s, q, ModeExam, res)
 		if m.hooks.Checked != nil {
 			m.hooks.Checked(s.Track, q.ID, ModeExam, res)
 		}
@@ -950,9 +1097,11 @@ func (m *Manager) conclude(s *Session, t *catalog.Track, results []checker.Resul
 		s.Report, s.Status = &rep, StatusFinished
 	})
 	db, _ := json.Marshal(rep.Domains)
-	_ = m.st.AddExam(store.Exam{SessionID: s.ID, Track: s.Track, Score: rep.Score, Max: rep.Max,
+	if err := m.st.AddExam(store.Exam{SessionID: s.ID, Track: s.Track, Score: rep.Score, Max: rep.Max,
 		Percent: rep.Percent, Passed: rep.Passed, FinishedAt: *s.FinishedAt, Domains: db, Owner: s.Owner,
-		Questions: len(s.Questions), Minutes: s.DurationMinutes})
+		Questions: len(s.Questions), Minutes: s.DurationMinutes}); err != nil {
+		m.log.Error("the exam result was not recorded", "session", s.ID, "err", err)
+	}
 	if m.hooks.ExamDone != nil {
 		m.hooks.ExamDone(s.Track, rep)
 	}

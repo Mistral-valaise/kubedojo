@@ -209,7 +209,7 @@ func (t *Telemetry) HTTP(h http.Handler) http.Handler {
 	return otelhttp.NewHandler(h, "http",
 		otelhttp.WithFilter(func(r *http.Request) bool {
 			p := r.URL.Path
-			return len(p) >= 5 && p[:5] == "/api/" && p != "/api/health" && r.Header.Get("Upgrade") == ""
+			return len(p) >= 5 && p[:5] == "/api/" && p != "/api/health" && p != "/api/ready" && r.Header.Get("Upgrade") == ""
 		}),
 		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 			if r.Pattern != "" {

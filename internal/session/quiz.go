@@ -9,7 +9,6 @@ import (
 
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/checker"
-	"github.com/Mistral-valaise/kubedojo/internal/store"
 )
 
 // Multiple-choice tracks need no sandbox: their sessions never acquire a host
@@ -181,8 +180,7 @@ func (m *Manager) checkChoice(s *Session, q *catalog.Question) (*checker.Result,
 	qs.Last = &res
 	m.save(s)
 	m.mu.Unlock()
-	_ = m.st.AddAttempt(store.Attempt{SessionID: s.ID, Mode: s.Mode, Track: s.Track, Domain: q.Domain,
-		QuestionID: q.ID, Score: res.Score, Max: res.Max, At: res.At, Owner: s.Owner})
+	m.record(s, q, s.Mode, res)
 	if m.hooks.Checked != nil {
 		m.hooks.Checked(s.Track, q.ID, s.Mode, res)
 	}

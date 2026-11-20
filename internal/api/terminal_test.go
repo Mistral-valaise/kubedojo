@@ -27,6 +27,7 @@ type fixture struct {
 	mgr     *session.Manager
 	drv     *sandboxtest.Driver
 	srv     *httptest.Server
+	api     *api.Server
 	id      string
 	gauge   atomic.Int64
 	wsBase  string
@@ -63,6 +64,7 @@ func newFixture(t *testing.T, maxTerminals int) *fixture {
 	})
 	s := &api.Server{Catalog: cat, Sessions: f.mgr, Store: st, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		OnTerminal: func(d int) { f.gauge.Add(int64(d)) }}
+	f.api = s
 	f.srv = httptest.NewServer(s.Handler())
 	f.wsBase = "ws" + strings.TrimPrefix(f.srv.URL, "http")
 	t.Cleanup(func() {
