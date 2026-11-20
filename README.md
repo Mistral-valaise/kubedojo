@@ -19,7 +19,7 @@ your skills sharp, or to prepare for the five exams on the road to Kubestronaut 
 
 ![Solving a question in kubedojo: task on the left, terminal on the right, per-check feedback](docs/images/practice.gif)
 
-[Watch the 50-second tour](docs/media/kubedojo-promo.mp4) (MP4, no sound)
+[Watch the one-minute tour](docs/media/kubedojo-promo.mp4) (MP4, with sound; [credits](docs/media/CREDITS.md))
 
 </div>
 

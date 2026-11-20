@@ -2,6 +2,15 @@
 
 Notable changes per release. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- The tour video has sound and is cut to the music: a music bed, a few sound effects on visible
+  actions, and a new scene that solves a CKAD task with `kubectl` on a real cluster. It opens with
+  the project name and ends with a QR code to the repository. Credits are in
+  `docs/media/CREDITS.md`.
+
 ## [0.4.0] - 2026-11-19
 
 The road to Kubestronaut: three new tracks, a recommended path through all six, and two kinds of
@@ -103,6 +112,7 @@ Killercoda export, refreshed README.
 First release: CKA and CKS tracks with 58 verified questions, practice and exam modes, local and
 Helm deployment, OpenTelemetry observability.
 
+[Unreleased]: https://github.com/Mistral-valaise/kubedojo/compare/v0.4.0...HEAD
 [0.4.0]: https://github.com/Mistral-valaise/kubedojo/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Mistral-valaise/kubedojo/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Mistral-valaise/kubedojo/compare/v0.1.0...v0.2.0
