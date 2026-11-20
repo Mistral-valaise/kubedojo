@@ -29,6 +29,15 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
   sandbox as children. Log lines written during that work carry the trace ID, and the metric
   samples carry it as an exemplar. Before, the only span besides the requests was a
   `sandbox.provision` without a parent, and no log line had a trace ID.
+- **Dashboards only show what can have data.** The Pod panels moved to their own dashboard,
+  *Sandbox Pods*, which only the chart installs. A local kubedojo gets *Sandbox containers*
+  instead, with the memory and CPU of its Docker containers, measured by kubedojo every 30 seconds
+  (`kubedojo_sandbox_*`, `kubedojo_docker_memory_limit_bytes`). New for the single-container stack:
+  *Telemetry pipeline*, which shows whether telemetry arrives.
+- Latency and sandbox start panels show exemplars, *Platform health* lists recent traces, and
+  *Learning analytics* shows the share of points per question, a metric that was exported but never
+  displayed. Panels that counted over `$__interval` use `$__rate_interval`; they lost samples.
+- `make lint-dashboards` checks every dashboard query against the metrics kubedojo exports.
 - Helm: `lgtm.image` is pinned to the tested version, and `lgtm.enabled` no longer breaks when
   `dashboards.enabled` is off or `dashboards.namespace` is set. The stack has its own copy of the
   dashboards.

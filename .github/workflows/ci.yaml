@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-node@v7
         with: {node-version: 24, cache: npm, cache-dependency-path: web/package-lock.json}
       - run: make build
-      - run: test -z "$(gofmt -l cmd internal content images deploy)"
+      - run: test -z "$(gofmt -l cmd internal content images deploy tools)"
       - run: go vet ./...
       - run: make test
       # Downloading Chromium took between 30 seconds and 7 minutes; keep it.
@@ -51,6 +51,8 @@ jobs:
             ./bin/kubedojo content test --track "$track"
             ./bin/kubedojo content test --track "$track" --exam
           done
+      # Do the dashboards parse, and do they only query metrics that exist?
+      - run: make lint-dashboards
       - uses: azure/setup-helm@v5
       - run: helm lint deploy/helm/kubedojo
       # The optional parts of the chart are not rendered with the defaults.
