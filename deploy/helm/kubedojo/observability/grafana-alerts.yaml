@@ -1,0 +1,257 @@
+# Generated from rules.yaml. Do not edit:
+#   UPDATE_ALERTS=1 go test ./deploy/helm/kubedojo/observability/
+apiVersion: 1
+groups:
+    - folder: kubedojo
+      interval: 1m
+      name: kubedojo
+      orgId: 1
+      rules:
+        - annotations:
+            description: No kubedojo_sessions_active sample for minutes. The server is down, or its telemetry does not arrive.
+            summary: kubedojo reports no metrics
+          condition: C
+          data:
+            - datasourceUid: prometheus
+              model:
+                expr: |-
+                    count(
+                    absent_over_time(kubedojo_sessions_active[2m])
+                    )
+                instant: true
+                refId: A
+              refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+            - datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: A
+                refId: C
+                type: threshold
+              refId: C
+          execErrState: Error
+          for: 1m
+          labels:
+            severity: critical
+          noDataState: OK
+          title: KubedojoDown
+          uid: kubedojo-down
+        - annotations:
+            description: Open the Platform health dashboard, find the failing route and follow a trace to its logs.
+            summary: More than 5% of API requests fail
+          condition: C
+          data:
+            - datasourceUid: prometheus
+              model:
+                expr: |-
+                    count(
+                    sum(rate(http_server_request_duration_seconds_count{service_name="kubedojo",http_response_status_code=~"5.."}[10m]))
+                      / sum(rate(http_server_request_duration_seconds_count{service_name="kubedojo"}[10m])) > 0.05
+                    )
+                instant: true
+                refId: A
+              refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+            - datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: A
+                refId: C
+                type: threshold
+              refId: C
+          execErrState: Error
+          for: 10m
+          labels:
+            severity: warning
+          noDataState: OK
+          title: KubedojoHighErrorRate
+          uid: kubedojo-high-error-rate
+        - annotations:
+            description: Learners cannot start sessions. The traces of sandbox.provision show which step fails. Check Docker or the sandbox Pods, and free memory and disk.
+            summary: More than 20% of sandboxes fail to start
+          condition: C
+          data:
+            - datasourceUid: prometheus
+              model:
+                expr: |-
+                    count(
+                    sum(rate(kubedojo_sandbox_provision_duration_seconds_count{result="error"}[15m]))
+                      / sum(rate(kubedojo_sandbox_provision_duration_seconds_count[15m])) > 0.2
+                    )
+                instant: true
+                refId: A
+              refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+            - datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: A
+                refId: C
+                type: threshold
+              refId: C
+          execErrState: Error
+          for: 10m
+          labels:
+            severity: warning
+          noDataState: OK
+          title: KubedojoSandboxProvisioningFails
+          uid: kubedojo-sandbox-provisioning-fails
+        - annotations:
+            description: Usually images that are loaded on a cold node, or CPU pressure. The traces of sandbox.provision show where the time goes.
+            summary: Sandboxes take more than 5 minutes to start (p95)
+          condition: C
+          data:
+            - datasourceUid: prometheus
+              model:
+                expr: |-
+                    count(
+                    histogram_quantile(0.95, sum by (le) (rate(kubedojo_sandbox_provision_duration_seconds_bucket{result="ok"}[30m]))) > 300
+                    )
+                instant: true
+                refId: A
+              refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+            - datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: A
+                refId: C
+                type: threshold
+              refId: C
+          execErrState: Error
+          for: 15m
+          labels:
+            severity: warning
+          noDataState: OK
+          title: KubedojoSandboxProvisioningSlow
+          uid: kubedojo-sandbox-provisioning-slow
+        - annotations:
+            description: New sessions are rejected. Raise the session limit together with the capacity behind it, or shorten the idle TTL.
+            summary: Every sandbox slot is in use
+          condition: C
+          data:
+            - datasourceUid: prometheus
+              model:
+                expr: |-
+                    count(
+                    sum(kubedojo_sandboxes_active) >= max(kubedojo_sandboxes_limit)
+                    )
+                instant: true
+                refId: A
+              refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+            - datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: A
+                refId: C
+                type: threshold
+              refId: C
+          execErrState: Error
+          for: 15m
+          labels:
+            severity: info
+          noDataState: OK
+          title: KubedojoSessionLimitReached
+          uid: kubedojo-session-limit-reached
+        - annotations:
+            description: Clusters start to fail and the machine swaps. End sessions you do not need, or give Docker more memory.
+            summary: Sandboxes use more than 85% of Docker's memory
+          condition: C
+          data:
+            - datasourceUid: prometheus
+              model:
+                expr: |-
+                    count(
+                    sum(kubedojo_sandbox_memory_usage_bytes) / max(kubedojo_docker_memory_limit_bytes) > 0.85
+                    )
+                instant: true
+                refId: A
+              refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+            - datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: A
+                refId: C
+                type: threshold
+              refId: C
+          execErrState: Error
+          for: 5m
+          labels:
+            severity: warning
+          noDataState: OK
+          title: KubedojoSandboxMemoryPressure
+          uid: kubedojo-sandbox-memory-pressure
+        - annotations:
+            description: Traces, metrics or logs are being lost. See the Telemetry pipeline dashboard.
+            summary: The collector refuses telemetry
+          condition: C
+          data:
+            - datasourceUid: prometheus
+              model:
+                expr: |-
+                    count(
+                    sum(rate(otelcol_receiver_refused_spans_total[5m])) + sum(rate(otelcol_receiver_refused_metric_points_total[5m]))
+                      + sum(rate(otelcol_receiver_refused_log_records_total[5m])) > 0
+                    )
+                instant: true
+                refId: A
+              refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+            - datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: A
+                refId: C
+                type: threshold
+              refId: C
+          execErrState: Error
+          for: 5m
+          labels:
+            severity: warning
+          noDataState: OK
+          title: KubedojoTelemetryRefused
+          uid: kubedojo-telemetry-refused

@@ -62,6 +62,7 @@ func TestMetricCatalogMatchesTheInstruments(t *testing.T) {
 	ctx := context.Background()
 	// Every instrument, at least once.
 	tel.ObserveSessions(func() (int, int) { return 1, 1 })
+	tel.ObserveCapacity(func() (int, int) { return 1, 3 })
 	tel.ObserveSandboxes(func() (map[string]SandboxUsage, int64) {
 		return map[string]SandboxUsage{"node": {Containers: 1, MemoryBytes: 1, CPU: 1}}, 1
 	})

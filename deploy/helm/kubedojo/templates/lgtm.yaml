@@ -14,7 +14,7 @@ spec:
       labels: {app.kubernetes.io/name: kubedojo-lgtm, app.kubernetes.io/instance: {{ .Release.Name }}}
       annotations:
         # Grafana reads provisioning files at start: a changed file restarts the Pod.
-        checksum/provisioning: {{ (.Files.Glob "observability/*.yaml").AsConfig | sha256sum }}
+        checksum/provisioning: {{ (.Files.Glob "observability/{datasources,dashboards-provider,grafana-alerts}.yaml").AsConfig | sha256sum }}
     spec:
       containers:
         - name: lgtm
@@ -32,6 +32,7 @@ spec:
             - {name: dashboards, mountPath: /otel-lgtm/kubedojo-dashboards}
             - {name: provisioning, mountPath: /otel-lgtm/grafana/conf/provisioning/dashboards/kubedojo.yaml, subPath: dashboards-provider.yaml}
             - {name: provisioning, mountPath: /otel-lgtm/grafana/conf/provisioning/datasources/grafana-datasources.yaml, subPath: datasources.yaml}
+            - {name: provisioning, mountPath: /otel-lgtm/grafana/conf/provisioning/alerting/kubedojo.yaml, subPath: grafana-alerts.yaml}
       volumes:
         - name: provisioning
           configMap: {name: {{ $name }}-provisioning}
@@ -45,7 +46,7 @@ metadata:
   name: {{ $name }}-provisioning
   labels: {{- include "kubedojo.labels" . | nindent 4 }}
 data:
-  {{- range $path, $_ := .Files.Glob "observability/*.yaml" }}
+  {{- range $path, $_ := .Files.Glob "observability/{datasources,dashboards-provider,grafana-alerts}.yaml" }}
   {{ base $path }}: |-
     {{- $.Files.Get $path | nindent 4 }}
   {{- end }}

@@ -1,5 +1,46 @@
 {
   "comment": "Metrics that dashboards and alert rules may query. tools/obslint checks every query against this file. 'kubedojo' is generated from the instruments: UPDATE_CATALOG=1 go test ./internal/telemetry/",
+  "external": [
+    {
+      "name": "http_server_request_duration_seconds",
+      "type": "histogram",
+      "where": [
+        "shared",
+        "local",
+        "lgtm",
+        "kubernetes"
+      ],
+      "source": "otelhttp, the HTTP instrumentation of the API"
+    },
+    {
+      "prefix": "otelcol_",
+      "where": [
+        "lgtm"
+      ],
+      "source": "the OpenTelemetry Collector inside grafana/otel-lgtm"
+    },
+    {
+      "prefix": "traces_",
+      "where": [
+        "lgtm"
+      ],
+      "source": "Tempo's metrics generator inside grafana/otel-lgtm"
+    },
+    {
+      "prefix": "container_",
+      "where": [
+        "kubernetes"
+      ],
+      "source": "kubelet/cAdvisor"
+    },
+    {
+      "prefix": "kube_pod_",
+      "where": [
+        "kubernetes"
+      ],
+      "source": "kube-state-metrics"
+    }
+  ],
   "kubedojo": [
     {
       "name": "kubedojo_check_runs_total",
@@ -78,6 +119,16 @@
       ]
     },
     {
+      "name": "kubedojo_sandboxes_active",
+      "type": "gauge",
+      "labels": []
+    },
+    {
+      "name": "kubedojo_sandboxes_limit",
+      "type": "gauge",
+      "labels": []
+    },
+    {
       "name": "kubedojo_sessions_active",
       "type": "gauge",
       "labels": [
@@ -95,46 +146,5 @@
     "kubedojo_sandbox_cpu_usage",
     "kubedojo_sandbox_memory_usage_bytes",
     "kubedojo_docker_memory_limit_bytes"
-  ],
-  "external": [
-    {
-      "name": "http_server_request_duration_seconds",
-      "type": "histogram",
-      "where": [
-        "shared",
-        "local",
-        "lgtm",
-        "kubernetes"
-      ],
-      "source": "otelhttp, the HTTP instrumentation of the API"
-    },
-    {
-      "prefix": "otelcol_",
-      "where": [
-        "lgtm"
-      ],
-      "source": "the OpenTelemetry Collector inside grafana/otel-lgtm"
-    },
-    {
-      "prefix": "traces_",
-      "where": [
-        "lgtm"
-      ],
-      "source": "Tempo's metrics generator inside grafana/otel-lgtm"
-    },
-    {
-      "prefix": "container_",
-      "where": [
-        "kubernetes"
-      ],
-      "source": "kubelet/cAdvisor"
-    },
-    {
-      "prefix": "kube_pod_",
-      "where": [
-        "kubernetes"
-      ],
-      "source": "kube-state-metrics"
-    }
   ]
 }

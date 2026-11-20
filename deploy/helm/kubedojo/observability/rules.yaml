@@ -1,0 +1,81 @@
+# kubedojo's alert rules, written once.
+#
+# From this file come
+#   - the PrometheusRule of the chart (alerts.enabled), rendered by
+#     templates/alerts.yaml from the rules with scope kubernetes;
+#   - grafana-alerts.yaml, the Grafana-managed rules of the single-container
+#     stack (`kubedojo up --observability`, lgtm.enabled), from the rules with
+#     scope local. Regenerate it after a change:
+#       UPDATE_ALERTS=1 go test ./deploy/helm/kubedojo/observability/
+#
+# expr is a PromQL condition: it returns series while the alert is active and
+# nothing otherwise. Do not use Go templates or dollar signs in the texts.
+rules:
+  - name: KubedojoDown
+    scope: [local, kubernetes]
+    # Not absent(): kubedojo pushes its metrics, and Prometheus keeps the last
+    # pushed sample visible for five more minutes. absent_over_time looks at
+    # the samples themselves; kubedojo sends one every 15 seconds.
+    expr: absent_over_time(kubedojo_sessions_active[2m])
+    for: 8m
+    # Locally the stack outlives kubedojo on purpose; three minutes without a
+    # sample are enough to tell a restart from a server that is gone.
+    localFor: 1m
+    severity: critical
+    summary: kubedojo reports no metrics
+    description: No kubedojo_sessions_active sample for minutes. The server is down, or its telemetry does not arrive.
+
+  - name: KubedojoHighErrorRate
+    scope: [local, kubernetes]
+    expr: |-
+      sum(rate(http_server_request_duration_seconds_count{service_name="kubedojo",http_response_status_code=~"5.."}[10m]))
+        / sum(rate(http_server_request_duration_seconds_count{service_name="kubedojo"}[10m])) > 0.05
+    for: 10m
+    severity: warning
+    summary: More than 5% of API requests fail
+    description: Open the Platform health dashboard, find the failing route and follow a trace to its logs.
+
+  - name: KubedojoSandboxProvisioningFails
+    scope: [local, kubernetes]
+    expr: |-
+      sum(rate(kubedojo_sandbox_provision_duration_seconds_count{result="error"}[15m]))
+        / sum(rate(kubedojo_sandbox_provision_duration_seconds_count[15m])) > 0.2
+    for: 10m
+    severity: warning
+    summary: More than 20% of sandboxes fail to start
+    description: Learners cannot start sessions. The traces of sandbox.provision show which step fails. Check Docker or the sandbox Pods, and free memory and disk.
+
+  - name: KubedojoSandboxProvisioningSlow
+    scope: [local, kubernetes]
+    expr: |-
+      histogram_quantile(0.95, sum by (le) (rate(kubedojo_sandbox_provision_duration_seconds_bucket{result="ok"}[30m]))) > 300
+    for: 15m
+    severity: warning
+    summary: Sandboxes take more than 5 minutes to start (p95)
+    description: Usually images that are loaded on a cold node, or CPU pressure. The traces of sandbox.provision show where the time goes.
+
+  - name: KubedojoSessionLimitReached
+    scope: [local, kubernetes]
+    expr: sum(kubedojo_sandboxes_active) >= max(kubedojo_sandboxes_limit)
+    for: 15m
+    severity: info
+    summary: Every sandbox slot is in use
+    description: New sessions are rejected. Raise the session limit together with the capacity behind it, or shorten the idle TTL.
+
+  - name: KubedojoSandboxMemoryPressure
+    scope: [local]
+    expr: sum(kubedojo_sandbox_memory_usage_bytes) / max(kubedojo_docker_memory_limit_bytes) > 0.85
+    for: 5m
+    severity: warning
+    summary: Sandboxes use more than 85% of Docker's memory
+    description: Clusters start to fail and the machine swaps. End sessions you do not need, or give Docker more memory.
+
+  - name: KubedojoTelemetryRefused
+    scope: [local]
+    expr: |-
+      sum(rate(otelcol_receiver_refused_spans_total[5m])) + sum(rate(otelcol_receiver_refused_metric_points_total[5m]))
+        + sum(rate(otelcol_receiver_refused_log_records_total[5m])) > 0
+    for: 5m
+    severity: warning
+    summary: The collector refuses telemetry
+    description: Traces, metrics or logs are being lost. See the Telemetry pipeline dashboard.

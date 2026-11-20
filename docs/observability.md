@@ -78,6 +78,8 @@ Names as they appear in Prometheus/Mimir:
 |---|---|---|---|
 | `kubedojo_sessions_active` | gauge | `mode` | live sessions; each owns a sandbox, except in the theory tracks |
 | `kubedojo_terminal_connections` | gauge | | open browser terminals |
+| `kubedojo_sandboxes_active` | gauge | | sessions that own a sandbox; these count against the session limit |
+| `kubedojo_sandboxes_limit` | gauge | | the session limit (`--max-sessions`) |
 | `kubedojo_sandbox_provision_duration_seconds` | histogram | `track`, `mode`, `result` | time until a cluster (practice) or a whole exam environment is ready |
 | `kubedojo_check_runs_total` | counter | `track`, `question`, `mode`, `result` | graded questions |
 | `kubedojo_question_score_ratio` | histogram | `track`, `mode` | share of points per graded question |
@@ -160,16 +162,39 @@ dashboards follow. LogQL and TraceQL are not parsed; they are run against the re
 
 ## Alerts
 
-`alerts.enabled: true` installs a `PrometheusRule` (Prometheus Operator, or Mimir through Alloy's
-`mimir.rules.kubernetes`):
+The rules are written once, in
+[`observability/rules.yaml`](../deploy/helm/kubedojo/observability/rules.yaml), and installed in two
+forms:
 
-| Alert | Fires when |
-|---|---|
-| `KubedojoDown` | no metrics for 10 minutes |
-| `KubedojoSandboxProvisioningFails` | more than 20% of sandbox starts fail |
-| `KubedojoSandboxProvisioningSlow` | p95 start time above 5 minutes |
-| `KubedojoSessionLimitReached` | all session slots in use for 15 minutes |
-| `KubedojoHighErrorRate` | more than 5% of API requests return 5xx |
+- **Local stack and `lgtm.enabled`**: Grafana-managed rules, provisioned at start. They are in Grafana
+  under *Alerting → Alert rules*, folder *kubedojo*.
+- **Your own stack**: `alerts.enabled: true` installs a `PrometheusRule` (Prometheus Operator, or
+  Mimir through Alloy's `mimir.rules.kubernetes`).
+
+| Alert | Fires when | Local | Kubernetes |
+|---|---|---|---|
+| `KubedojoDown` | no metric sample arrives: after 3 minutes locally, 10 in a cluster | ✓ | ✓ |
+| `KubedojoHighErrorRate` | more than 5% of API requests return 5xx for 10 minutes | ✓ | ✓ |
+| `KubedojoSandboxProvisioningFails` | more than 20% of sandbox starts fail | ✓ | ✓ |
+| `KubedojoSandboxProvisioningSlow` | p95 start time above 5 minutes | ✓ | ✓ |
+| `KubedojoSessionLimitReached` | every sandbox slot in use for 15 minutes | ✓ | ✓ |
+| `KubedojoSandboxMemoryPressure` | sandboxes use more than 85% of Docker's memory | ✓ | |
+| `KubedojoTelemetryRefused` | the collector refuses telemetry | ✓ | |
+
+**Visible in Grafana only.** The local stack provisions no contact point and no notification policy.
+Alerts go to Grafana's default receiver, an e-mail contact point without a mail server: nothing is
+sent. To be notified, add a contact point in Grafana (*Alerting → Contact points*) and make it the
+default policy's receiver; that lives in the data volume and survives restarts.
+
+**Try one.** Start `kubedojo up --observability`, wait a minute, then stop kubedojo with Ctrl+C and
+leave the stack running. `KubedojoDown` turns *Pending* after about three minutes and *Firing* a
+minute later. Start kubedojo again and it returns to *Normal*.
+
+There is no disk alert: kubedojo measures no disk. In a cluster, use the node and kubelet alerts of
+your monitoring stack for sandbox nodes.
+
+To change a rule, edit `rules.yaml`, then run
+`UPDATE_ALERTS=1 go test ./deploy/helm/kubedojo/observability/` and `make lint-dashboards`.
 
 ## Learner feedback
 

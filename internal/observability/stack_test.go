@@ -145,6 +145,7 @@ func TestUpStartsAPinnedLoopbackStack(t *testing.T) {
 		":/otel-lgtm/kubedojo-dashboards:ro",
 		":/otel-lgtm/grafana/conf/provisioning/dashboards/kubedojo.yaml:ro",
 		":/otel-lgtm/grafana/conf/provisioning/datasources/grafana-datasources.yaml:ro",
+		":/otel-lgtm/grafana/conf/provisioning/alerting/kubedojo.yaml:ro",
 	} {
 		if !strings.Contains(line, want) {
 			t.Errorf("docker run lacks %q:\n%s", want, line)

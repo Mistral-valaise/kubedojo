@@ -2,7 +2,10 @@ module github.com/Mistral-valaise/kubedojo/tools/obslint
 
 go 1.26.11
 
-require github.com/prometheus/prometheus v0.316.0
+require (
+	github.com/prometheus/prometheus v0.316.0
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect

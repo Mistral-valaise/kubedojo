@@ -167,6 +167,7 @@ func (s *Stack) files() (dash []file, prov []file, err error) {
 	prov = []file{
 		{rel: "kubedojo.yaml", target: provisioning.DashboardProviderPath, data: provisioning.DashboardProvider},
 		{rel: "datasources.yaml", target: provisioning.DatasourcesPath, data: provisioning.Datasources},
+		{rel: "alerts.yaml", target: provisioning.GrafanaAlertsPath, data: provisioning.GrafanaAlerts},
 	}
 	return dash, prov, nil
 }

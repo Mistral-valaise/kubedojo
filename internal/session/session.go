@@ -1303,6 +1303,14 @@ func (m *Manager) ActiveCount() (practice, exam int) {
 	return
 }
 
+// Capacity reports how many sessions own a sandbox, and how many may: the
+// limit of --max-sessions. Sessions of theory tracks own none and do not count.
+func (m *Manager) Capacity() (used, limit int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.activeCount(), m.max
+}
+
 // Exec runs a script for a question the way its setup and checks run: as the
 // script account of the role. An empty role is the main machine of the
 // question's environment.
