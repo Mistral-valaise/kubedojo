@@ -145,7 +145,7 @@ func TestDestroyDoesNotRecreateAMissingSandbox(t *testing.T) {
 // against a fresh, empty Pod and failed with an error nobody could read.
 func TestWorkOnAMissingSandboxSaysSo(t *testing.T) {
 	hosts := &pods{exists: map[string]bool{}}
-	mgr, _, _, sid := hosted(t, hosts)
+	mgr, _, st, sid := hosted(t, hosts)
 	before := hosts.count()
 	hosts.evict(sid)
 
@@ -155,6 +155,13 @@ func TestWorkOnAMissingSandboxSaysSo(t *testing.T) {
 	v, _ := mgr.View(sid)
 	if _, err := mgr.Exec(context.Background(), sid, v.Questions[0].ID, "", "true"); !errors.Is(err, session.ErrSandboxGone) {
 		t.Fatalf("Exec = %v, want ErrSandboxGone", err)
+	}
+	// A check must not be graded, and not be recorded as a failed attempt.
+	if _, err := mgr.Check(context.Background(), sid, v.Questions[0].ID); !errors.Is(err, session.ErrSandboxGone) {
+		t.Fatalf("Check = %v, want ErrSandboxGone", err)
+	}
+	if attempts, _ := st.Attempts("cka", ""); len(attempts) != 0 {
+		t.Fatalf("a check without a sandbox was recorded: %+v", attempts)
 	}
 	if !errors.Is(session.ErrSandboxGone, session.ErrConflict) {
 		t.Fatal("ErrSandboxGone must be a conflict, so that the API answers 409 with its text")
@@ -194,5 +201,46 @@ func TestOrphanedSandboxesAreRemovedAtStart(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatal("the manager never reconciled")
 		}
+	}
+}
+
+// An exam whose sandbox disappeared is not graded with zero points.
+func TestExamWithoutItsSandboxIsNotGraded(t *testing.T) {
+	hosts := &pods{exists: map[string]bool{}}
+	cat, _ := catalog.Load(content.FS)
+	st, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	mgr, err := session.NewManager(session.Config{Catalog: cat, Store: st, Driver: &sandboxtest.Driver{}, Hosts: hosts, GradeSettle: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.Close()
+	ses, err := mgr.NewExam("cka", session.ExamOptions{Questions: 2, Minutes: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if v, _ := mgr.View(ses.ID); v != nil && v.Status == session.StatusReady {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the exam never became ready")
+		}
+	}
+	if err := mgr.Start(ses.ID); err != nil {
+		t.Fatal(err)
+	}
+	hosts.evict(ses.ID)
+	if err := mgr.Finish(context.Background(), ses.ID); !errors.Is(err, session.ErrSandboxGone) {
+		t.Fatalf("Finish = %v, want ErrSandboxGone", err)
+	}
+	if v, _ := mgr.View(ses.ID); v.Status != session.StatusRunning || v.Report != nil {
+		t.Fatalf("the exam is %q with report %+v; want it untouched", v.Status, v.Report)
+	}
+	if exams, _ := st.Exams("cka", ""); len(exams) != 0 {
+		t.Fatalf("an exam without a sandbox was recorded: %+v", exams)
 	}
 }
