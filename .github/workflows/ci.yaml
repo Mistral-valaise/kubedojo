@@ -75,6 +75,14 @@ jobs:
           opts="--set lgtm.enabled=true --set alerts.enabled=true --set ingress.enabled=true --set dashboards.enabled=false"
           helm lint deploy/helm/kubedojo $opts
           helm template kubedojo deploy/helm/kubedojo $opts > /dev/null
+      # values.schema.json must stop values that cannot work.
+      - name: Chart rejects bad values
+        run: |
+          for bad in maxSessions=0 sandbox.resources.memoryRequest=3GB sandbox.resources.cpuLimt=4 sandbox.resources.ephemeralStorageRequest= idleTTL=soon; do
+            if helm template kubedojo deploy/helm/kubedojo --set "$bad" > /dev/null 2>&1; then
+              echo "::error::the chart accepts $bad"; exit 1
+            fi
+          done
 
   # The local observability stack in real Docker: start it, send a trace, a log
   # record and a metric and read them back with the links between them, restart

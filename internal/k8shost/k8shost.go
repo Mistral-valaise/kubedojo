@@ -25,24 +25,38 @@ const saDir = "/var/run/secrets/kubernetes.io/serviceaccount"
 
 // Config describes the sandbox Pods.
 type Config struct {
-	Namespace    string            // where sandbox Pods are created
-	Image        string            // Docker-in-Docker image with the sandbox images preloaded
-	CPURequest   string            // e.g. "1"
-	MemRequest   string            // e.g. "3Gi"
-	MemLimit     string            // e.g. "6Gi"
-	NodeSelector map[string]string // dedicated node pool
-	Toleration   string            // taint key tolerated by sandbox Pods (effect NoSchedule)
-	PullSecret   string
+	Namespace string // where sandbox Pods are created
+	Image     string // Docker-in-Docker image with the sandbox images preloaded
+	// Resources of one sandbox, as Kubernetes quantities. Requests are what
+	// the scheduler reserves on a node, limits are what a sandbox may use at
+	// most. See Validate for what is accepted.
+	CPURequest string // e.g. "1"
+	CPULimit   string // e.g. "4"; empty for none
+	MemRequest string // e.g. "3Gi"
+	MemLimit   string // e.g. "8Gi"; empty for none
+	// Ephemeral storage is the node's disk: the sandbox's Docker data
+	// (images, the clusters' container filesystems) lives in an emptyDir.
+	// Above the limit the kubelet evicts the Pod, which ends the session.
+	EphemeralRequest string            // e.g. "10Gi"
+	EphemeralLimit   string            // e.g. "30Gi"; empty for none
+	NodeSelector     map[string]string // dedicated node pool
+	Toleration       string            // taint key tolerated by sandbox Pods (effect NoSchedule)
+	PullSecret       string
 }
 
 type Provider struct {
 	cfg    Config
 	api    string
 	client *http.Client
+	// token returns the bearer token of a request.
+	token func() (string, error)
 }
 
 // New builds a provider from the in-cluster ServiceAccount.
 func New(cfg Config) (*Provider, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	host, port := os.Getenv("KUBERNETES_SERVICE_HOST"), os.Getenv("KUBERNETES_SERVICE_PORT")
 	if host == "" {
 		return nil, fmt.Errorf("sandbox host \"kubernetes\" only works inside a cluster (KUBERNETES_SERVICE_HOST is not set)")
@@ -58,8 +72,15 @@ func New(cfg Config) (*Provider, error) {
 		cfg.Namespace = strings.TrimSpace(string(ns))
 	}
 	return &Provider{cfg: cfg, api: "https://" + net.JoinHostPort(host, port),
-		client: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}}}, nil
+		client: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}},
+		token: func() (string, error) {
+			b, err := os.ReadFile(saDir + "/token") // re-read: projected tokens rotate
+			return strings.TrimSpace(string(b)), err
+		}}, nil
 }
+
+// Namespace is where the sandbox Pods are created.
+func (p *Provider) Namespace() string { return p.cfg.Namespace }
 
 func podName(sessionID string) string { return "kd-sandbox-" + sessionID }
 
@@ -76,11 +97,11 @@ func (p *Provider) do(ctx context.Context, method, path string, body any) (int, 
 	if err != nil {
 		return 0, nil, err
 	}
-	token, err := os.ReadFile(saDir + "/token") // re-read: projected tokens rotate
+	token, err := p.token()
 	if err != nil {
 		return 0, nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
+	req.Header.Set("Authorization", "Bearer "+token)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -182,9 +203,22 @@ func (p *Provider) Release(ctx context.Context, sessionID string) error {
 }
 
 func (p *Provider) manifest(name, sessionID string) map[string]any {
-	res := map[string]any{"requests": map[string]string{"cpu": p.cfg.CPURequest, "memory": p.cfg.MemRequest}}
-	if p.cfg.MemLimit != "" {
-		res["limits"] = map[string]string{"memory": p.cfg.MemLimit}
+	requests := map[string]string{"cpu": p.cfg.CPURequest, "memory": p.cfg.MemRequest, "ephemeral-storage": p.cfg.EphemeralRequest}
+	limits := map[string]string{}
+	for k, v := range map[string]string{"cpu": p.cfg.CPULimit, "memory": p.cfg.MemLimit, "ephemeral-storage": p.cfg.EphemeralLimit} {
+		if v != "" {
+			limits[k] = v
+		}
+	}
+	res := map[string]any{"requests": requests}
+	if len(limits) > 0 {
+		res["limits"] = limits
+	}
+	// Docker's data is all of the sandbox's disk use. The size limit makes
+	// the kubelet evict a sandbox that fills it, before the node's disk is full.
+	docker := map[string]any{}
+	if p.cfg.EphemeralLimit != "" {
+		docker["sizeLimit"] = p.cfg.EphemeralLimit
 	}
 	spec := map[string]any{
 		"restartPolicy":                 "Never",
@@ -207,7 +241,7 @@ func (p *Provider) manifest(name, sessionID string) map[string]any {
 			},
 		}},
 		"volumes": []any{
-			map[string]any{"name": "docker", "emptyDir": map[string]any{}},
+			map[string]any{"name": "docker", "emptyDir": docker},
 			map[string]any{"name": "modules", "hostPath": map[string]any{"path": "/lib/modules"}},
 		},
 	}

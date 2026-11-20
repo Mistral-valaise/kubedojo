@@ -66,12 +66,20 @@ spec:
             - name: KUBEDOJO_REGISTRY_MIRROR
               value: {{ .Values.sandbox.registryMirror | quote }}
             {{- end }}
+            {{- with .Values.sandbox.resources }}
             - name: KUBEDOJO_SANDBOX_CPU_REQUEST
-              value: {{ .Values.sandbox.resources.cpuRequest | quote }}
+              value: {{ .cpuRequest | quote }}
+            - name: KUBEDOJO_SANDBOX_CPU_LIMIT
+              value: {{ .cpuLimit | default "" | quote }}
             - name: KUBEDOJO_SANDBOX_MEMORY_REQUEST
-              value: {{ .Values.sandbox.resources.memoryRequest | quote }}
+              value: {{ .memoryRequest | quote }}
             - name: KUBEDOJO_SANDBOX_MEMORY_LIMIT
-              value: {{ .Values.sandbox.resources.memoryLimit | quote }}
+              value: {{ .memoryLimit | default "" | quote }}
+            - name: KUBEDOJO_SANDBOX_EPHEMERAL_REQUEST
+              value: {{ .ephemeralStorageRequest | quote }}
+            - name: KUBEDOJO_SANDBOX_EPHEMERAL_LIMIT
+              value: {{ .ephemeralStorageLimit | default "" | quote }}
+            {{- end }}
             {{- if .Values.sandbox.nodeSelector }}
             - name: KUBEDOJO_SANDBOX_NODE_SELECTOR
               value: {{ $sel := list }}{{ range $k, $v := .Values.sandbox.nodeSelector }}{{ $sel = append $sel (printf "%s=%s" $k $v) }}{{ end }}{{ join "," $sel | quote }}

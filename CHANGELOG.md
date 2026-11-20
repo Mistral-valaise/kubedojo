@@ -62,6 +62,12 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
 - Helm: `lgtm.image` is pinned to the tested version, and `lgtm.enabled` no longer breaks when
   `dashboards.enabled` is off or `dashboards.namespace` is set. The stack has its own copy of the
   dashboards.
+- **Helm: a sandbox has CPU and disk bounds.** New values `sandbox.resources.cpuLimit` (default 4),
+  `ephemeralStorageRequest` (10Gi) and `ephemeralStorageLimit` (30Gi); the Docker volume of a
+  sandbox is limited to the same size. Before, a sandbox had no CPU limit and could fill the node's
+  disk. **This changes scheduling**: a node now needs 10 Gi of free ephemeral storage per sandbox.
+- The server checks the sandbox resources at start and names what is wrong, and the chart has a
+  schema: a misspelled key or a value like `3GB` fails `helm install` instead of a session.
 
 ### Fixed
 
