@@ -119,6 +119,9 @@
               "type": "string"
             }
           }
+        },
+        "allowUnauthenticated": {
+          "type": "boolean"
         }
       }
     },
@@ -194,8 +197,7 @@
           },
           "required": [
             "cpuRequest",
-            "memoryRequest",
-            "ephemeralStorageRequest"
+            "memoryRequest"
           ],
           "additionalProperties": false,
           "description": "What one sandbox Pod requests and may use. The server checks request <= limit and the bounds at start."
@@ -217,6 +219,14 @@
           "properties": {
             "enabled": {
               "type": "boolean"
+            },
+            "extraExceptCIDRs": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){3}/[0-9]{1,2}$",
+                "description": "An IPv4 CIDR such as 203.0.113.10/32."
+              }
             }
           }
         }
@@ -283,6 +293,9 @@
           "items": {
             "type": "string"
           }
+        },
+        "cookieSecure": {
+          "type": "boolean"
         }
       }
     },
@@ -358,6 +371,26 @@
         "resources": {
           "type": "object"
         }
+      }
+    },
+    "shutdownGraceSeconds": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 3600
+    },
+    "extraEnv": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ]
+      }
+    },
+    "extraEnvFrom": {
+      "type": "array",
+      "items": {
+        "type": "object"
       }
     }
   }

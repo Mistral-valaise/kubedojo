@@ -11,6 +11,15 @@ maxSessions: 5
 maxTerminals: 4
 # Remove sandboxes nobody used for this long. "0" disables the cleanup.
 idleTTL: 3h
+# When the Pod is stopped (an upgrade, a node drain), the server waits this
+# long for running work: an exam being graded, a cluster being created. What
+# is still running then is recorded as interrupted. The Pod's termination
+# grace period is 15 seconds longer.
+shutdownGraceSeconds: 60
+
+# More environment for the server, e.g. OTEL_EXPORTER_OTLP_HEADERS from a Secret.
+extraEnv: []
+extraEnvFrom: []
 
 resources:
   requests: {cpu: 100m, memory: 128Mi}
@@ -28,7 +37,17 @@ service:
 
 ingress:
   enabled: false
+  # Publishing kubedojo without a login gives everyone who reaches the host a
+  # root shell in a privileged Pod. The chart refuses ingress.enabled without
+  # oidc.enabled unless you say that access is restricted some other way.
+  allowUnauthenticated: false
   className: ""
+  # The chart sets no annotations: they are specific to the ingress
+  # controller. The terminal is a WebSocket that stays open for hours.
+  #   Traefik (k3s): no annotation needed; see docs/deployment.md for timeouts.
+  #   ingress-nginx:
+  #     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  #     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
   annotations: {}
   host: kubedojo.example.com
   tls:
@@ -67,10 +86,17 @@ sandbox:
   tolerationKey: ""
   # URL of an existing Docker Hub mirror (used when registryCache.enabled is false).
   registryMirror: ""
-  # Only the kubedojo server may reach the Docker daemons of sandbox Pods.
-  # Requires a CNI that enforces NetworkPolicies.
+  # Only the kubedojo server may reach the Docker daemons of sandbox Pods, and
+  # sandboxes may not reach private addresses. Requires a CNI that enforces
+  # NetworkPolicies: k3s does (kube-router), unless it was started with
+  # --disable-network-policy.
   networkPolicy:
     enabled: true
+    # More destinations sandboxes must not reach, as CIDRs. A node with a
+    # PUBLIC address belongs here: it is not in the private ranges, and its
+    # kubelet, API server and SSH would be reachable from every sandbox.
+    #   extraExceptCIDRs: [203.0.113.10/32]
+    extraExceptCIDRs: []
 
 # -- Image cache
 # A pull-through cache for Docker Hub shared by all sandboxes. Set
@@ -96,6 +122,9 @@ oidc:
   # Secret with the keys `client-secret` and `cookie-secret` (32 random bytes, base64).
   existingSecret: ""
   emailDomains: ["*"]
+  # The session cookie is only sent over HTTPS. Turn this off only for a test
+  # over plain HTTP: with it on, a login over HTTP loops forever.
+  cookieSecure: true
   image: quay.io/oauth2-proxy/oauth2-proxy:v7.9.0
   extraArgs: []
 
