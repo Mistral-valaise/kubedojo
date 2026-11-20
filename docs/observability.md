@@ -7,13 +7,55 @@ Grafana LGTM stack (Loki, Grafana, Tempo, Mimir) behind Grafana Alloy, and works
 
 | Mode | How |
 |---|---|
-| Local, batteries included | `kubedojo up --observability` — starts `grafana/otel-lgtm` and loads the dashboards. Grafana: <http://localhost:3000> |
+| Local, batteries included | `kubedojo up --observability` — starts the [local stack](#the-local-stack) and loads the dashboards. Grafana: <http://localhost:3000> |
 | Local, your own collector | `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 kubedojo up` |
 | Helm, your stack | `telemetry.otlpEndpoint: http://alloy.monitoring.svc:4318` |
 | Helm, evaluation | `lgtm.enabled: true` — a throwaway single-container stack |
 
-All standard `OTEL_*` environment variables are honoured (headers, per-signal endpoints, resource
-attributes). Without an endpoint, telemetry is off and costs nothing.
+The standard `OTEL_*` environment variables for endpoints, headers and resource attributes are
+honoured. The transport is always OTLP over HTTP; `OTEL_EXPORTER_OTLP_PROTOCOL` is not read. Without
+an endpoint, telemetry is off and costs nothing.
+
+## The local stack
+
+`kubedojo up --observability` runs one container, `kubedojo-lgtm`, from the image
+`grafana/otel-lgtm`. It holds Grafana, Prometheus, Loki, Tempo and an OpenTelemetry Collector. The
+image is pinned by version and digest to the one kubedojo is tested with. It needs Docker and nothing
+else: no Helm, no cluster.
+
+```sh
+kubedojo up --observability        # kubedojo on :4400, Grafana on :3000
+kubedojo observability status      # does it run, and where?
+kubedojo observability stop        # stop it, keep the data
+kubedojo observability reset       # stop it and delete the data
+```
+
+| Flag | Environment variable | Default | |
+|---|---|---|---|
+| `--observability` | `KUBEDOJO_OBSERVABILITY` | off | start the stack and send telemetry to it |
+| `--grafana-port` | `KUBEDOJO_GRAFANA_PORT` | 3000 | local port of Grafana |
+| `--otlp-port` | `KUBEDOJO_OTLP_PORT` | 4318 | local port of the OTLP/HTTP receiver |
+| `--observability-retention` | `KUBEDOJO_OBSERVABILITY_RETENTION` | 168h | how long metrics, logs and traces are kept; at least 24h |
+| `--observability-ephemeral` | `KUBEDOJO_OBSERVABILITY_EPHEMERAL` | off | keep no data volume |
+| `--observability-image` | `KUBEDOJO_OBSERVABILITY_IMAGE` | the pinned image | run another `grafana/otel-lgtm` |
+
+What to expect:
+
+- **Loopback only.** Grafana and the OTLP receiver listen on 127.0.0.1. Grafana has no login; do not
+  publish its port.
+- **Starting twice is safe.** A running stack with the same settings is kept. With other settings it
+  is replaced; the data stays. If the new ports are taken, the running stack is left alone and the
+  error names the port, the flag and, if it is a container, who holds it.
+- **Your own collector wins.** If an `OTEL_EXPORTER_OTLP_*ENDPOINT` variable points somewhere else,
+  `--observability` stops with an error instead of redirecting your telemetry.
+- **Data.** Metrics, logs and traces live in the Docker volume `kubedojo-lgtm-data` and survive
+  `stop`, `kubedojo down` and a new kubedojo version. `kubedojo observability reset` deletes them.
+  Your progress is in `~/.kubedojo/kubedojo.db` and is never touched by any of this.
+- **Size.** About 550 MB of memory when idle and about 700 MB once telemetry arrives, measured on
+  macOS arm64 with Docker Desktop. The image is 0.9 GB to download. The volume starts at about 450 MB,
+  most of it Grafana plugins the image installs on first start.
+- **Only kubedojo's container.** A container named `kubedojo-lgtm` that kubedojo did not create is
+  never stopped or removed; the commands say so and stop.
 
 A minimal Alloy pipeline:
 

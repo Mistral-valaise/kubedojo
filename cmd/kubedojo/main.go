@@ -24,6 +24,7 @@ import (
 	"github.com/Mistral-valaise/kubedojo/internal/api"
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/export"
+	"github.com/Mistral-valaise/kubedojo/internal/observability"
 	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 	"github.com/Mistral-valaise/kubedojo/internal/session"
 	"github.com/Mistral-valaise/kubedojo/internal/store"
@@ -42,6 +43,8 @@ Usage:
   kubedojo doctor    Check that this machine can run sandboxes
   kubedojo down      Remove every sandbox kubedojo created
   kubedojo ratings   Show the feedback learners left on questions
+  kubedojo observability up | status | stop | reset
+                     The local Grafana stack of "kubedojo up --observability"
   kubedojo content lint          Validate the content
   kubedojo content test          Prove every question is solvable (needs Docker, except for theory tracks)
   kubedojo content export        Export questions as Killercoda scenarios
@@ -69,6 +72,8 @@ func main() {
 		err = cmdDown(ctx, os.Args[2:])
 	case "ratings":
 		err = cmdRatings(os.Args[2:])
+	case "observability":
+		err = cmdObservability(ctx, os.Args[2:])
 	case "content":
 		if len(os.Args) < 3 {
 			fmt.Print(usage)
@@ -132,10 +137,14 @@ func envDuration(key string, def time.Duration) time.Duration {
 	return def
 }
 
-func (c *common) register(fs *flag.FlagSet) {
+func defaultDataDir() string {
 	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".kubedojo")
+}
+
+func (c *common) register(fs *flag.FlagSet) {
 	fs.StringVar(&c.contentDir, "content", env("KUBEDOJO_CONTENT", ""), "load content from this directory instead of the built-in content")
-	fs.StringVar(&c.dataDir, "data", env("KUBEDOJO_DATA", filepath.Join(home, ".kubedojo")), "directory for the database")
+	fs.StringVar(&c.dataDir, "data", env("KUBEDOJO_DATA", defaultDataDir()), "directory for the database")
 	fs.StringVar(&c.k8sVersion, "kubernetes-version", env("KUBEDOJO_K8S_VERSION", "v1.37.0"), "Kubernetes version of the sandbox clusters")
 	fs.StringVar(&c.nodeImage, "node-image", env("KUBEDOJO_NODE_IMAGE", ""), "node image (default kubedojo/node:<kubernetes-version>)")
 	fs.BoolVar(&c.regCache, "registry-cache", env("KUBEDOJO_REGISTRY_CACHE", "true") != "false", "run a local pull-through cache for Docker Hub images")
@@ -181,7 +190,8 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 	hosts := fl.String("sandbox-host", env("KUBEDOJO_SANDBOX_HOST", "local"), "where sandboxes run: local | kubernetes")
 	idleTTL := fl.Duration("idle-ttl", envDuration("KUBEDOJO_IDLE_TTL", 0), "remove sandboxes that were not used for this long (0 = never)")
 	grace := fl.Duration("shutdown-grace", envDuration("KUBEDOJO_SHUTDOWN_GRACE", 25*time.Second), "on shutdown, wait this long for running operations (grading, provisioning) before cancelling them")
-	observability := fl.Bool("observability", false, "start a local Grafana LGTM stack and send traces, metrics and logs to it")
+	var obs obsFlags
+	obs.register(fl, true)
 	devOrigin := fl.String("dev-origin", env("KUBEDOJO_DEV_ORIGIN", ""), "extra allowed WebSocket origin (UI dev server)")
 	if err := fl.Parse(args); err != nil {
 		return err
@@ -191,20 +201,23 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 		log = slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	}
 
-	if *observability {
-		if err := startObservability(ctx, c.dataDir); err != nil {
+	// What can fail on a flag or on the environment fails first, before
+	// anything is started.
+	var stack *observability.Stack
+	if *obs.enabled {
+		var err error
+		if stack, err = obs.stack(c.dataDir); err != nil {
+			return fmt.Errorf("observability: %w", err)
+		}
+		if err := observability.CheckEndpoints(os.Getenv, stack.Endpoint()); err != nil {
 			return fmt.Errorf("observability: %w", err)
 		}
 	}
-	tel, err := telemetry.Setup(ctx, version, log)
+	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
-		return fmt.Errorf("telemetry: %w", err)
+		return fmt.Errorf("%w; choose another address with --addr", err)
 	}
-	defer tel.Shutdown()
-	log = tel.Logger
-	if tel.Enabled {
-		log.Info("telemetry enabled", "endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
-	}
+	defer ln.Close()
 
 	cat, err := catalog.Load(c.contentFS())
 	if err != nil {
@@ -218,6 +231,25 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 		if err := preflight(ctx, drv, true, everything); err != nil {
 			return err
 		}
+	}
+	// After the preflight: it explains a Docker that is not running better
+	// than a failed `docker run` does.
+	if stack != nil {
+		if err := stack.Up(ctx); err != nil {
+			return fmt.Errorf("observability: %w", err)
+		}
+		// Checked above: no other destination is configured.
+		os.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", stack.Endpoint())
+		fmt.Printf("  ✓ Grafana: %s/dashboards?tag=kubedojo  (stop with: kubedojo observability stop)\n", stack.GrafanaURL())
+	}
+	tel, err := telemetry.Setup(ctx, version, log)
+	if err != nil {
+		return fmt.Errorf("telemetry: %w", err)
+	}
+	defer tel.Shutdown()
+	log = tel.Logger
+	if tel.Enabled {
+		log.Info("telemetry enabled", "endpoint", telemetry.Endpoint())
 	}
 	st, err := c.openStore()
 	if err != nil {
@@ -241,10 +273,6 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 		UserHeader: *userHeader, OnTerminal: tel.Terminal, OnRating: tel.Rated, Tutor: newTutor(log)}
 	if *devOrigin != "" {
 		srv.AllowedOrigins = []string{*devOrigin}
-	}
-	ln, err := net.Listen("tcp", *addr)
-	if err != nil {
-		return err
 	}
 	hs := &http.Server{Handler: tel.HTTP(srv.Handler()), ReadHeaderTimeout: 10 * time.Second}
 	url := "http://" + ln.Addr().String()

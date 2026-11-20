@@ -2,52 +2,136 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
-	"io/fs"
 	"os"
-	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
-	"github.com/Mistral-valaise/kubedojo/deploy/helm/kubedojo/dashboards"
+	"github.com/Mistral-valaise/kubedojo/internal/observability"
 )
 
-const lgtmContainer = "kubedojo-lgtm"
+// obsFlags are the flags of the local observability stack. `up` and `serve`
+// have them next to --observability; `kubedojo observability` has them alone.
+type obsFlags struct {
+	enabled     *bool
+	grafanaPort *int
+	otlpPort    *int
+	ephemeral   *bool
+	retention   *time.Duration
+	image       *string
+}
 
-// startObservability runs Grafana's all-in-one LGTM container (Loki, Grafana,
-// Tempo, Mimir-compatible Prometheus, OTel Collector) next to kubedojo, loads
-// the same dashboards the Helm chart ships, and points the OTLP exporters at it.
-func startObservability(ctx context.Context, dataDir string) error {
-	dir := filepath.Join(dataDir, "observability")
-	dash := filepath.Join(dir, "dashboards")
-	if err := os.MkdirAll(dash, 0o755); err != nil {
+func envBool(key string, def bool) bool {
+	if b, err := strconv.ParseBool(os.Getenv(key)); err == nil {
+		return b
+	}
+	return def
+}
+
+func (f *obsFlags) register(fl *flag.FlagSet, withSwitch bool) {
+	on := true
+	f.enabled = &on
+	if withSwitch {
+		f.enabled = fl.Bool("observability", envBool("KUBEDOJO_OBSERVABILITY", false), "start a local Grafana stack (Grafana, Prometheus, Loki, Tempo, OpenTelemetry Collector) and send traces, metrics and logs to it")
+	}
+	f.grafanaPort = fl.Int("grafana-port", envInt("KUBEDOJO_GRAFANA_PORT", observability.DefaultGrafanaPort), "observability: local port of Grafana")
+	f.otlpPort = fl.Int("otlp-port", envInt("KUBEDOJO_OTLP_PORT", observability.DefaultOTLPPort), "observability: local port of the OTLP/HTTP receiver")
+	f.ephemeral = fl.Bool("observability-ephemeral", envBool("KUBEDOJO_OBSERVABILITY_EPHEMERAL", false), "observability: keep no data volume; metrics, logs and traces are gone when the stack restarts")
+	f.retention = fl.Duration("observability-retention", envDuration("KUBEDOJO_OBSERVABILITY_RETENTION", observability.DefaultRetention), "observability: how long metrics, logs and traces are kept (at least 24h)")
+	f.image = fl.String("observability-image", env("KUBEDOJO_OBSERVABILITY_IMAGE", observability.Image), "observability: the grafana/otel-lgtm image to run")
+}
+
+func (f *obsFlags) stack(dataDir string) (*observability.Stack, error) {
+	s, err := observability.New(observability.Options{DataDir: dataDir, Image: *f.image, GrafanaPort: *f.grafanaPort,
+		OTLPPort: *f.otlpPort, Ephemeral: *f.ephemeral, Retention: *f.retention, Version: version}, out)
+	if err != nil {
+		return nil, err
+	}
+	s.Out = os.Stdout
+	return s, nil
+}
+
+const observabilityUsage = `The local observability stack: Grafana, Prometheus, Loki, Tempo and an OpenTelemetry Collector
+in one container. "kubedojo up --observability" starts it for you.
+
+Usage:
+  kubedojo observability up       Start the stack, or keep the running one
+  kubedojo observability status   Show whether it runs, and where
+  kubedojo observability stop     Stop it; metrics, logs and traces are kept
+  kubedojo observability reset    Stop it and delete its data. Your progress is not touched.
+
+Run "kubedojo observability <command> -h" for flags.
+`
+
+func cmdObservability(ctx context.Context, args []string) error {
+	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		fmt.Print(observabilityUsage)
+		return nil
+	}
+	fl := flag.NewFlagSet("observability "+args[0], flag.ContinueOnError)
+	var c common
+	fl.StringVar(&c.dataDir, "data", env("KUBEDOJO_DATA", defaultDataDir()), "data directory")
+	var f obsFlags
+	f.register(fl, false)
+	if err := fl.Parse(args[1:]); err != nil {
 		return err
 	}
-	entries, err := fs.Glob(dashboards.FS, "*.json")
+	stack, err := f.stack(c.dataDir)
 	if err != nil {
 		return err
 	}
-	for _, name := range entries {
-		b, _ := dashboards.FS.ReadFile(name)
-		if err := os.WriteFile(filepath.Join(dash, name), b, 0o644); err != nil {
+	switch args[0] {
+	case "up":
+		if err := stack.Up(ctx); err != nil {
 			return err
 		}
-	}
-	prov := filepath.Join(dir, "kubedojo.yaml")
-	if err := os.WriteFile(prov, []byte("apiVersion: 1\nproviders:\n  - name: kubedojo\n    folder: kubedojo\n    type: file\n    options:\n      path: /otel-lgtm/kubedojo-dashboards\n"), 0o644); err != nil {
-		return err
-	}
-	if state, _ := out(ctx, "docker", "inspect", "-f", "{{.State.Running}}", lgtmContainer); strings.TrimSpace(state) != "true" {
-		_, _ = out(ctx, "docker", "rm", "-f", lgtmContainer)
-		fmt.Println("  … starting the local observability stack (grafana/otel-lgtm)")
-		if o, err := out(ctx, "docker", "run", "-d", "--name", lgtmContainer,
-			"-p", "127.0.0.1:3000:3000", "-p", "127.0.0.1:4318:4318",
-			"-v", dash+":/otel-lgtm/kubedojo-dashboards:ro",
-			"-v", prov+":/otel-lgtm/grafana/conf/provisioning/dashboards/kubedojo.yaml:ro",
-			"grafana/otel-lgtm:latest"); err != nil {
-			return fmt.Errorf("%s", o)
+		fmt.Printf("  ✓ Grafana: %s/dashboards?tag=kubedojo\n  ✓ OTLP/HTTP: %s\n", stack.GrafanaURL(), stack.Endpoint())
+		fmt.Println("  Start kubedojo with --observability to send its telemetry here.")
+	case "status":
+		st, err := stack.Status(ctx)
+		if err != nil {
+			return err
 		}
+		switch {
+		case !st.Exists:
+			fmt.Println("The observability stack is not running.")
+		case !st.Owned:
+			fmt.Printf("A container named %s exists, but kubedojo did not create it.\n", observability.Container)
+		case !st.Running:
+			fmt.Println("The observability stack is stopped.")
+		default:
+			fmt.Printf("The observability stack is running.\n  image:    %s\n", strings.SplitN(st.Image, "@", 2)[0])
+			if stack.Current(st) {
+				fmt.Printf("  Grafana:  %s/dashboards?tag=kubedojo\n  OTLP:     %s\n", stack.GrafanaURL(), stack.Endpoint())
+			} else {
+				fmt.Println("  It was started with other settings than the ones given here; `up` restarts it with these.")
+			}
+		}
+		if st.Volume {
+			fmt.Printf("  data:     Docker volume %s (delete with: kubedojo observability reset)\n", observability.Volume)
+		} else {
+			fmt.Println("  data:     no volume")
+		}
+	case "stop":
+		removed, err := stack.Stop(ctx)
+		if err != nil {
+			return err
+		}
+		if !removed {
+			fmt.Println("The observability stack was not running.")
+			return nil
+		}
+		fmt.Printf("Stopped. Metrics, logs and traces are kept in the Docker volume %s.\n", observability.Volume)
+	case "reset":
+		if err := stack.Reset(ctx); err != nil {
+			return err
+		}
+		fmt.Println("Removed the observability stack and its data. Your progress is untouched.")
+	default:
+		fmt.Print(observabilityUsage)
+		os.Exit(2)
 	}
-	os.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4318")
-	fmt.Println("  ✓ Grafana: http://localhost:3000/dashboards?tag=kubedojo  (stop with: docker rm -f " + lgtmContainer + ")")
 	return nil
 }

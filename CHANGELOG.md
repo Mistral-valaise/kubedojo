@@ -17,6 +17,17 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
   actions, and a new scene that solves a CKAD task with `kubectl` on a real cluster. It opens with
   the project name and ends with a QR code to the repository. Credits are in
   `docs/media/CREDITS.md`.
+- **`kubedojo up --observability` is reliable.** The stack runs from a pinned `grafana/otel-lgtm`
+  image (0.41.1, by digest) instead of `latest`. kubedojo waits until Grafana and the collector
+  answer, and says why when they do not. The ports are flags (`--grafana-port`, `--otlp-port`), and
+  an occupied port is reported with the port, the flag and its owner.
+- Metrics, logs and traces are kept in a Docker volume for 7 days (`--observability-retention`) and
+  survive a restart. `--observability-ephemeral` keeps nothing.
+- `--observability` no longer overwrites `OTEL_EXPORTER_OTLP_ENDPOINT`. If the variable points to
+  another collector, kubedojo stops with an error that names both ways out.
+- New commands `kubedojo observability up | status | stop | reset`. `kubedojo down` stops the stack
+  and keeps its data.
+- An address that is in use (`--addr`) is reported before the sandbox checks run, not after.
 
 ### Fixed
 
