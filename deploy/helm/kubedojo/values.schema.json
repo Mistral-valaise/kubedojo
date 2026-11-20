@@ -318,6 +318,17 @@
         },
         "resourceAttributes": {
           "type": "object"
+        },
+        "headersSecret": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            }
+          }
         }
       }
     },
@@ -370,6 +381,30 @@
         },
         "resources": {
           "type": "object"
+        },
+        "retention": {
+          "type": "string",
+          "pattern": "^[0-9]+h$",
+          "description": "Hours, such as 168h; at least 24h."
+        },
+        "persistence": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "size": {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(m|k|M|G|T|Ki|Mi|Gi|Ti)?$",
+              "description": "A Kubernetes quantity such as 500m, 2, 3Gi or 10G."
+            },
+            "storageClass": {
+              "type": "string"
+            }
+          }
+        },
+        "adminSecret": {
+          "type": "string"
         }
       }
     },

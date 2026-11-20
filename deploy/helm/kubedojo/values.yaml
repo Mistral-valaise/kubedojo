@@ -138,6 +138,12 @@ telemetry:
   # OTLP/HTTP endpoint that receives traces, metrics and logs,
   # e.g. Grafana Alloy: http://alloy.monitoring.svc:4318
   otlpEndpoint: ""
+  # Headers for the receiver, e.g. the credentials of Grafana Cloud or of an
+  # authenticating gateway: a Secret whose key holds
+  # "Authorization=Basic <base64>" (the format of OTEL_EXPORTER_OTLP_HEADERS).
+  headersSecret:
+    name: ""
+    key: headers
   resourceAttributes: {}
 
 dashboards:
@@ -154,13 +160,27 @@ alerts:
   enabled: false
   labels: {}
 
-# Single-container Grafana LGTM stack for evaluation. Not for production:
-# no persistence, no authentication. Use telemetry.otlpEndpoint with your own
-# stack instead.
+# Single-container Grafana LGTM stack FOR EVALUATION: Grafana, Prometheus,
+# Loki, Tempo and a collector in one Pod, with kubedojo's dashboards and alert
+# rules. It is the stack of `kubedojo up --observability`. One Pod, no
+# redundancy, no backup, and by default no login and no persistence. For
+# anything you depend on, use telemetry.otlpEndpoint with your own stack.
 lgtm:
   enabled: false
+  # How long metrics, logs and traces are kept; at least 24h.
+  retention: 168h
+  # Without persistence the data is gone when the Pod restarts.
+  persistence:
+    enabled: false
+    size: 10Gi
+    storageClass: ""
+  # Secret with the keys `admin-user` and `admin-password`. Empty: everyone
+  # who reaches Grafana is its administrator. Grafana is not published by the
+  # chart; reach it with kubectl port-forward.
+  adminSecret: ""
   # The version kubedojo is tested with; its provisioning files are mounted
   # over the image's, so other versions may not fit.
   image: grafana/otel-lgtm:0.41.1@sha256:1b852b77d7bcadb7699bfe7c78a51d059dff85168de674728cf7abf4474645e5
   resources:
     requests: {cpu: 200m, memory: 1Gi}
+    limits: {memory: 2Gi}

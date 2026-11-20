@@ -7,6 +7,9 @@ metadata:
   labels: {{- include "kubedojo.labels" . | nindent 4 }}
 spec:
   replicas: 1
+  # One Pod at a time: with persistence, two would write to the same volume.
+  strategy:
+    type: Recreate
   selector:
     matchLabels: {app.kubernetes.io/name: kubedojo-lgtm, app.kubernetes.io/instance: {{ .Release.Name }}}
   template:
@@ -16,9 +19,34 @@ spec:
         # Grafana reads provisioning files at start: a changed file restarts the Pod.
         checksum/provisioning: {{ (.Files.Glob "observability/{datasources,dashboards-provider,grafana-alerts}.yaml").AsConfig | sha256sum }}
     spec:
+      securityContext:
+        seccompProfile: {type: RuntimeDefault}
       containers:
         - name: lgtm
           image: {{ .Values.lgtm.image }}
+          {{- /* The same settings `kubedojo up --observability` gives the
+                 container (internal/observability): a bounded retention, and
+                 Tempo's store for recent traces inside /data. A test keeps
+                 the flags of the two in step. */}}
+          {{- $keep := default "168h" .Values.lgtm.retention }}
+          env:
+            - name: PROMETHEUS_EXTRA_ARGS
+              value: "--storage.tsdb.retention.time={{ $keep }}"
+            - name: LOKI_EXTRA_ARGS
+              value: "-store.retention={{ $keep }} -compactor.retention-enabled=true -compactor.delete-request-store=filesystem -compactor.working-directory=/data/loki/compactor"
+            - name: TEMPO_EXTRA_ARGS
+              value: "-backend-worker.compaction.block-retention={{ $keep }} -backend-scheduler.provider.work.compaction.block-retention={{ $keep }} -live-store.wal.path=/data/tempo/live-store/traces -live-store.shutdown_marker_dir=/data/tempo/live-store/shutdown-marker"
+            {{- with .Values.lgtm.adminSecret }}
+            # A login instead of the image's anonymous administrator.
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom: {secretKeyRef: {name: {{ . }}, key: admin-user}}
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ . }}, key: admin-password}}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
           ports:
             - {name: grafana, containerPort: 3000}
             - {name: otlp-grpc, containerPort: 4317}
@@ -29,11 +57,18 @@ spec:
             failureThreshold: 60
           resources: {{- toYaml .Values.lgtm.resources | nindent 12 }}
           volumeMounts:
+            - {name: data, mountPath: /data}
             - {name: dashboards, mountPath: /otel-lgtm/kubedojo-dashboards}
             - {name: provisioning, mountPath: /otel-lgtm/grafana/conf/provisioning/dashboards/kubedojo.yaml, subPath: dashboards-provider.yaml}
             - {name: provisioning, mountPath: /otel-lgtm/grafana/conf/provisioning/datasources/grafana-datasources.yaml, subPath: datasources.yaml}
             - {name: provisioning, mountPath: /otel-lgtm/grafana/conf/provisioning/alerting/kubedojo.yaml, subPath: grafana-alerts.yaml}
       volumes:
+        - name: data
+          {{- if (.Values.lgtm.persistence).enabled }}
+          persistentVolumeClaim: {claimName: {{ $name }}}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
         - name: provisioning
           configMap: {name: {{ $name }}-provisioning}
         - name: dashboards
@@ -63,6 +98,22 @@ data:
   {{ base $path }}: |-
     {{- $.Files.Get $path | nindent 4 }}
   {{- end }}
+{{- if (.Values.lgtm.persistence).enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels: {{- include "kubedojo.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.lgtm.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.lgtm.persistence.size }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Service

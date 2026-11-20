@@ -10,7 +10,7 @@ Grafana LGTM stack (Loki, Grafana, Tempo, Mimir) behind Grafana Alloy, and works
 | Local, batteries included | `kubedojo up --observability` — starts the [local stack](#the-local-stack) and loads the dashboards. Grafana: <http://localhost:3000> |
 | Local, your own collector | `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 kubedojo up` |
 | Helm, your stack | `telemetry.otlpEndpoint: http://alloy.monitoring.svc:4318` |
-| Helm, evaluation | `lgtm.enabled: true` — a throwaway single-container stack |
+| Helm, evaluation | `lgtm.enabled: true` — the same single-container stack in the cluster; see [In a cluster](#in-a-cluster) |
 
 The standard `OTEL_*` environment variables for endpoints, headers and resource attributes are
 honoured. The transport is always OTLP over HTTP; `OTEL_EXPORTER_OTLP_PROTOCOL` is not read. Without
@@ -175,10 +175,68 @@ In Grafana's *Explore*:
 OrbStack, Colima, Rancher Desktop and Linux arm64 are expected to work but are not tested. The image
 is published for amd64 and arm64.
 
-## Your own stack
+## In a cluster
 
-kubedojo sends OTLP over HTTP to whatever `OTEL_EXPORTER_OTLP_ENDPOINT` names. In a cluster, set
-`telemetry.otlpEndpoint` in the chart.
+The chart has two profiles. They are alternatives: with `telemetry.otlpEndpoint` set, kubedojo sends
+its telemetry there and not to the evaluation stack.
+
+| | Evaluation: `lgtm.enabled` | Your own stack: `telemetry.otlpEndpoint` |
+|---|---|---|
+| What runs | one Pod with Grafana, Prometheus, Loki, Tempo and a collector: the stack of `kubedojo up --observability` | whatever you operate: Alloy or a collector in front of Mimir or Prometheus, Loki and Tempo |
+| Dashboards | provisioned in the Pod | ConfigMaps for the Grafana sidecar (`dashboards.enabled`, on by default) |
+| Alert rules | Grafana-managed rules in the Pod, visible in Grafana only | a `PrometheusRule` (`alerts.enabled`) |
+| Sandbox Pod metrics | none: the Pod scrapes no kubelet | the *Sandbox Pods* dashboard, if kubelet/cAdvisor and kube-state-metrics are in the same data source |
+| Retention | `lgtm.retention`, default 168h | yours |
+| Storage | none by default; `lgtm.persistence.enabled` for a volume (default 10Gi) | yours |
+| Login | none by default: everyone who reaches Grafana is its administrator. `lgtm.adminSecret` for a user and password | yours |
+| Good for | trying kubedojo, a pilot of a few people | anything you depend on |
+
+### Evaluation
+
+```yaml
+lgtm:
+  enabled: true
+  retention: 168h
+  persistence: {enabled: true, size: 10Gi}
+  adminSecret: kubedojo-grafana   # keys admin-user and admin-password
+```
+
+```sh
+kubectl -n kubedojo create secret generic kubedojo-grafana \
+  --from-literal=admin-user=admin --from-literal=admin-password="$(openssl rand -base64 18)"
+kubectl -n kubedojo port-forward svc/kubedojo-lgtm 3000
+```
+
+The chart does not publish Grafana. It is one Pod without redundancy or backup, about 1 GB of memory;
+the image is pinned to the version kubedojo is tested with. It was verified on k3s with the same
+checks as the local stack: all three signals written and read back, the links between them, the
+dashboards and the alert rules.
+
+### Your own stack
+
+```yaml
+telemetry:
+  otlpEndpoint: http://alloy.monitoring.svc:4318
+  headersSecret: {name: kubedojo-otlp, key: headers}   # only if the receiver wants credentials
+alerts: {enabled: true}
+```
+
+The Secret's key holds headers in the format of `OTEL_EXPORTER_OTLP_HEADERS`, for example
+`Authorization=Basic <base64 of user:password>`.
+
+What your stack needs so that everything in this document works:
+
+- **Exemplars**: exemplar storage in Prometheus or Mimir, and a Tempo data source named in the
+  Prometheus data source's exemplar settings.
+- **Trace IDs on log lines**: the collector must keep the trace context of OTLP log records. Loki
+  then has `trace_id` as structured metadata.
+- **`service.name` as a metric label** (`service_name`): the dashboards and alert rules filter on it.
+- **Links between the data sources** in Grafana:
+  [`observability/datasources.yaml`](../deploy/helm/kubedojo/observability/datasources.yaml) shows
+  the settings; adapt the UIDs.
+- **Retention and storage** are decisions of your stack. As a starting point for a team: 15 days of
+  metrics, 7 days of logs and traces. kubedojo itself produces little: a few hundred metric series
+  and a handful of log lines and spans per session operation.
 
 A minimal Alloy pipeline:
 
