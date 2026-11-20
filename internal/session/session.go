@@ -160,10 +160,18 @@ func (localHosts) Release(context.Context, string) error { return nil }
 func LocalHosts() HostProvider { return localHosts{} }
 
 // Hooks let the telemetry layer observe session events without coupling.
+// Every hook may be nil.
 type Hooks struct {
-	Provisioned func(track, mode string, d time.Duration, err error)
-	Checked     func(track, question, mode string, res checker.Result)
-	ExamDone    func(track string, r Report)
+	Provisioned func(ctx context.Context, track, mode string, d time.Duration, err error)
+	Checked     func(ctx context.Context, track, question, mode string, res checker.Result)
+	ExamDone    func(ctx context.Context, track string, r Report)
+	// Span starts a span for a piece of work; attrs are pairs of key and
+	// value. The returned function ends it.
+	Span func(ctx context.Context, name string, attrs ...string) (context.Context, func(error))
+	// Detach returns a context that lives as long as base and continues the
+	// trace of request. Background work runs on it: it outlives the request
+	// that started it and still shows up in that request's trace.
+	Detach func(base, request context.Context) context.Context
 }
 
 type Manager struct {
@@ -266,6 +274,24 @@ func (m *Manager) begin() bool {
 	return true
 }
 
+// span starts a span for work on a session. The session is an attribute of
+// spans and log lines only; metrics never carry it.
+func (m *Manager) span(ctx context.Context, name string, s *Session, attrs ...string) (context.Context, func(error)) {
+	if m.hooks.Span == nil {
+		return ctx, func(error) {}
+	}
+	return m.hooks.Span(ctx, name, append([]string{"kubedojo.session.id", s.ID, "kubedojo.track", s.Track, "kubedojo.mode", s.Mode}, attrs...)...)
+}
+
+// background returns the context of work that a request started and that
+// goes on after the request was answered.
+func (m *Manager) background(request context.Context) context.Context {
+	if m.hooks.Detach == nil || request == nil {
+		return m.base
+	}
+	return m.hooks.Detach(m.base, request)
+}
+
 // reason is what a failed operation tells the learner.
 func (m *Manager) reason(err error) string {
 	if m.base.Err() != nil {
@@ -362,13 +388,13 @@ func (m *Manager) clock() {
 			}
 			m.mu.Unlock()
 			for _, id := range idle {
-				m.log.Info("removing idle sandbox", "session", id)
+				m.log.InfoContext(m.base, "removing idle sandbox", "session", id)
 				ctx, cancel := context.WithTimeout(m.base, 5*time.Minute)
 				_ = m.Destroy(ctx, id)
 				cancel()
 			}
 			for _, id := range due {
-				m.log.Info("exam time is up", "session", id)
+				m.log.InfoContext(m.base, "exam time is up", "session", id)
 				_ = m.Finish(m.base, id)
 			}
 		}
@@ -407,10 +433,12 @@ func capitalize(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-func (m *Manager) logf(s *Session) func(string, ...any) {
+// logf returns the progress log of a session: each line is shown to the
+// learner and written to the server log, there with the trace of ctx.
+func (m *Manager) logf(ctx context.Context, s *Session) func(string, ...any) {
 	return func(format string, a ...any) {
 		msg := fmt.Sprintf(format, a...)
-		m.log.Info(msg, "session", s.ID)
+		m.log.InfoContext(ctx, msg, "session", s.ID)
 		m.update(s, func() {
 			s.Log = append(s.Log, LogLine{At: time.Now().UTC(), Msg: msg})
 			if len(s.Log) > 200 {
@@ -504,6 +532,12 @@ type ExamOptions struct {
 
 // NewExam creates an exam session and provisions it in the background.
 func (m *Manager) NewExam(track string, opt ExamOptions) (*Session, error) {
+	return m.NewExamContext(context.Background(), track, opt)
+}
+
+// NewExamContext is NewExam for a request: the provisioning belongs to the
+// trace of ctx. It is not cancelled with ctx.
+func (m *Manager) NewExamContext(ctx context.Context, track string, opt ExamOptions) (*Session, error) {
 	t := m.cat.Tracks[track]
 	if t == nil {
 		return nil, ErrNotFound
@@ -543,9 +577,10 @@ func (m *Manager) NewExam(track string, opt ExamOptions) (*Session, error) {
 	m.save(s)
 	m.mu.Unlock()
 
+	bg := m.background(ctx)
 	go func() {
 		defer m.work.Done()
-		m.provisionExam(s, t)
+		m.provisionExam(bg, s, t)
 	}()
 	return s, nil
 }
@@ -600,12 +635,13 @@ func pickQuestions(t *catalog.Track, n int, driver string) []*catalog.Question {
 	return out
 }
 
-func (m *Manager) provisionExam(s *Session, t *catalog.Track) {
+func (m *Manager) provisionExam(ctx context.Context, s *Session, t *catalog.Track) {
 	s.op.Lock()
 	defer s.op.Unlock()
-	ctx, cancel := context.WithTimeout(m.base, 25*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Minute)
 	defer cancel()
-	logf := m.logf(s)
+	ctx, end := m.span(ctx, "exam.provision", s)
+	logf := m.logf(ctx, s)
 	start := time.Now()
 	err := func() error {
 		envs := map[string]bool{}
@@ -637,8 +673,9 @@ func (m *Manager) provisionExam(s *Session, t *catalog.Track) {
 		return nil
 	}()
 	if m.hooks.Provisioned != nil {
-		m.hooks.Provisioned(s.Track, s.Mode, time.Since(start), err)
+		m.hooks.Provisioned(ctx, s.Track, s.Mode, time.Since(start), err)
 	}
+	end(err)
 	if err != nil {
 		logf("Provisioning failed: %v", err)
 		m.update(s, func() { s.Status, s.Error = StatusError, m.reason(err) })
@@ -654,7 +691,7 @@ func (m *Manager) provisionExam(s *Session, t *catalog.Track) {
 
 // ensureEnv creates an environment (a cluster or a Linux host) if the session
 // lacks it and rewires the terminal. Callers must hold s.op.
-func (m *Manager) ensureEnv(ctx context.Context, s *Session, t *catalog.Track, env string, logf func(string, ...any)) error {
+func (m *Manager) ensureEnv(ctx context.Context, s *Session, t *catalog.Track, env string, logf func(string, ...any)) (err error) {
 	m.mu.Lock()
 	_, ok := s.Envs[env]
 	m.mu.Unlock()
@@ -665,7 +702,13 @@ func (m *Manager) ensureEnv(ctx context.Context, s *Session, t *catalog.Track, e
 	if spec == nil {
 		return fmt.Errorf("unknown environment %q", env)
 	}
-	host, err := m.hosts.Acquire(ctx, s.ID, logf)
+	ctx, end := m.span(ctx, "sandbox.provision", s, "kubedojo.environment", env)
+	defer func() { end(err) }()
+	// Where the time goes: a Pod in hosted mode, then the cluster or the
+	// host, then the terminal.
+	actx, aend := m.span(ctx, "sandbox.host.acquire", s)
+	host, err := m.hosts.Acquire(actx, s.ID, logf)
+	aend(err)
 	if err != nil {
 		return err
 	}
@@ -673,13 +716,19 @@ func (m *Manager) ensureEnv(ctx context.Context, s *Session, t *catalog.Track, e
 	alias := m.newAlias(t.ID)
 	m.mu.Unlock()
 	start := time.Now()
-	if err := m.drv.CreateEnv(ctx, host, s.ID, alias, *spec, s.Keys, logf); err != nil {
+	cctx, cend := m.span(ctx, "sandbox.env.create", s, "kubedojo.environment", env)
+	err = m.drv.CreateEnv(cctx, host, s.ID, alias, *spec, s.Keys, logf)
+	cend(err)
+	if err != nil {
 		_ = m.drv.DeleteEnv(context.Background(), host, sandbox.Env{Alias: alias, Type: spec.Type})
 		return err
 	}
 	m.update(s, func() { s.Envs[env] = alias })
 	logf("Connecting the terminal to %s ...", alias)
-	if err := m.drv.EnsureTerminal(ctx, host, s.ID, m.envs(s), s.Keys); err != nil {
+	tctx, tend := m.span(ctx, "sandbox.terminal.connect", s)
+	err = m.drv.EnsureTerminal(tctx, host, s.ID, m.envs(s), s.Keys)
+	tend(err)
+	if err != nil {
 		return err
 	}
 	if spec.Type == sandbox.EnvContainer {
@@ -722,9 +771,11 @@ func (m *Manager) exec(ctx context.Context, s *Session, q *catalog.Question, rol
 }
 
 // setup runs cleanup.sh (when resetting) and setup.sh of a question.
-func (m *Manager) setup(ctx context.Context, s *Session, q *catalog.Question, reset bool) error {
+func (m *Manager) setup(ctx context.Context, s *Session, q *catalog.Question, reset bool) (err error) {
 	ctx, cancel := context.WithTimeout(ctx, 6*time.Minute)
 	defer cancel()
+	ctx, end := m.span(ctx, "question.setup", s, "kubedojo.question", q.ID)
+	defer func() { end(err) }()
 	if reset && q.Cleanup != "" {
 		if _, err := m.exec(ctx, s, q, "", "", q.Cleanup); err != nil {
 			return err
@@ -750,6 +801,12 @@ func (m *Manager) setup(ctx context.Context, s *Session, q *catalog.Question, re
 // Prepare makes a question ready to be worked on in a practice session. It
 // returns immediately; progress is visible on the session.
 func (m *Manager) Prepare(id, qid string, reset bool) error {
+	return m.PrepareContext(context.Background(), id, qid, reset)
+}
+
+// PrepareContext is Prepare for a request: the work belongs to the trace of
+// ctx. It is not cancelled with ctx.
+func (m *Manager) PrepareContext(ctx context.Context, id, qid string, reset bool) error {
 	s, err := m.get(id)
 	if err != nil {
 		return err
@@ -787,16 +844,19 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 	m.save(s)
 	m.mu.Unlock()
 
+	bg := m.background(ctx)
 	go func() {
 		defer m.work.Done()
 		s.op.Lock()
 		defer s.op.Unlock()
-		ctx, cancel := context.WithTimeout(m.base, 15*time.Minute)
+		ctx, cancel := context.WithTimeout(bg, 15*time.Minute)
 		defer cancel()
-		logf := m.logf(s)
+		var err error
+		ctx, end := m.span(ctx, "question.prepare", s, "kubedojo.question", q.ID)
+		defer func() { end(err) }()
+		logf := m.logf(ctx, s)
 		start := time.Now()
 		recreated := false
-		var err error
 		if q.FreshEnvironment && wasReady {
 			recreated = true
 			err = m.dropEnv(ctx, s, t, q.Environment, logf)
@@ -808,7 +868,7 @@ func (m *Manager) Prepare(id, qid string, reset bool) error {
 			err = m.ensureEnv(ctx, s, t, q.Environment, logf)
 		}
 		if !had && m.hooks.Provisioned != nil {
-			m.hooks.Provisioned(s.Track, s.Mode, time.Since(start), err)
+			m.hooks.Provisioned(ctx, s.Track, s.Mode, time.Since(start), err)
 		}
 		if err == nil {
 			err = m.healOthers(ctx, s, t, q, logf)
@@ -906,7 +966,7 @@ func (m *Manager) CheckOnce(ctx context.Context, id, qid string, once func(*cata
 	t := m.cat.Tracks[s.Track]
 	q := t.Question(qid)
 	if q != nil && q.Type == catalog.TypeChoice {
-		return m.checkChoice(s, q)
+		return m.checkChoice(ctx, s, q)
 	}
 	m.mu.Lock()
 	qs := s.q(qid)
@@ -921,14 +981,16 @@ func (m *Manager) CheckOnce(ctx context.Context, id, qid string, once func(*cata
 	if qs.Status != "ready" {
 		return nil, fmt.Errorf("%w: question is not ready", ErrConflict)
 	}
+	ctx, end := m.span(ctx, "question.check", s, "kubedojo.question", q.ID)
 	res := checker.RunOnce(ctx, q, m.runner(s, q), once)
 	m.update(s, func() { qs.Last = &res })
 	if mode == ModePractice {
-		m.record(s, q, mode, res)
+		m.record(ctx, s, q, mode, res)
 	}
 	if m.hooks.Checked != nil {
-		m.hooks.Checked(s.Track, q.ID, mode, res)
+		m.hooks.Checked(ctx, s.Track, q.ID, mode, res)
 	}
+	end(nil)
 	return &res, nil
 }
 
@@ -957,7 +1019,7 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 		return err
 	}
 	if m.sandboxless(s) {
-		return m.finishQuiz(s)
+		return m.finishQuiz(ctx, s)
 	}
 	m.mu.Lock()
 	if s.Mode != ModeExam || s.Status != StatusRunning {
@@ -974,19 +1036,24 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 	m.save(s)
 	m.mu.Unlock()
 
+	bg := m.background(ctx)
 	go func() {
 		defer m.work.Done()
 		s.op.Lock()
 		defer s.op.Unlock()
-		ctx, cancel := context.WithTimeout(m.base, 20*time.Minute)
+		ctx, cancel := context.WithTimeout(bg, 20*time.Minute)
 		defer cancel()
+		ctx, graded := m.span(ctx, "exam.grade", s)
+		defer graded(nil)
 		t := m.cat.Tracks[s.Track]
-		logf := m.logf(s)
+		logf := m.logf(ctx, s)
 		results := make([]checker.Result, len(s.Questions))
 		for i, qs := range s.Questions {
 			q := t.Question(qs.ID)
 			logf("Grading %s %d of %d ...", wordsOf(t).item, i+1, len(s.Questions))
-			results[i] = checker.Run(ctx, q, m.runner(s, q))
+			qctx, qend := m.span(ctx, "question.check", s, "kubedojo.question", q.ID)
+			results[i] = checker.Run(qctx, q, m.runner(s, q))
+			qend(nil)
 			res := results[i]
 			m.update(s, func() { qs.Last = &res })
 		}
@@ -1023,21 +1090,22 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 			m.update(s, func() { s.Status, s.Error = StatusError, interrupted })
 			return
 		}
-		m.conclude(s, t, results)
+		m.conclude(ctx, s, t, results)
 	}()
 	return nil
 }
 
 // record stores one graded question in the learner's history.
-func (m *Manager) record(s *Session, q *catalog.Question, mode string, res checker.Result) {
+func (m *Manager) record(ctx context.Context, s *Session, q *catalog.Question, mode string, res checker.Result) {
 	if err := m.st.AddAttempt(store.Attempt{SessionID: s.ID, Mode: mode, Track: s.Track, Domain: q.Domain,
 		QuestionID: q.ID, Score: res.Score, Max: res.Max, At: res.At, Owner: s.Owner}); err != nil {
-		m.log.Error("the attempt was not recorded", "session", s.ID, "question", q.ID, "err", err)
+		m.log.ErrorContext(ctx, "the attempt was not recorded", "session", s.ID, "question", q.ID, "err", err)
 	}
 }
 
-// DestroyLater tears the sandbox down in the background.
-func (m *Manager) DestroyLater(id string) error {
+// DestroyLater tears the sandbox down in the background. The work belongs to
+// the trace of ctx and is not cancelled with it.
+func (m *Manager) DestroyLater(ctx context.Context, id string) error {
 	if _, err := m.get(id); err != nil {
 		return err
 	}
@@ -1047,12 +1115,13 @@ func (m *Manager) DestroyLater(id string) error {
 	if !ok {
 		return ErrShuttingDown
 	}
+	bg := m.background(ctx)
 	go func() {
 		defer m.work.Done()
-		ctx, cancel := context.WithTimeout(m.base, 5*time.Minute)
+		ctx, cancel := context.WithTimeout(bg, 5*time.Minute)
 		defer cancel()
 		if err := m.Destroy(ctx, id); err != nil {
-			m.log.Error("destroy session", "session", id, "err", err)
+			m.log.ErrorContext(ctx, "destroy session", "session", id, "err", err)
 		}
 	}()
 	return nil
@@ -1060,7 +1129,7 @@ func (m *Manager) DestroyLater(id string) error {
 
 // conclude turns the results of a graded exam into its report, records the
 // attempts and marks the session finished.
-func (m *Manager) conclude(s *Session, t *catalog.Track, results []checker.Result) {
+func (m *Manager) conclude(ctx context.Context, s *Session, t *catalog.Track, results []checker.Result) {
 	rep := Report{PassPercent: t.Exam.PassPercent}
 	dom := map[string]*DomainScore{}
 	for _, d := range t.Domains {
@@ -1073,9 +1142,9 @@ func (m *Manager) conclude(s *Session, t *catalog.Track, results []checker.Resul
 		rep.Max += res.Max
 		dom[q.Domain].Score += res.Score
 		dom[q.Domain].Max += res.Max
-		m.record(s, q, ModeExam, res)
+		m.record(ctx, s, q, ModeExam, res)
 		if m.hooks.Checked != nil {
-			m.hooks.Checked(s.Track, q.ID, ModeExam, res)
+			m.hooks.Checked(ctx, s.Track, q.ID, ModeExam, res)
 		}
 	}
 	for _, d := range t.Domains {
@@ -1100,12 +1169,12 @@ func (m *Manager) conclude(s *Session, t *catalog.Track, results []checker.Resul
 	if err := m.st.AddExam(store.Exam{SessionID: s.ID, Track: s.Track, Score: rep.Score, Max: rep.Max,
 		Percent: rep.Percent, Passed: rep.Passed, FinishedAt: *s.FinishedAt, Domains: db, Owner: s.Owner,
 		Questions: len(s.Questions), Minutes: s.DurationMinutes}); err != nil {
-		m.log.Error("the exam result was not recorded", "session", s.ID, "err", err)
+		m.log.ErrorContext(ctx, "the exam result was not recorded", "session", s.ID, "err", err)
 	}
 	if m.hooks.ExamDone != nil {
-		m.hooks.ExamDone(s.Track, rep)
+		m.hooks.ExamDone(ctx, s.Track, rep)
 	}
-	m.logf(s)("%s graded: %d/%d points (%.1f%%).", capitalize(wordsOf(t).assessment), rep.Score, rep.Max, rep.Percent)
+	m.logf(ctx, s)("%s graded: %d/%d points (%.1f%%).", capitalize(wordsOf(t).assessment), rep.Score, rep.Max, rep.Percent)
 }
 
 // Patch updates candidate-owned fields of a question.
@@ -1168,13 +1237,15 @@ func (m *Manager) Destroy(ctx context.Context, id string) error {
 	}
 	s.op.Lock()
 	defer s.op.Unlock()
+	ctx, end := m.span(ctx, "sandbox.destroy", s)
+	defer end(nil)
 	// End the shells first: their slots are freed and the WebSockets close
 	// instead of waiting for a read error from a container that is gone.
 	m.terms.closeAll(s.ID)
 	host, err := m.hosts.Acquire(ctx, s.ID, func(string, ...any) {})
 	if err == nil {
 		if derr := m.drv.Destroy(ctx, host, s.ID, m.envs(s)); derr != nil {
-			m.log.Warn("destroy sandbox", "session", s.ID, "err", derr)
+			m.log.WarnContext(ctx, "destroy sandbox", "session", s.ID, "err", derr)
 		}
 	}
 	_ = m.hosts.Release(ctx, s.ID)
