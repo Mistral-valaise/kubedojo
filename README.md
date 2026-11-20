@@ -107,10 +107,12 @@ make build
 
 ```text
 kubedojo up          Start kubedojo locally and open it in your browser
+kubedojo serve       Run the server only (containers, Kubernetes)
 kubedojo doctor      Check that this machine can run sandboxes
 kubedojo down        Remove every sandbox kubedojo created
 kubedojo ratings     Show the feedback learners left on questions
 kubedojo content lint | test | export
+kubedojo version
 ```
 
 Useful flags for `up`: `--observability` (local Grafana with dashboards), `--addr`, `--no-open`,
