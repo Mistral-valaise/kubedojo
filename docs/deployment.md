@@ -70,7 +70,7 @@ interface exists; a KubeVirt driver is the planned route) or a sandboxed node ru
 | Image | Build |
 |---|---|
 | server | `make server-image` |
-| sandbox host | `make sandbox-host` — Docker-in-Docker with the node and terminal images preloaded |
+| sandbox host | `make sandbox-host` — Docker-in-Docker with the node, terminal and Linux images preloaded |
 
 Push both to your registry and set `image.repository`, `sandbox.image.repository` and the tags.
 The sandbox host image is large (about 1.7 GB) because it carries the cluster images; preloading them

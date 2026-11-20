@@ -4,6 +4,13 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+### Added
+
+- **Eight more CKS questions**, 29 in total: anonymous API access, audit log forensics, container
+  drift, dropping capabilities, host account lockdown, manifest static analysis, blocking the
+  metadata endpoint and the kubelet's default seccomp profile. They were merged in November but
+  never reached `main`. `docs/cks-coverage.md` maps every question to the curriculum.
+
 ### Changed
 
 - The tour video has sound and is cut to the music: a music bed, a few sound effects on visible
@@ -79,6 +86,13 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
 - `GET /api/ready` for readiness probes: it fails while the server shuts down or when the database
   does not answer. `/api/health` remains the liveness check.
 - `KUBEDOJO_MAX_SESSIONS`, the environment variable for `--max-sessions`.
+
+### Security
+
+- Built with Go 1.26.11. Releases up to 0.4.0 were built with Go 1.26.5, which has known
+  vulnerabilities in `net/http`, `crypto/tls` and `html/template` that kubedojo's code reaches.
+- CI now fails on known vulnerabilities in called code (`govulncheck`), runs `staticcheck` and the
+  tests with the race detector, and a release is only published after these checks pass.
 
 ## [0.4.0] - 2026-11-19
 
