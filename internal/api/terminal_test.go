@@ -24,13 +24,12 @@ import (
 )
 
 type fixture struct {
-	mgr     *session.Manager
-	drv     *sandboxtest.Driver
-	srv     *httptest.Server
-	id      string
-	gauge   atomic.Int64
-	wsBase  string
-	cleanup func()
+	mgr    *session.Manager
+	drv    *sandboxtest.Driver
+	srv    *httptest.Server
+	id     string
+	gauge  atomic.Int64
+	wsBase string
 }
 
 func newFixture(t *testing.T, maxTerminals int) *fixture {

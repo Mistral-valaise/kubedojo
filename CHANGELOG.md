@@ -11,6 +11,13 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
   the project name and ends with a QR code to the repository. Credits are in
   `docs/media/CREDITS.md`.
 
+### Security
+
+- Built with Go 1.26.11. Releases up to 0.4.0 were built with Go 1.26.5, which has known
+  vulnerabilities in `net/http`, `crypto/tls` and `html/template` that kubedojo's code reaches.
+- CI now fails on known vulnerabilities in called code (`govulncheck`), runs `staticcheck` and the
+  tests with the race detector, and a release is only published after these checks pass.
+
 ## [0.4.0] - 2026-11-19
 
 The road to Kubestronaut: three new tracks, a recommended path through all six, and two kinds of
