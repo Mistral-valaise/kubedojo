@@ -240,6 +240,11 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 		}
 		// Checked above: no other destination is configured.
 		os.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", stack.Endpoint())
+		// A stack that is up but drops a signal would go unnoticed until
+		// somebody misses the data. kubedojo itself works without it.
+		for _, c := range observability.Failed(stack.Verify(ctx, 20*time.Second)) {
+			fmt.Printf("  ! observability: %s: %v\n", c.Name, c.Err)
+		}
 		fmt.Printf("  ✓ Grafana: %s/dashboards?tag=kubedojo  (stop with: kubedojo observability stop)\n", stack.GrafanaURL())
 	}
 	tel, err := telemetry.Setup(ctx, version, log)

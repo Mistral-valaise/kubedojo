@@ -53,6 +53,11 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
 - `KubedojoSessionLimitReached` compares the new gauges `kubedojo_sandboxes_active` and
   `kubedojo_sandboxes_limit`. Before, it counted theory sessions, which take no slot, and could
   fire early.
+- **The stack proves that it works.** `kubedojo observability status --verify` writes a trace, a log
+  record and a metric and reads them back through Grafana, with the links between them, in about
+  two seconds. `kubedojo up --observability` runs the same checks at start.
+- The stack is stopped before it is replaced, and Tempo's store for recent traces is kept in the
+  data volume. Without that, a restart lost the traces of the last minutes.
 - `make lint-dashboards` checks every dashboard query against the metrics kubedojo exports.
 - Helm: `lgtm.image` is pinned to the tested version, and `lgtm.enabled` no longer breaks when
   `dashboards.enabled` is off or `dashboards.namespace` is set. The stack has its own copy of the

@@ -3,7 +3,7 @@ LINUX_IMAGE ?= kubedojo/linux:trixie
 VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS     := -s -w -X main.version=$(VERSION)
 
-.PHONY: all build go web images server-image sandbox-host test e2e lint lint-dashboards content-test dev clean
+.PHONY: all build go web images server-image sandbox-host test e2e lint lint-dashboards test-observability content-test dev clean
 
 all: build
 
@@ -42,6 +42,9 @@ lint: go ## validate the content
 
 lint-dashboards: ## check the queries of the Grafana dashboards against the metrics kubedojo exports
 	cd tools/obslint && go test -count=1 ./...
+
+test-observability: ## run the observability stack in Docker and prove signals, links, restart and reset
+	KUBEDOJO_IT=1 go test -count=1 -timeout 12m -run Integration -v ./internal/observability/
 
 content-test: go ## prove every question against a real cluster
 	./bin/kubedojo content test
