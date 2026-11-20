@@ -17,6 +17,12 @@ kind: PersistentVolumeClaim
 metadata:
   name: {{ include "kubedojo.name" . }}
   labels: {{- include "kubedojo.labels" . | nindent 4 }}
+  {{- if ne (toString .Values.persistence.keepOnUninstall) "false" }}
+  annotations:
+    # The learners' history. `helm uninstall` leaves it; a release of the
+    # same name in the same Namespace takes it over again.
+    helm.sh/resource-policy: keep
+  {{- end }}
 spec:
   accessModes: [ReadWriteOnce]
   {{- with .Values.persistence.storageClass }}

@@ -43,6 +43,8 @@ Usage:
   kubedojo doctor    Check that this machine can run sandboxes
   kubedojo down      Remove every sandbox kubedojo created
   kubedojo ratings   Show the feedback learners left on questions
+  kubedojo backup    Write a consistent copy of the progress database (the server may run)
+  kubedojo restore   Replace the progress database by a backup (stop the server first)
   kubedojo observability up | status | stop | reset
                      The local Grafana stack of "kubedojo up --observability"
   kubedojo content lint          Validate the content
@@ -74,6 +76,10 @@ func main() {
 		err = cmdRatings(os.Args[2:])
 	case "observability":
 		err = cmdObservability(ctx, os.Args[2:])
+	case "backup":
+		err = cmdBackup(ctx, os.Args[2:])
+	case "restore":
+		err = cmdRestore(ctx, os.Args[2:])
 	case "content":
 		if len(os.Args) < 3 {
 			fmt.Print(usage)
@@ -256,6 +262,16 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 	if tel.Enabled {
 		log.Info("telemetry enabled", "endpoint", telemetry.Endpoint())
 	}
+	// One server per data directory: two would both believe they own the
+	// sessions in it.
+	unlock, _, err := store.Lock(c.dataDir)
+	if err != nil {
+		if errors.Is(err, store.ErrLocked) {
+			return fmt.Errorf("%w (%s). Stop it, or use another directory with --data", err, c.dataDir)
+		}
+		return err
+	}
+	defer unlock()
 	st, err := c.openStore()
 	if err != nil {
 		return err

@@ -30,6 +30,10 @@ persistence:
   enabled: true
   size: 1Gi
   storageClass: ""
+  # `helm uninstall` leaves the volume, so that removing the release does not
+  # delete what people learned. Delete it yourself when you mean it:
+  #   kubectl delete pvc <release name>
+  keepOnUninstall: true
 
 service:
   type: ClusterIP
