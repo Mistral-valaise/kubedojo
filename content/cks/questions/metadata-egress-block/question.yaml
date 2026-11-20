@@ -1,0 +1,60 @@
+title: Block the cloud metadata endpoint
+domain: cluster-setup
+difficulty: medium
+minutes: 7
+environment: base
+tags: [networkpolicy, egress, metadata, ipblock]
+task: |
+  Solve this question on: `ssh {{host}}`
+
+  The cluster runs on cloud instances. Their metadata service at `169.254.169.254` hands out instance
+  credentials to anyone who can reach it — including every Pod.
+
+  Create a NetworkPolicy named `deny-metadata` in Namespace `sec-plover` that
+
+  - applies to **all** Pods in the Namespace,
+  - blocks egress to `169.254.169.254`,
+  - leaves all other egress traffic allowed.
+
+  Do not change the workloads in the Namespace.
+hints:
+  - "An egress rule can only allow. Allow everything (`ipBlock.cidr: 0.0.0.0/0`) and carve the address out with `except`."
+  - "`podSelector: {}` selects every Pod of the Namespace. Set `policyTypes: [Egress]` so that ingress stays untouched."
+  - "Check that the Pods still reach the rest of the world: `kubectl -n sec-plover exec deploy/app -- nslookup kubernetes.default.svc.cluster.local`."
+checks:
+  - id: policy
+    title: NetworkPolicy deny-metadata selects all Pods and restricts egress
+    type: exec
+    run: |-
+      kubectl -n sec-plover get networkpolicy deny-metadata -o json | jq -r '"selector=\(.spec.podSelector | tojson) types=\((.spec.policyTypes // []) | sort | join(","))"'
+    expect: {matches: '^selector=\{\} types=(Egress|Egress,Ingress)$'}
+    explain: >-
+      An empty podSelector covers every Pod in the Namespace, including ones created later. A policy that selects by label protects only the Pods somebody remembered to label.
+  - id: blocked
+    title: No policy in the Namespace allows egress to 169.254.169.254
+    type: exec
+    run: |-
+      kubectl -n sec-plover get networkpolicy -o json | jq -r '
+        def covers: . == "0.0.0.0/0" or . == "169.254.0.0/16" or . == "169.254.169.254/32";
+        [.items[] | select((.spec.policyTypes // []) | index("Egress")) | select(.spec.podSelector == {})] as $all
+        | if ($all | length) == 0 then "no egress policy selects all Pods"
+          elif [.items[] | select((.spec.policyTypes // []) | index("Egress")) | (.spec.egress // [])[]
+                | select(((.to // []) | length) == 0
+                    or any(.to[]; .ipBlock != null and (.ipBlock.cidr | covers) and (((.ipBlock.except // []) | any(covers)) | not)))]
+               | length > 0 then "allowed"
+          else "blocked" end'
+    expect: {equals: blocked}
+    explain: >-
+      NetworkPolicies are additive: one rule that allows the address is enough to open it again, whatever other policies say. The address has to be excluded in every rule that would otherwise cover it.
+  - id: other-egress
+    title: Pods still reach DNS and the Kubernetes API
+    type: exec
+    run: |-
+      kubectl -n sec-plover exec deploy/app -- true >/dev/null || { echo "cannot run a command in deploy/app: the probe needs this Pod" >&2; exit 1; }
+      kubectl -n sec-plover exec deploy/app -- nslookup -timeout=3 kubernetes.default.svc.cluster.local >/dev/null 2>&1 && d=dns-ok || d=dns-blocked
+      kubectl -n sec-plover exec deploy/app -- nc -z -w 3 "$(kubectl get svc kubernetes -o jsonpath='{.spec.clusterIP}')" 443 >/dev/null 2>&1 && a=api-ok || a=api-blocked
+      echo "$d $a"
+    expect: {equals: dns-ok api-ok}
+    guard: true
+    explain: >-
+      The task is to remove one destination, not to isolate the Namespace. A default-deny egress policy would also block the metadata address — and DNS, and everything the applications need.

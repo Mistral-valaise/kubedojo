@@ -30,8 +30,8 @@ sandbox-host: images ## build the Docker-in-Docker sandbox host image (hosted mo
 	docker save -o images/sandbox-host/linux.tar $(LINUX_IMAGE)
 	docker build -t kubedojo/sandbox-host:$(VERSION) images/sandbox-host
 
-test: ## unit tests
-	go test ./...
+test: ## unit tests; CI adds the race detector with GOTESTFLAGS=-race
+	go test $(GOTESTFLAGS) ./...
 	cd web && npm run typecheck && npm test
 
 e2e: ## browser tests of the terminal keyboard (downloads Chromium once)
