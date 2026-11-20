@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/Mistral-valaise/kubedojo/deploy/helm/kubedojo/dashboards"
+	provisioning "github.com/Mistral-valaise/kubedojo/deploy/helm/kubedojo/observability"
 )
 
 const (
@@ -142,15 +143,6 @@ type file struct {
 	data   []byte
 }
 
-const dashboardProvider = `apiVersion: 1
-providers:
-  - name: kubedojo
-    folder: kubedojo
-    type: file
-    options:
-      path: /otel-lgtm/kubedojo-dashboards
-`
-
 // files returns what is mounted: the dashboards as one directory, and each
 // provisioning file on its own.
 func (s *Stack) files() (dash []file, prov []file, err error) {
@@ -166,7 +158,10 @@ func (s *Stack) files() (dash []file, prov []file, err error) {
 		}
 		dash = append(dash, file{rel: filepath.Join("dashboards", n), data: b})
 	}
-	prov = []file{{rel: "kubedojo.yaml", target: "/otel-lgtm/grafana/conf/provisioning/dashboards/kubedojo.yaml", data: []byte(dashboardProvider)}}
+	prov = []file{
+		{rel: "kubedojo.yaml", target: provisioning.DashboardProviderPath, data: provisioning.DashboardProvider},
+		{rel: "datasources.yaml", target: provisioning.DatasourcesPath, data: provisioning.Datasources},
+	}
 	return dash, prov, nil
 }
 
@@ -203,7 +198,7 @@ func (s *Stack) args(prov []file) (args []string, hash string) {
 	args = []string{
 		"-p", fmt.Sprintf("127.0.0.1:%d:3000", o.GrafanaPort),
 		"-p", fmt.Sprintf("127.0.0.1:%d:4318", o.OTLPPort),
-		"-v", filepath.Join(s.dir(), "dashboards") + ":/otel-lgtm/kubedojo-dashboards:ro",
+		"-v", filepath.Join(s.dir(), "dashboards") + ":" + provisioning.DashboardsPath + ":ro",
 	}
 	h := sha256.New()
 	for _, f := range prov {

@@ -53,6 +53,12 @@ jobs:
           done
       - uses: azure/setup-helm@v5
       - run: helm lint deploy/helm/kubedojo
+      # The optional parts of the chart are not rendered with the defaults.
+      - name: Chart with every option
+        run: |
+          opts="--set lgtm.enabled=true --set alerts.enabled=true --set ingress.enabled=true --set dashboards.enabled=false"
+          helm lint deploy/helm/kubedojo $opts
+          helm template kubedojo deploy/helm/kubedojo $opts > /dev/null
 
   # Its own job: it takes as long as everything else in build together.
   cross-compile:

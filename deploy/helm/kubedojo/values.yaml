@@ -120,6 +120,8 @@ alerts:
 # stack instead.
 lgtm:
   enabled: false
-  image: grafana/otel-lgtm:latest
+  # The version kubedojo is tested with; its provisioning files are mounted
+  # over the image's, so other versions may not fit.
+  image: grafana/otel-lgtm:0.41.1@sha256:1b852b77d7bcadb7699bfe7c78a51d059dff85168de674728cf7abf4474645e5
   resources:
     requests: {cpu: 200m, memory: 1Gi}

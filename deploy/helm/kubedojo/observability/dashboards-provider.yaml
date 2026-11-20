@@ -1,0 +1,8 @@
+# Tells Grafana in the single-container stack where kubedojo's dashboards are.
+apiVersion: 1
+providers:
+  - name: kubedojo
+    folder: kubedojo
+    type: file
+    options:
+      path: /otel-lgtm/kubedojo-dashboards
