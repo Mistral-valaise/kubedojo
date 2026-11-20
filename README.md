@@ -13,7 +13,7 @@ your skills sharp, or to prepare for the five exams on the road to Kubestronaut 
 [![Release](https://img.shields.io/github/v/release/Mistral-valaise/kubedojo)](https://github.com/Mistral-valaise/kubedojo/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.37-326ce5)
-![Questions](https://img.shields.io/badge/questions-204_verified-3ddc97)
+![Questions](https://img.shields.io/badge/questions-212_verified-3ddc97)
 
 [Quick start](#quick-start) · [What you can do](#what-you-can-do) · [How it works](#how-it-works) · [Run it for your team](#run-it-for-your-team) · [Contribute](#contributing)
 
@@ -52,14 +52,14 @@ the exams take for granted, and the two theory exams that complete the set.
 | 2 | **CKAD** | hands-on, a cluster | 22 tasks: build, deploy, configure and expose applications |
 | 3 | **CKA** | hands-on, clusters | 37 tasks: install, operate and troubleshoot clusters |
 | 4 | **KCSA** | theory | 41 multiple-choice questions, mock exams of 30 in 45 minutes |
-| 5 | **CKS** | hands-on, clusters | 21 tasks: harden clusters, workloads and the supply chain |
+| 5 | **CKS** | hands-on, clusters | 29 tasks: harden clusters, workloads and the supply chain |
 
 The order is a recommendation and nothing is locked. Why it is this order, and what each track leaves
 out: [docs/curriculum-design.md](docs/curriculum-design.md).
 
 | | |
 |---|---|
-| 🎯 **Exam-format tasks** | 204 original questions in six tracks, across all exam domains, weighted like the real exams. |
+| 🎯 **Exam-format tasks** | 212 original questions in six tracks, across all exam domains, weighted like the real exams. |
 | 🖥️ **Real clusters** | kubeadm, systemd, kubelet, etcd, static Pods. Break a kubelet, restore etcd, encrypt Secrets at rest, build an image with podman. |
 | ✅ **Feedback that teaches** | Every check shows what was expected, what was found, why it matters — and the command that checked it. |
 | ⏱️ **Timed simulations** | 120 minutes, no hints, a report with your score per domain and a clear pass or fail. |
@@ -223,7 +223,9 @@ sequenceDiagram
 Checks are plain commands with an expected result, so the grader never knows more than you could find
 out yourself. A question is a directory with a task, checks, a setup script and a reference solution —
 see [docs/writing-questions.md](docs/writing-questions.md). A whole new track:
-[docs/adding-a-track.md](docs/adding-a-track.md).
+[docs/adding-a-track.md](docs/adding-a-track.md). How the CKS questions map to the official
+curriculum, and which objectives are not covered yet:
+[docs/cks-coverage.md](docs/cks-coverage.md).
 
 ## Run it for your team
 
