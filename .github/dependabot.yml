@@ -20,3 +20,8 @@ updates:
   - package-ecosystem: docker
     directories: [/, /images/linux, /images/node, /images/sandbox-host, /images/terminal]
     schedule: {interval: weekly}
+    ignore:
+      # The Go version of the build image follows go.mod, which CI tests with.
+      # A new Go release is a deliberate change of both, not of the image alone.
+      - dependency-name: golang
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
