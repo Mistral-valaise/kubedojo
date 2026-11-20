@@ -45,6 +45,9 @@ func (d *docker) run(_ context.Context, name string, args ...string) (string, er
 			return "Error response from daemon: No such container: " + Container, fail
 		}
 		return fmt.Sprintf("%v|%s|%s|%s", d.running, d.labels[componentLabel], d.labels[hashLabel], d.image), nil
+	case "stop":
+		d.running = false
+		return Container, nil
 	case "rm":
 		d.exists, d.running = false, false
 		return Container, nil

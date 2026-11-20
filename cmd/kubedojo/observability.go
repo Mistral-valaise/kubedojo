@@ -53,12 +53,30 @@ func (f *obsFlags) stack(dataDir string) (*observability.Stack, error) {
 	return s, nil
 }
 
+// verifyStack prints what Verify found and fails if a check did.
+func verifyStack(ctx context.Context, stack *observability.Stack) error {
+	fmt.Println("\nVerifying: a trace, a log record and a metric go in over OTLP and are read back through Grafana.")
+	checks := stack.Verify(ctx, 45*time.Second)
+	for _, c := range checks {
+		if c.Err != nil {
+			fmt.Printf("  ✗ %s\n      %v\n", c.Name, c.Err)
+		} else {
+			fmt.Printf("  ✓ %s\n", c.Name)
+		}
+	}
+	if n := len(observability.Failed(checks)); n > 0 {
+		return fmt.Errorf("%d of %d checks failed", n, len(checks))
+	}
+	return nil
+}
+
 const observabilityUsage = `The local observability stack: Grafana, Prometheus, Loki, Tempo and an OpenTelemetry Collector
 in one container. "kubedojo up --observability" starts it for you.
 
 Usage:
   kubedojo observability up       Start the stack, or keep the running one
-  kubedojo observability status   Show whether it runs, and where
+  kubedojo observability status   Show whether it runs, and where. --verify proves that it works:
+                                  a trace, a log record and a metric are written and read back.
   kubedojo observability stop     Stop it; metrics, logs and traces are kept
   kubedojo observability reset    Stop it and delete its data. Your progress is not touched.
 
@@ -75,6 +93,7 @@ func cmdObservability(ctx context.Context, args []string) error {
 	fl.StringVar(&c.dataDir, "data", env("KUBEDOJO_DATA", defaultDataDir()), "data directory")
 	var f obsFlags
 	f.register(fl, false)
+	verify := fl.Bool("verify", false, "up, status: send a trace, a log record and a metric and read them back through Grafana")
 	if err := fl.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -89,6 +108,9 @@ func cmdObservability(ctx context.Context, args []string) error {
 		}
 		fmt.Printf("  ✓ Grafana: %s/dashboards?tag=kubedojo\n  ✓ OTLP/HTTP: %s\n", stack.GrafanaURL(), stack.Endpoint())
 		fmt.Println("  Start kubedojo with --observability to send its telemetry here.")
+		if *verify {
+			return verifyStack(ctx, stack)
+		}
 	case "status":
 		st, err := stack.Status(ctx)
 		if err != nil {
@@ -113,6 +135,12 @@ func cmdObservability(ctx context.Context, args []string) error {
 			fmt.Printf("  data:     Docker volume %s (delete with: kubedojo observability reset)\n", observability.Volume)
 		} else {
 			fmt.Println("  data:     no volume")
+		}
+		if *verify {
+			if !st.Running || !st.Owned {
+				return fmt.Errorf("nothing to verify: the observability stack is not running")
+			}
+			return verifyStack(ctx, stack)
 		}
 	case "stop":
 		removed, err := stack.Stop(ctx)

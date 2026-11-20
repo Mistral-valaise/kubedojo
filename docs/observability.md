@@ -26,6 +26,7 @@ else: no Helm, no cluster.
 ```sh
 kubedojo up --observability        # kubedojo on :4400, Grafana on :3000
 kubedojo observability status      # does it run, and where?
+kubedojo observability status --verify   # prove that it works, see below
 kubedojo observability stop        # stop it, keep the data
 kubedojo observability reset       # stop it and delete the data
 ```
@@ -39,6 +40,13 @@ kubedojo observability reset       # stop it and delete the data
 | `--observability-ephemeral` | `KUBEDOJO_OBSERVABILITY_EPHEMERAL` | off | keep no data volume |
 | `--observability-image` | `KUBEDOJO_OBSERVABILITY_IMAGE` | the pinned image | run another `grafana/otel-lgtm` |
 
+`--verify` sends one span, one log record written inside it and one metric sample recorded inside it
+to the OTLP receiver, under the service name `kubedojo-verify`, and reads all three back through
+Grafana. It also follows the links: the log record must be found by its trace ID, and the metric
+sample must carry the trace ID as an exemplar. Then it looks for the data sources, the dashboards and
+the alert rules. It takes about two seconds. `kubedojo up --observability` runs the same checks at
+start and prints a warning for each that fails; kubedojo itself starts either way.
+
 What to expect:
 
 - **Loopback only.** Grafana and the OTLP receiver listen on 127.0.0.1. Grafana has no login; do not
@@ -49,7 +57,8 @@ What to expect:
 - **Your own collector wins.** If an `OTEL_EXPORTER_OTLP_*ENDPOINT` variable points somewhere else,
   `--observability` stops with an error instead of redirecting your telemetry.
 - **Data.** Metrics, logs and traces live in the Docker volume `kubedojo-lgtm-data` and survive
-  `stop`, `kubedojo down` and a new kubedojo version. `kubedojo observability reset` deletes them.
+  `stop`, `kubedojo down`, changed settings and a new kubedojo version, including what was written
+  seconds before the stop. `kubedojo observability reset` deletes them.
   Your progress is in `~/.kubedojo/kubedojo.db` and is never touched by any of this.
 - **Size.** About 550 MB of memory when idle and about 700 MB once telemetry arrives, measured on
   macOS arm64 with Docker Desktop. The image is 0.9 GB to download. The volume starts at about 450 MB,

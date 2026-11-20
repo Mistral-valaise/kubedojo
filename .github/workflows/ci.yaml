@@ -62,6 +62,18 @@ jobs:
           helm lint deploy/helm/kubedojo $opts
           helm template kubedojo deploy/helm/kubedojo $opts > /dev/null
 
+  # The local observability stack in real Docker: start it, send a trace, a log
+  # record and a metric and read them back with the links between them, restart
+  # it with other settings and find the data again, stop and reset it.
+  observability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: {go-version-file: go.mod}
+      - run: make test-observability
+
   # Its own job: it takes as long as everything else in build together.
   cross-compile:
     runs-on: ubuntu-latest

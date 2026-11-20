@@ -67,6 +67,9 @@ type Options struct {
 	Retention time.Duration
 	// Version is the kubedojo version, recorded on the container.
 	Version string
+	// Name is the name of the container; its volume is Name-data. The default
+	// is Container. Tests run a stack of their own next to the user's.
+	Name string
 }
 
 func (o Options) withDefaults() Options {
@@ -81,6 +84,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.Retention == 0 {
 		o.Retention = DefaultRetention
+	}
+	if o.Name == "" {
+		o.Name = Container
 	}
 	return o
 }
@@ -132,6 +138,9 @@ func (s *Stack) Endpoint() string { return fmt.Sprintf("http://127.0.0.1:%d", s.
 
 // GrafanaURL is the address of Grafana.
 func (s *Stack) GrafanaURL() string { return fmt.Sprintf("http://127.0.0.1:%d", s.opt.GrafanaPort) }
+
+func (s *Stack) name() string   { return s.opt.Name }
+func (s *Stack) volume() string { return s.opt.Name + "-data" }
 
 func (s *Stack) dir() string { return filepath.Join(s.opt.DataDir, "observability") }
 
@@ -214,17 +223,21 @@ func (s *Stack) args(prov []file) (args []string, hash string) {
 		h.Write(f.data)
 	}
 	if !o.Ephemeral {
-		args = append(args, "-v", Volume+":/data")
+		args = append(args, "-v", s.volume()+":/data")
 	}
 	args = append(args,
 		"-e", "PROMETHEUS_EXTRA_ARGS=--storage.tsdb.retention.time="+hours,
 		"-e", "LOKI_EXTRA_ARGS=-store.retention="+hours+" -compactor.retention-enabled=true -compactor.delete-request-store=filesystem -compactor.working-directory=/data/loki/compactor",
-		"-e", "TEMPO_EXTRA_ARGS=-backend-worker.compaction.block-retention="+hours+" -backend-scheduler.provider.work.compaction.block-retention="+hours,
+		// Tempo keeps the traces of the last minutes in its live store, which
+		// the image leaves outside the volume: without the paths, a restart
+		// loses every trace that was not written to a block yet.
+		"-e", "TEMPO_EXTRA_ARGS=-backend-worker.compaction.block-retention="+hours+" -backend-scheduler.provider.work.compaction.block-retention="+hours+
+			" -live-store.wal.path=/data/tempo/live-store/traces -live-store.shutdown_marker_dir=/data/tempo/live-store/shutdown-marker",
 	)
 	fmt.Fprintln(h, o.Image)
 	fmt.Fprintln(h, strings.Join(args, "\x00"))
 	hash = hex.EncodeToString(h.Sum(nil))[:16]
-	head := []string{"run", "-d", "--name", Container,
+	head := []string{"run", "-d", "--name", s.name(),
 		"--label", componentLabel + "=" + component,
 		"--label", hashLabel + "=" + hash,
 		"--label", versionLabel + "=" + o.Version}
@@ -247,12 +260,12 @@ type State struct {
 func (s *Stack) inspect(ctx context.Context) (State, error) {
 	var st State
 	const format = `{{.State.Running}}|{{index .Config.Labels "` + componentLabel + `"}}|{{index .Config.Labels "` + hashLabel + `"}}|{{.Config.Image}}`
-	o, err := s.run(ctx, "docker", "inspect", "-f", format, Container)
+	o, err := s.run(ctx, "docker", "inspect", "-f", format, s.name())
 	if err != nil {
 		if strings.Contains(strings.ToLower(o), "no such") {
 			return st, nil
 		}
-		return st, dockerError("inspect "+Container, o, err)
+		return st, dockerError("inspect "+s.name(), o, err)
 	}
 	p := strings.SplitN(strings.TrimSpace(o), "|", 4)
 	if len(p) != 4 {
@@ -270,7 +283,7 @@ func (s *Stack) Status(ctx context.Context) (State, error) {
 	if err != nil {
 		return st, err
 	}
-	_, verr := s.run(ctx, "docker", "volume", "inspect", Volume)
+	_, verr := s.run(ctx, "docker", "volume", "inspect", s.volume())
 	st.Volume = verr == nil
 	return st, nil
 }
@@ -285,7 +298,9 @@ func (s *Stack) Current(st State) bool {
 	return st.Running && st.Hash == hash
 }
 
-var errForeign = fmt.Errorf("a container named %s exists that kubedojo did not create; remove or rename it (docker rm -f %s)", Container, Container)
+func (s *Stack) errForeign() error {
+	return fmt.Errorf("a container named %s exists that kubedojo did not create; remove or rename it (docker rm -f %s)", s.name(), s.name())
+}
 
 // Up starts the stack, or keeps the one that is running with the same
 // settings, and returns when Grafana and the collector answer.
@@ -303,7 +318,7 @@ func (s *Stack) Up(ctx context.Context) error {
 		return err
 	}
 	if st.Exists && !st.Owned {
-		return errForeign
+		return s.errForeign()
 	}
 	if st.Running && st.Hash == hash {
 		s.say("  ✓ the observability stack is running")
@@ -318,18 +333,18 @@ func (s *Stack) Up(ctx context.Context) error {
 		if st.Running {
 			s.say("  … restarting the observability stack with the new settings")
 		}
-		if o, err := s.run(ctx, "docker", "rm", "-f", Container); err != nil {
-			return dockerError("remove "+Container, o, err)
+		if err := s.remove(ctx, st.Running); err != nil {
+			return err
 		}
 	}
 	s.say("  … starting the observability stack (%s)", strings.SplitN(s.opt.Image, "@", 2)[0])
 	if o, err := s.run(ctx, "docker", args...); err != nil {
 		// Docker reserves the port only now; another process may have won.
 		if strings.Contains(o, "port is already allocated") || strings.Contains(o, "address already in use") {
-			_, _ = s.run(ctx, "docker", "rm", "-f", Container)
+			_, _ = s.run(ctx, "docker", "rm", "-f", s.name())
 			return fmt.Errorf("a port of the observability stack is in use; choose others with --grafana-port and --otlp-port (docker says: %s)", lastLine(o))
 		}
-		return dockerError("start "+Container, o, err)
+		return dockerError("start "+s.name(), o, err)
 	}
 	return s.wait(ctx)
 }
@@ -340,7 +355,7 @@ func (s *Stack) portsFree(ctx context.Context, running bool) error {
 	own := map[string]bool{}
 	if running {
 		// 3000/tcp -> 127.0.0.1:3000
-		o, _ := s.run(ctx, "docker", "port", Container)
+		o, _ := s.run(ctx, "docker", "port", s.name())
 		for _, line := range strings.Split(o, "\n") {
 			if i := strings.LastIndex(line, ":"); i >= 0 {
 				own[strings.TrimSpace(line[i+1:])] = true
@@ -378,7 +393,7 @@ func (s *Stack) wait(ctx context.Context) error {
 		if !st.Running {
 			return fmt.Errorf("the observability stack stopped while starting:\n%s", s.logs(ctx))
 		}
-		if _, err := s.run(ctx, "docker", "exec", Container, "test", "-f", "/tmp/ready"); err == nil {
+		if _, err := s.run(ctx, "docker", "exec", s.name(), "test", "-f", "/tmp/ready"); err == nil {
 			if err := s.healthy(ctx, s.GrafanaURL()+"/api/health"); err == nil {
 				return nil
 			}
@@ -399,8 +414,22 @@ func (s *Stack) wait(ctx context.Context) error {
 }
 
 func (s *Stack) logs(ctx context.Context) string {
-	o, _ := s.run(ctx, "docker", "logs", "--tail", "15", Container)
-	return strings.TrimSpace(o) + "\n(all of it: docker logs " + Container + ")"
+	o, _ := s.run(ctx, "docker", "logs", "--tail", "15", s.name())
+	return strings.TrimSpace(o) + "\n(all of it: docker logs " + s.name() + ")"
+}
+
+// remove stops the container and removes it. A running stack is asked to
+// stop first: killed, Tempo and Loki lose what they had not written to disk
+// yet, which is the last minutes before the stop.
+func (s *Stack) remove(ctx context.Context, running bool) error {
+	if running {
+		// The image gives its components five seconds by default.
+		_, _ = s.run(ctx, "docker", "stop", "-t", "20", s.name())
+	}
+	if o, err := s.run(ctx, "docker", "rm", "-f", s.name()); err != nil {
+		return dockerError("remove "+s.name(), o, err)
+	}
+	return nil
 }
 
 // Stop removes the container. The data volume stays, so the next start finds
@@ -411,10 +440,10 @@ func (s *Stack) Stop(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if !st.Owned {
-		return false, errForeign
+		return false, s.errForeign()
 	}
-	if o, err := s.run(ctx, "docker", "rm", "-f", Container); err != nil {
-		return false, dockerError("remove "+Container, o, err)
+	if err := s.remove(ctx, st.Running); err != nil {
+		return false, err
 	}
 	return true, nil
 }
@@ -425,8 +454,8 @@ func (s *Stack) Reset(ctx context.Context) error {
 	if _, err := s.Stop(ctx); err != nil {
 		return err
 	}
-	if o, err := s.run(ctx, "docker", "volume", "rm", Volume); err != nil && !strings.Contains(strings.ToLower(o), "no such volume") {
-		return dockerError("remove the volume "+Volume, o, err)
+	if o, err := s.run(ctx, "docker", "volume", "rm", s.volume()); err != nil && !strings.Contains(strings.ToLower(o), "no such volume") {
+		return dockerError("remove the volume "+s.volume(), o, err)
 	}
 	return os.RemoveAll(s.dir())
 }
