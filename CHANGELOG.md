@@ -67,6 +67,10 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
   up to eight minutes. Work on such a session answers that the sandbox no longer exists.
 - A sandbox Pod that cannot start says why in the progress log (no node has room, the image cannot
   be pulled, evicted) and gives up within a minute or two instead of eight.
+- **Hosted mode: the limits of a sandbox Pod now apply to its clusters.** The Docker daemon of a
+  sandbox created its containers' cgroups at the root of the node, outside the Pod. The clusters of
+  a session did not count against the Pod's memory and CPU limits, and `kubectl top` showed 300 MB
+  for a Pod that used a gigabyte. The sandbox host now keeps them below the Pod's cgroup.
 - The server checks the sandbox resources at start and names what is wrong, and the chart has a
   schema: a misspelled key or a value like `3GB` fails `helm install` instead of a session.
 
