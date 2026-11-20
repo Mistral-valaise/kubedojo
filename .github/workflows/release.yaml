@@ -8,7 +8,16 @@ permissions:
   packages: write
 
 jobs:
+  # Nothing is published from a commit that does not build, lint and test. The
+  # questions were proven when the commit reached main, and are again every night.
+  ci:
+    uses: ./.github/workflows/ci.yaml
+    with: {content: false}
+    permissions:
+      contents: read
+
   binaries:
+    needs: [ci]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -25,6 +34,7 @@ jobs:
 
   # Image names must be lowercase, so the owner is spelled out here.
   images:
+    needs: [ci]
     runs-on: ubuntu-latest
     env:
       REGISTRY: ghcr.io/mistral-valaise
