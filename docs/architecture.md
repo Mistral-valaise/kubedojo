@@ -4,7 +4,7 @@
 
 | Package | Responsibility |
 |---|---|
-| `cmd/kubedojo` | CLI: `up`, `serve`, `doctor`, `down`, `ratings`, `content lint/test/export` |
+| `cmd/kubedojo` | CLI: `up`, `serve`, `doctor`, `down`, `ratings`, `content lint/test/export`, `version` |
 | `internal/api` | REST API, terminal WebSocket, embedded UI |
 | `internal/session` | lifecycle of practice and exam sessions, grading, reports |
 | `internal/sandbox` | `Driver` interface and the kind driver: clusters and Linux hosts |
