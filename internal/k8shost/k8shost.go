@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -42,7 +43,18 @@ type Config struct {
 	NodeSelector     map[string]string // dedicated node pool
 	Toleration       string            // taint key tolerated by sandbox Pods (effect NoSchedule)
 	PullSecret       string
+	// Instance is the name of the installation (the Helm release). Sandbox
+	// Pods carry it as a label, so that two installations in one Namespace
+	// do not clean up or reach each other's sandboxes.
+	Instance string
+	// OwnerDeployment names the server's Deployment. Sandbox Pods get it as
+	// owner: when the installation is removed, Kubernetes removes them too.
+	OwnerDeployment string
+	// StartTimeout is how long a sandbox Pod may take to become ready (default 8m).
+	StartTimeout time.Duration
 }
+
+const sessionLabel = "kubedojo.dev/session"
 
 type Provider struct {
 	cfg    Config
@@ -50,6 +62,29 @@ type Provider struct {
 	client *http.Client
 	// token returns the bearer token of a request.
 	token func() (string, error)
+
+	// ownerUID is the UID of cfg.OwnerDeployment, empty if it is unknown.
+	ownerUID string
+	poll     time.Duration
+	// patience is how long a Pod may stay in a state that does not resolve
+	// on its own before Acquire gives up.
+	patience     map[string]time.Duration
+	startTimeout time.Duration
+	// orphanAge is how old a Pod without a session must be to be removed.
+	orphanAge time.Duration
+}
+
+// newProvider is New without the in-cluster discovery.
+func newProvider(cfg Config, api string, client *http.Client, token func() (string, error)) *Provider {
+	p := &Provider{cfg: cfg, api: api, client: client, token: token, poll: 3 * time.Second,
+		// Unschedulable can pass when another session ends, but a learner
+		// should not stare at a spinner for eight minutes to find out.
+		patience:     map[string]time.Duration{waitUnschedulable: time.Minute, waitImage: 2 * time.Minute},
+		startTimeout: cfg.StartTimeout, orphanAge: 2 * time.Minute}
+	if p.startTimeout <= 0 {
+		p.startTimeout = 8 * time.Minute
+	}
+	return p
 }
 
 // New builds a provider from the in-cluster ServiceAccount.
@@ -71,12 +106,38 @@ func New(cfg Config) (*Provider, error) {
 		ns, _ := os.ReadFile(saDir + "/namespace")
 		cfg.Namespace = strings.TrimSpace(string(ns))
 	}
-	return &Provider{cfg: cfg, api: "https://" + net.JoinHostPort(host, port),
-		client: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}},
-		token: func() (string, error) {
+	return newProvider(cfg, "https://"+net.JoinHostPort(host, port),
+		&http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}},
+		func() (string, error) {
 			b, err := os.ReadFile(saDir + "/token") // re-read: projected tokens rotate
 			return strings.TrimSpace(string(b)), err
-		}}, nil
+		}), nil
+}
+
+// AdoptOwner looks up the server's Deployment, so that sandbox Pods created
+// from now on are owned by it. Without it they still work; they are then
+// only cleaned up by Reconcile and by hand.
+func (p *Provider) AdoptOwner(ctx context.Context) error {
+	if p.cfg.OwnerDeployment == "" {
+		return nil
+	}
+	code, body, err := p.do(ctx, "GET", "/apis/apps/v1/namespaces/"+p.cfg.Namespace+"/deployments/"+p.cfg.OwnerDeployment, nil)
+	if err != nil {
+		return err
+	}
+	if code != 200 {
+		return fmt.Errorf("get deployment %s: HTTP %d: %s", p.cfg.OwnerDeployment, code, apiMessage(body))
+	}
+	var d struct {
+		Metadata struct {
+			UID string `json:"uid"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(body, &d); err != nil {
+		return err
+	}
+	p.ownerUID = d.Metadata.UID
+	return nil
 }
 
 // Namespace is where the sandbox Pods are created.
@@ -115,13 +176,30 @@ func (p *Provider) do(ctx context.Context, method, path string, body any) (int, 
 }
 
 type podStatus struct {
+	Metadata struct {
+		Name              string            `json:"name"`
+		CreationTimestamp time.Time         `json:"creationTimestamp"`
+		Labels            map[string]string `json:"labels"`
+	} `json:"metadata"`
 	Status struct {
 		Phase      string `json:"phase"`
 		PodIP      string `json:"podIP"`
+		Reason     string `json:"reason"`
+		Message    string `json:"message"`
 		Conditions []struct {
-			Type   string `json:"type"`
-			Status string `json:"status"`
+			Type    string `json:"type"`
+			Status  string `json:"status"`
+			Reason  string `json:"reason"`
+			Message string `json:"message"`
 		} `json:"conditions"`
+		ContainerStatuses []struct {
+			State struct {
+				Waiting *struct {
+					Reason  string `json:"reason"`
+					Message string `json:"message"`
+				} `json:"waiting"`
+			} `json:"state"`
+		} `json:"containerStatuses"`
 	} `json:"status"`
 }
 
@@ -143,8 +221,62 @@ func ready(st *podStatus) bool {
 	return false
 }
 
+// Why a Pod is not ready yet, in the order a learner would want to hear it.
+const (
+	waitUnschedulable = "unschedulable"
+	waitImage         = "image"
+)
+
+// waiting explains a Pod that is not ready: kind is one of the wait
+// constants for states that will not resolve on their own, text is for the
+// learner and the operator.
+func waiting(st *podStatus) (kind, text string) {
+	for _, c := range st.Status.Conditions {
+		if c.Type == "PodScheduled" && c.Status == "False" && c.Reason == "Unschedulable" {
+			return waitUnschedulable, "no node has room for the sandbox: " + c.Message
+		}
+	}
+	for _, cs := range st.Status.ContainerStatuses {
+		if w := cs.State.Waiting; w != nil {
+			switch w.Reason {
+			case "ImagePullBackOff", "ErrImagePull", "InvalidImageName", "ErrImageNeverPull":
+				return waitImage, "the sandbox image cannot be pulled (" + w.Reason + "): " + w.Message
+			case "ContainerCreating", "PodInitializing", "":
+				// The normal path; nothing to say.
+			default:
+				return "", "the sandbox container is waiting (" + w.Reason + "): " + w.Message
+			}
+		}
+	}
+	return "", ""
+}
+
+func (p *Provider) endpoint(st *podStatus) dockerhost.Host {
+	return dockerhost.Host{Endpoint: "tcp://" + net.JoinHostPort(st.Status.PodIP, "2375")}
+}
+
+// Lookup returns the Docker endpoint of the session's sandbox Pod if the Pod
+// exists and is ready. Unlike Acquire it never creates one.
+func (p *Provider) Lookup(ctx context.Context, sessionID string) (dockerhost.Host, bool, error) {
+	st, code, err := p.get(ctx, podName(sessionID))
+	if err != nil {
+		return dockerhost.Host{}, false, err
+	}
+	switch {
+	case code == 404:
+		return dockerhost.Host{}, false, nil
+	case code != 200:
+		return dockerhost.Host{}, false, fmt.Errorf("get sandbox pod: HTTP %d", code)
+	case !ready(st):
+		return dockerhost.Host{}, false, nil
+	}
+	return p.endpoint(st), true, nil
+}
+
 // Acquire returns the Docker endpoint of the session's sandbox Pod, creating
-// the Pod on first use.
+// the Pod on first use. While the Pod is not ready it tells logf why, and it
+// gives up early on states that do not resolve on their own: a Pod no node
+// has room for, an image that cannot be pulled.
 func (p *Provider) Acquire(ctx context.Context, sessionID string, logf func(string, ...any)) (dockerhost.Host, error) {
 	name := podName(sessionID)
 	st, code, err := p.get(ctx, name)
@@ -152,7 +284,7 @@ func (p *Provider) Acquire(ctx context.Context, sessionID string, logf func(stri
 		return dockerhost.Host{}, err
 	}
 	if code == 200 && ready(st) {
-		return dockerhost.Host{Endpoint: "tcp://" + net.JoinHostPort(st.Status.PodIP, "2375")}, nil
+		return p.endpoint(st), nil
 	}
 	if code == 404 {
 		logf("Starting the sandbox host ...")
@@ -161,45 +293,135 @@ func (p *Provider) Acquire(ctx context.Context, sessionID string, logf func(stri
 			return dockerhost.Host{}, err
 		}
 		if c != 201 && c != 409 {
-			return dockerhost.Host{}, fmt.Errorf("create sandbox pod: HTTP %d: %s", c, strings.TrimSpace(string(body)))
+			return dockerhost.Host{}, fmt.Errorf("create sandbox pod: HTTP %d: %s", c, apiMessage(body))
 		}
 	} else if code != 200 {
 		return dockerhost.Host{}, fmt.Errorf("get sandbox pod: HTTP %d", code)
 	}
-	deadline := time.Now().Add(8 * time.Minute)
+	start := time.Now()
+	said, stuck, since := "", "", time.Time{}
 	for {
 		st, code, err := p.get(ctx, name)
 		if err != nil {
 			return dockerhost.Host{}, err
 		}
-		if code == 200 && ready(st) {
-			logf("Sandbox host is ready.")
-			return dockerhost.Host{Endpoint: "tcp://" + net.JoinHostPort(st.Status.PodIP, "2375")}, nil
+		if code == 404 {
+			return dockerhost.Host{}, fmt.Errorf("sandbox pod %s was removed while it was starting", name)
 		}
-		if code == 200 && st.Status.Phase == "Failed" {
-			return dockerhost.Host{}, fmt.Errorf("sandbox pod %s failed", name)
+		if code == 200 {
+			if ready(st) {
+				logf("Sandbox host is ready.")
+				return p.endpoint(st), nil
+			}
+			if ph := st.Status.Phase; ph == "Failed" || ph == "Succeeded" {
+				return dockerhost.Host{}, fmt.Errorf("sandbox pod %s ended (%s): %s", name, firstOf(st.Status.Reason, ph), firstOf(st.Status.Message, "see kubectl describe pod "+name))
+			}
+			kind, text := waiting(st)
+			if text != "" && text != said {
+				logf("Sandbox host: %s", text)
+				said = text
+			}
+			if kind != stuck {
+				stuck, since = kind, time.Now()
+			}
+			if limit := p.patience[kind]; kind != "" && limit > 0 && time.Since(since) > limit {
+				return dockerhost.Host{}, fmt.Errorf("the sandbox cannot start: %s", text)
+			}
 		}
-		if time.Now().After(deadline) {
-			return dockerhost.Host{}, fmt.Errorf("sandbox pod %s did not become ready in time", name)
+		if time.Since(start) > p.startTimeout {
+			_, text := waiting(st)
+			return dockerhost.Host{}, fmt.Errorf("sandbox pod %s was not ready after %s%s", name, p.startTimeout, prefixed(": ", text))
 		}
 		select {
 		case <-ctx.Done():
 			return dockerhost.Host{}, ctx.Err()
-		case <-time.After(3 * time.Second):
+		case <-time.After(p.poll):
 		}
 	}
 }
 
+func firstOf(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+func prefixed(prefix, s string) string {
+	if s == "" {
+		return ""
+	}
+	return prefix + s
+}
+
+// apiMessage is the message of a Kubernetes Status object, or the raw body.
+func apiMessage(body []byte) string {
+	var st struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(body, &st) == nil && st.Message != "" {
+		return st.Message
+	}
+	return strings.TrimSpace(string(body))
+}
+
 // Release deletes the session's sandbox Pod; everything inside goes with it.
 func (p *Provider) Release(ctx context.Context, sessionID string) error {
-	code, body, err := p.do(ctx, "DELETE", "/api/v1/namespaces/"+p.cfg.Namespace+"/pods/"+podName(sessionID)+"?gracePeriodSeconds=5", nil)
+	return p.delete(ctx, podName(sessionID))
+}
+
+func (p *Provider) delete(ctx context.Context, name string) error {
+	code, body, err := p.do(ctx, "DELETE", "/api/v1/namespaces/"+p.cfg.Namespace+"/pods/"+name+"?gracePeriodSeconds=5", nil)
 	if err != nil {
 		return err
 	}
 	if code != 200 && code != 202 && code != 404 {
-		return fmt.Errorf("delete sandbox pod: HTTP %d: %s", code, strings.TrimSpace(string(body)))
+		return fmt.Errorf("delete sandbox pod: HTTP %d: %s", code, apiMessage(body))
 	}
 	return nil
+}
+
+// selector matches the sandbox Pods of this installation, and no others in
+// the Namespace.
+func (p *Provider) selector() string {
+	sel := "app.kubernetes.io/name=kubedojo,app.kubernetes.io/component=sandbox"
+	if p.cfg.Instance != "" {
+		sel += ",app.kubernetes.io/instance=" + p.cfg.Instance
+	}
+	return sel
+}
+
+// Reconcile deletes sandbox Pods that belong to no live session: left behind
+// by a server that was killed, by a session that was removed from the
+// database, or by a failed deletion. A Pod younger than two minutes is left
+// alone, because its session may be about to be recorded. It returns the
+// sessions whose Pods were removed.
+func (p *Provider) Reconcile(ctx context.Context, live func(sessionID string) bool) ([]string, error) {
+	code, body, err := p.do(ctx, "GET", "/api/v1/namespaces/"+p.cfg.Namespace+"/pods?labelSelector="+url.QueryEscape(p.selector()), nil)
+	if err != nil {
+		return nil, err
+	}
+	if code != 200 {
+		return nil, fmt.Errorf("list sandbox pods: HTTP %d: %s", code, apiMessage(body))
+	}
+	var list struct {
+		Items []podStatus `json:"items"`
+	}
+	if err := json.Unmarshal(body, &list); err != nil {
+		return nil, err
+	}
+	var removed []string
+	for _, pod := range list.Items {
+		id := pod.Metadata.Labels[sessionLabel]
+		if id == "" || live(id) || time.Since(pod.Metadata.CreationTimestamp) < p.orphanAge {
+			continue
+		}
+		if err := p.delete(ctx, pod.Metadata.Name); err != nil {
+			return removed, err
+		}
+		removed = append(removed, id)
+	}
+	return removed, nil
 }
 
 func (p *Provider) manifest(name, sessionID string) map[string]any {
@@ -254,15 +476,20 @@ func (p *Provider) manifest(name, sessionID string) map[string]any {
 	if p.cfg.PullSecret != "" {
 		spec["imagePullSecrets"] = []any{map[string]string{"name": p.cfg.PullSecret}}
 	}
-	return map[string]any{
-		"apiVersion": "v1", "kind": "Pod",
-		"metadata": map[string]any{
-			"name": name,
-			"labels": map[string]string{
-				"app.kubernetes.io/name": "kubedojo", "app.kubernetes.io/component": "sandbox",
-				"kubedojo.dev/session": sessionID,
-			},
-		},
-		"spec": spec,
+	labels := map[string]string{
+		"app.kubernetes.io/name": "kubedojo", "app.kubernetes.io/component": "sandbox",
+		sessionLabel: sessionID,
 	}
+	if p.cfg.Instance != "" {
+		labels["app.kubernetes.io/instance"] = p.cfg.Instance
+	}
+	meta := map[string]any{"name": name, "labels": labels}
+	if p.ownerUID != "" {
+		// Not a controller: the Deployment does not manage these Pods, it
+		// only takes them along when it is deleted.
+		meta["ownerReferences"] = []any{map[string]any{
+			"apiVersion": "apps/v1", "kind": "Deployment", "name": p.cfg.OwnerDeployment, "uid": p.ownerUID,
+		}}
+	}
+	return map[string]any{"apiVersion": "v1", "kind": "Pod", "metadata": meta, "spec": spec}
 }

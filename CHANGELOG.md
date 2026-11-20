@@ -66,6 +66,14 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
   `ephemeralStorageRequest` (10Gi) and `ephemeralStorageLimit` (30Gi); the Docker volume of a
   sandbox is limited to the same size. Before, a sandbox had no CPU limit and could fill the node's
   disk. **This changes scheduling**: a node now needs 10 Gi of free ephemeral storage per sandbox.
+- **Hosted mode: sandbox Pods are cleaned up.** They are owned by the server's Deployment, so
+  `helm uninstall` removes them; before, privileged Pods stayed behind. The server also deletes
+  sandbox Pods that belong to no session, at start and every five minutes. The Role gains `list` on
+  Pods and `get` on its own Deployment.
+- Ending a session whose sandbox Pod is gone no longer creates a new Pod to delete it, which took
+  up to eight minutes. Work on such a session answers that the sandbox no longer exists.
+- A sandbox Pod that cannot start says why in the progress log (no node has room, the image cannot
+  be pulled, evicted) and gives up within a minute or two instead of eight.
 - The server checks the sandbox resources at start and names what is wrong, and the chart has a
   schema: a misspelled key or a value like `3GB` fails `helm install` instead of a session.
 

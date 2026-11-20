@@ -145,11 +145,30 @@ func noun(spec sandbox.EnvSpec) string {
 
 // HostProvider decides which Docker endpoint a session's sandbox lives on.
 type HostProvider interface {
+	// Acquire returns the session's Docker endpoint and creates what is
+	// needed for it (in hosted mode, a Pod). Only for a session that is
+	// about to get an environment.
 	Acquire(ctx context.Context, sessionID string, logf func(string, ...any)) (dockerhost.Host, error)
+	// Lookup returns the endpoint if it exists, and never creates one.
+	Lookup(ctx context.Context, sessionID string) (dockerhost.Host, bool, error)
 	Release(ctx context.Context, sessionID string) error
 }
 
+// Reconciler is a HostProvider that can find what it created for sessions
+// that no longer exist, and remove it.
+type Reconciler interface {
+	Reconcile(ctx context.Context, live func(sessionID string) bool) (removed []string, err error)
+}
+
+// ErrSandboxGone is returned for work on a session whose sandbox disappeared:
+// its Pod was evicted or deleted, or its node went away.
+var ErrSandboxGone = fmt.Errorf("%w: the sandbox of this session no longer exists; end the session and start a new one", ErrConflict)
+
 type localHosts struct{}
+
+func (localHosts) Lookup(context.Context, string) (dockerhost.Host, bool, error) {
+	return dockerhost.Local(), true, nil
+}
 
 func (localHosts) Acquire(context.Context, string, func(string, ...any)) (dockerhost.Host, error) {
 	return dockerhost.Local(), nil
@@ -364,12 +383,54 @@ func (m *Manager) Running() int {
 	return n
 }
 
+// existing returns the endpoint of a session's sandbox for work that needs
+// the sandbox to be there already. It never creates one: in hosted mode that
+// would be an empty Pod without the clusters the session believes it has.
+func (m *Manager) existing(ctx context.Context, s *Session) (dockerhost.Host, error) {
+	host, ok, err := m.hosts.Lookup(ctx, s.ID)
+	if err != nil {
+		return dockerhost.Host{}, err
+	}
+	if !ok {
+		return dockerhost.Host{}, ErrSandboxGone
+	}
+	return host, nil
+}
+
+// reconcile removes what the host provider created for sessions that are
+// gone: the Pod of a session a killed server could not clean up.
+func (m *Manager) reconcile() {
+	r, ok := m.hosts.(Reconciler)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(m.base, time.Minute)
+	defer cancel()
+	removed, err := r.Reconcile(ctx, func(id string) bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		s, ok := m.byID[id]
+		return ok && s.Status != StatusDestroyed
+	})
+	if err != nil && m.base.Err() == nil {
+		m.log.WarnContext(ctx, "cleaning up sandboxes without a session", "err", err)
+	}
+	for _, id := range removed {
+		m.log.InfoContext(ctx, "removed a sandbox without a session", "session", id)
+	}
+}
+
 // clock ends exams whose time is up.
 func (m *Manager) clock() {
 	defer m.work.Done()
 	t := time.NewTicker(3 * time.Second)
 	defer t.Stop()
-	for {
+	m.reconcile()
+	for tick := 1; ; tick++ {
+		// Every five minutes.
+		if tick%100 == 0 {
+			m.reconcile()
+		}
 		select {
 		case <-m.stopCh:
 			return
@@ -395,7 +456,16 @@ func (m *Manager) clock() {
 			}
 			for _, id := range due {
 				m.log.InfoContext(m.base, "exam time is up", "session", id)
-				_ = m.Finish(m.base, id)
+				if err := m.Finish(m.base, id); errors.Is(err, ErrSandboxGone) {
+					// Nothing is left to grade. Without this the exam would
+					// stay running and be found due again on every tick.
+					m.mu.Lock()
+					if s := m.byID[id]; s != nil && s.Status == StatusRunning {
+						s.Status, s.Error = StatusError, "the sandbox of this exam no longer exists; it could not be graded"
+						m.save(s)
+					}
+					m.mu.Unlock()
+				}
 			}
 		}
 	}
@@ -749,7 +819,7 @@ func (m *Manager) runner(s *Session, q *catalog.Question) checker.Runner {
 // question's environment; an empty user is the account scripts and checks use
 // on that role.
 func (m *Manager) exec(ctx context.Context, s *Session, q *catalog.Question, role, user, script string) (sandbox.ExecResult, error) {
-	host, err := m.hosts.Acquire(ctx, s.ID, func(string, ...any) {})
+	host, err := m.existing(ctx, s)
 	if err != nil {
 		return sandbox.ExecResult{}, err
 	}
@@ -981,6 +1051,11 @@ func (m *Manager) CheckOnce(ctx context.Context, id, qid string, once func(*cata
 	if qs.Status != "ready" {
 		return nil, fmt.Errorf("%w: question is not ready", ErrConflict)
 	}
+	// Without its sandbox every check would fail with a grader error, and the
+	// attempt would be recorded as a failed one.
+	if _, err := m.existing(ctx, s); err != nil {
+		return nil, err
+	}
 	ctx, end := m.span(ctx, "question.check", s, "kubedojo.question", q.ID)
 	res := checker.RunOnce(ctx, q, m.runner(s, q), once)
 	m.update(s, func() { qs.Last = &res })
@@ -1023,6 +1098,17 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 	}
 	m.mu.Lock()
 	if s.Mode != ModeExam || s.Status != StatusRunning {
+		m.mu.Unlock()
+		return fmt.Errorf("%w: session cannot be finished in state %s", ErrConflict, s.Status)
+	}
+	m.mu.Unlock()
+	// An exam whose sandbox is gone cannot be graded: every check would
+	// fail, and the exam would be recorded with zero points.
+	if _, err := m.existing(ctx, s); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	if s.Status != StatusRunning {
 		m.mu.Unlock()
 		return fmt.Errorf("%w: session cannot be finished in state %s", ErrConflict, s.Status)
 	}
@@ -1242,13 +1328,19 @@ func (m *Manager) Destroy(ctx context.Context, id string) error {
 	// End the shells first: their slots are freed and the WebSockets close
 	// instead of waiting for a read error from a container that is gone.
 	m.terms.closeAll(s.ID)
-	host, err := m.hosts.Acquire(ctx, s.ID, func(string, ...any) {})
-	if err == nil {
+	// Lookup, not Acquire: a sandbox that is already gone must not be
+	// created again just to be destroyed.
+	host, ok, err := m.hosts.Lookup(ctx, s.ID)
+	if err != nil {
+		m.log.WarnContext(ctx, "find sandbox", "session", s.ID, "err", err)
+	} else if ok {
 		if derr := m.drv.Destroy(ctx, host, s.ID, m.envs(s)); derr != nil {
 			m.log.WarnContext(ctx, "destroy sandbox", "session", s.ID, "err", derr)
 		}
 	}
-	_ = m.hosts.Release(ctx, s.ID)
+	if rerr := m.hosts.Release(ctx, s.ID); rerr != nil {
+		m.log.WarnContext(ctx, "release sandbox", "session", s.ID, "err", rerr)
+	}
 	m.update(s, func() { s.Status = StatusDestroyed })
 	return nil
 }

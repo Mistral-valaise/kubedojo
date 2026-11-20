@@ -14,8 +14,9 @@ Ingress ─▶ kubedojo server Pod (optional oauth2-proxy sidecar)
 ```
 
 - The **server** is one Pod with a small PVC (SQLite: sessions, history). It runs as non-root with a
-  read-only root filesystem. Its ServiceAccount may create, get and delete Pods in its own Namespace —
-  nothing else.
+  read-only root filesystem. Its ServiceAccount may create, get, list and delete Pods in its own
+  Namespace and read its own Deployment — nothing else. That is still a lot: whoever can create
+  Pods in a Namespace that admits privileged ones is root on its nodes.
 - Each session gets a **sandbox Pod** (`kd-sandbox-<id>`) that runs a Docker daemon. kubedojo creates
   the same terminal container and kind clusters in it that it creates locally.
 
@@ -166,6 +167,17 @@ See [`values.yaml`](../deploy/helm/kubedojo/values.yaml) for every option, and
   `terminationGracePeriodSeconds` a little above the grace period, or Kubernetes kills the server
   first.
 - **Backup**: the PVC holds a single SQLite file, `/data/kubedojo.db`.
-- **Stuck sandboxes**: `kubectl -n kubedojo get pod -l app.kubernetes.io/component=sandbox`; deleting a
-  sandbox Pod ends that session's environment.
+- **Sandbox Pods** carry the labels `app.kubernetes.io/component=sandbox`,
+  `app.kubernetes.io/instance=<release>` and `kubedojo.dev/session=<id>`:
+  `kubectl -n kubedojo get pod -l app.kubernetes.io/component=sandbox`.
+  - Deleting one ends that session's environment. The session then answers "the sandbox of this
+    session no longer exists"; the learner ends it and starts a new one.
+  - They are owned by the server's Deployment: `helm uninstall` removes them with the release.
+  - At start and every five minutes the server deletes sandbox Pods that belong to no session, for
+    example after it was killed while a session was being removed. A Pod younger than two minutes is
+    left alone.
+- **A sandbox that does not start** tells the learner why, in the session's progress log: no node
+  has room (the scheduler's message), the image cannot be pulled, the Pod was evicted. It gives up
+  after one minute without a node and two minutes without the image, and after
+  `KUBEDOJO_SANDBOX_START_TIMEOUT` (default 8m) otherwise.
 - **One replica only.** Sessions are held by the single server Pod; do not scale the Deployment.

@@ -66,6 +66,10 @@ spec:
             - name: KUBEDOJO_REGISTRY_MIRROR
               value: {{ .Values.sandbox.registryMirror | quote }}
             {{- end }}
+            - name: KUBEDOJO_INSTANCE
+              value: {{ .Release.Name | quote }}
+            - name: KUBEDOJO_OWNER_DEPLOYMENT
+              value: {{ $name | quote }}
             {{- with .Values.sandbox.resources }}
             - name: KUBEDOJO_SANDBOX_CPU_REQUEST
               value: {{ .cpuRequest | quote }}

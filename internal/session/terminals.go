@@ -157,7 +157,7 @@ func (m *Manager) Attach(ctx context.Context, id string, cols, rows uint) (sandb
 	if err != nil {
 		return nil, err
 	}
-	host, err := m.hosts.Acquire(ctx, s.ID, func(string, ...any) {})
+	host, err := m.existing(ctx, s)
 	if err != nil {
 		_ = t.Close()
 		return nil, err
