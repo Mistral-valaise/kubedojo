@@ -37,6 +37,15 @@ Notable changes per release. The format follows [Keep a Changelog](https://keepa
 - Latency and sandbox start panels show exemplars, *Platform health* lists recent traces, and
   *Learning analytics* shows the share of points per question, a metric that was exported but never
   displayed. Panels that counted over `$__interval` use `$__rate_interval`; they lost samples.
+- **Alerts in the local stack.** Seven rules are provisioned in Grafana and are evaluated from the
+  start: kubedojo down, API errors, failing and slow sandbox starts, the session limit, sandbox
+  memory and refused telemetry. They are visible in Grafana only; nothing is sent. The chart's
+  `PrometheusRule` is rendered from the same file, `observability/rules.yaml`.
+- `KubedojoDown` uses `absent_over_time`. With `absent`, a kubedojo that had stopped went unnoticed
+  for five more minutes, because Prometheus keeps a pushed sample visible that long.
+- `KubedojoSessionLimitReached` compares the new gauges `kubedojo_sandboxes_active` and
+  `kubedojo_sandboxes_limit`. Before, it counted theory sessions, which take no slot, and could
+  fire early.
 - `make lint-dashboards` checks every dashboard query against the metrics kubedojo exports.
 - Helm: `lgtm.image` is pinned to the tested version, and `lgtm.enabled` no longer breaks when
   `dashboards.enabled` is off or `dashboards.namespace` is set. The stack has its own copy of the

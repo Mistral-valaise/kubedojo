@@ -157,6 +157,22 @@ func (t *Telemetry) ObserveSessions(count func() (practice, exam int)) {
 		}))
 }
 
+// ObserveCapacity registers the gauges of the session limit: the sessions
+// that own a sandbox, and how many may. Sessions of theory tracks are live
+// sessions too (kubedojo.sessions.active) but take no slot.
+func (t *Telemetry) ObserveCapacity(capacity func() (used, limit int)) {
+	active, _ := t.meter.Int64ObservableGauge("kubedojo.sandboxes.active",
+		metric.WithDescription("Sessions that own a sandbox. These count against the session limit."))
+	limit, _ := t.meter.Int64ObservableGauge("kubedojo.sandboxes.limit",
+		metric.WithDescription("How many sessions may own a sandbox at the same time (--max-sessions)."))
+	_, _ = t.meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+		u, l := capacity()
+		o.ObserveInt64(active, int64(u))
+		o.ObserveInt64(limit, int64(l))
+		return nil
+	}, active, limit)
+}
+
 // SandboxUsage is what the sandbox containers of one role use together.
 type SandboxUsage struct {
 	Containers  int

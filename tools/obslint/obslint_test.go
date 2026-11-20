@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/prometheus/promql/parser"
+	"gopkg.in/yaml.v3"
 )
 
 const chart = "../../deploy/helm/kubedojo"
@@ -293,5 +294,54 @@ func TestExemplarsAreRequestedWhereTheyArePromised(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+type rule struct {
+	Name  string   `yaml:"name"`
+	Scope []string `yaml:"scope"`
+	Expr  string   `yaml:"expr"`
+}
+
+// Alert rules are queries too. A rule is evaluated in every scope it names,
+// so its metrics must exist in each of them.
+func TestAlertRuleQueries(t *testing.T) {
+	cat := loadCatalog(t)
+	raw, err := os.ReadFile(filepath.Join(chart, "observability", "rules.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		Rules []rule `yaml:"rules"`
+	}
+	if err := yaml.Unmarshal(raw, &f); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Rules) == 0 {
+		t.Fatal("rules.yaml has no rules")
+	}
+	for _, r := range f.Rules {
+		expr, err := parser.NewParser(parser.Options{}).ParseExpr(r.Expr)
+		if err != nil {
+			t.Errorf("rule %s does not parse: %v", r.Name, err)
+			continue
+		}
+		parser.Inspect(expr, func(n parser.Node, _ []parser.Node) error {
+			vs, ok := n.(*parser.VectorSelector)
+			if !ok {
+				return nil
+			}
+			for _, scope := range r.Scope {
+				ok, _, why := cat.allowed(vs.Name, scope)
+				// The single-container stack also has its collector's metrics.
+				if !ok && scope == "local" {
+					ok, _, _ = cat.allowed(vs.Name, "lgtm")
+				}
+				if !ok {
+					t.Errorf("rule %s, scope %s: the metric %s cannot be used: %s", r.Name, scope, vs.Name, why)
+				}
+			}
+			return nil
+		})
 	}
 }

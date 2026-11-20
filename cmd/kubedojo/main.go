@@ -268,6 +268,7 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 	defer mgr.Close()
 	mgr.SetMaxTerminals(*maxTerminals)
 	tel.ObserveSessions(mgr.ActiveCount)
+	tel.ObserveCapacity(mgr.Capacity)
 	if tel.Enabled && *hosts == "local" {
 		tel.ObserveSandboxes(sampleSandboxes(ctx, drv, log))
 	}
