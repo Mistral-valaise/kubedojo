@@ -1,6 +1,6 @@
 module github.com/Mistral-valaise/kubedojo
 
-go 1.26.5
+go 1.26.11
 
 require (
 	github.com/anthropics/anthropic-sdk-go/v2 v2.9.0
