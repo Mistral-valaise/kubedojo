@@ -266,7 +266,8 @@ running exam the list is empty.
 
 ### `DELETE /api/sessions/{id}/questions/{q}/assistant`
 
-`204`. Clears the conversation of that question.
+`204`. Clears the conversation of that question. While an answer of that conversation is arriving
+it answers `409` with `code: busy`: stop the answer first.
 
 ### `POST /api/sessions/{id}/questions/{q}/assistant`
 
@@ -344,7 +345,7 @@ The endpoint of the one-shot tutor of 0.4, kept for 0.5.x. Body `{"ask":"..."}`,
    "baseURL":{"value":"http://localhost:11434/v1","source":"env","locked":true,"lockedBy":"KUBEDOJO_AI_BASE_URL"},
    "apiKey":{"set":true,"last4":"x9Qd","source":"file","locked":false},
    "configured":true,"problem":""},
- "providers":[{"id":"anthropic","label":"Anthropic","needsKey":true,"defaultModel":"claude-opus-5-5"},
+ "providers":[{"id":"anthropic","label":"Anthropic","needsKey":true,"defaultModel":"claude-opus-5-5","defaultBaseURL":"https://api.anthropic.com"},
               {"id":"openai","label":"OpenAI-compatible","needsKey":false,"presets":[
                 {"label":"Ollama","baseURL":"http://localhost:11434/v1"},{"label":"LM Studio","baseURL":"http://localhost:1234/v1"},
                 {"label":"OpenAI","baseURL":"https://api.openai.com/v1"},{"label":"OpenRouter","baseURL":"https://openrouter.ai/api/v1"}]}],

@@ -23,17 +23,19 @@ type Preset struct {
 
 // Info describes a provider to the settings UI.
 type Info struct {
-	ID           string   `json:"id"`
-	Label        string   `json:"label"`
-	NeedsKey     bool     `json:"needsKey"`
-	DefaultModel string   `json:"defaultModel,omitempty"`
-	Presets      []Preset `json:"presets,omitempty"`
+	ID           string `json:"id"`
+	Label        string `json:"label"`
+	NeedsKey     bool   `json:"needsKey"`
+	DefaultModel string `json:"defaultModel,omitempty"`
+	// DefaultBaseURL is where requests go when no base URL is set.
+	DefaultBaseURL string   `json:"defaultBaseURL,omitempty"`
+	Presets        []Preset `json:"presets,omitempty"`
 }
 
 // List returns the providers kubedojo has.
 func List() []Info {
 	return []Info{
-		{ID: settings.ProviderAnthropic, Label: "Anthropic", NeedsKey: true, DefaultModel: settings.DefaultAnthropicModel},
+		{ID: settings.ProviderAnthropic, Label: "Anthropic", NeedsKey: true, DefaultModel: settings.DefaultAnthropicModel, DefaultBaseURL: "https://api.anthropic.com"},
 		{ID: settings.ProviderOpenAI, Label: "OpenAI-compatible", Presets: []Preset{
 			{Label: "Ollama", BaseURL: "http://localhost:11434/v1"},
 			{Label: "LM Studio", BaseURL: "http://localhost:1234/v1"},

@@ -1298,3 +1298,34 @@ func TestSettingsTest(t *testing.T) {
 		t.Errorf("a message after ten tests: %+v", r)
 	}
 }
+
+// Clearing a conversation while its answer is arriving would leave that
+// answer behind without the question it belongs to.
+func TestClearWaitsForARunningAnswer(t *testing.T) {
+	f := newFixture(t, settings.Inputs{})
+	q := f.question("k", "q")
+	qs := &session.QState{ID: "q", Status: "pending"}
+	v := practice("s", "k")
+
+	turn, err := f.svc.Start("", v, q, qs, Input{Message: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := refusal(t, f.svc.Clear(v, q)); r.Status != 409 || r.Code != CodeBusy {
+		t.Errorf("clearing during an answer: %+v", r)
+	}
+	if rows, _ := f.st.AssistantMessages("s", "q"); len(rows) != 1 {
+		t.Errorf("the question of the running answer is gone: %d messages", len(rows))
+	}
+	// The conversation of another session is not held up.
+	if err := f.svc.Clear(practice("s2", "k"), q); err != nil {
+		t.Errorf("clearing another conversation: %v", err)
+	}
+	turn.Close()
+	if err := f.svc.Clear(v, q); err != nil {
+		t.Fatalf("clearing after the answer: %v", err)
+	}
+	if rows, _ := f.st.AssistantMessages("s", "q"); len(rows) != 0 {
+		t.Errorf("%d messages left after clearing", len(rows))
+	}
+}

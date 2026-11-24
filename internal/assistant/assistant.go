@@ -587,6 +587,15 @@ func (s *Service) History(v *session.Session, q *catalog.Question) ([]store.Assi
 
 // Clear removes the conversation of a question.
 func (s *Service) Clear(v *session.Session, q *catalog.Question) error {
+	// Not while an answer of this conversation is arriving: it would be stored
+	// after the clearing, without the question it answers.
+	release, err := s.gate.Acquire(conversation(v, q))
+	switch {
+	case errors.Is(err, ratelimit.ErrBusy):
+		return &Refusal{Status: 409, Code: CodeBusy, Message: "An answer is still arriving. Stop it, then start a new conversation."}
+	case err == nil:
+		defer release()
+	}
 	s.seen.drop(conversation(v, q) + "/")
 	return s.cfg.Store.ClearAssistantMessages(v.ID, q.ID)
 }
