@@ -22,8 +22,8 @@ to the model; and a hardened local API.
 ### Added
 
 - The AI tutor becomes an **assistant**: a conversation per question instead of one answer, streamed
-  while the model writes. It is described in [docs/assistant.md](docs/assistant.md). The UI for it
-  follows; this release has the server side and its HTTP API.
+  while the model writes, docked next to the task and the terminal. It is described in
+  [docs/assistant.md](docs/assistant.md).
 - A second provider next to Claude: any server with the OpenAI chat-completions API, such as a local
   Ollama or LM Studio, vLLM, OpenAI or OpenRouter.
   `kubedojo up --ai --ai-provider openai --ai-base-url http://localhost:11434/v1 --ai-model llama3.2`
@@ -421,7 +421,8 @@ to the model; and a hardened local API.
 - **Releases come with SBOMs.** Every archive has an SPDX SBOM next to it
   (`<archive>.sbom.json`, listed in `checksums.txt`). The server, node, terminal and linux images
   carry an SBOM and build provenance as attestations.
-- CodeQL analyses the Go and the TypeScript code on every pull request, on `main` and weekly.
+- CodeQL analyses the Go and the TypeScript code on pull requests that change code, on `main` and
+  weekly.
 - Trivy scans the dependencies, the Dockerfiles, the chart and the server image on pull requests
   that touch them, on `main` and weekly. A HIGH or CRITICAL vulnerability that has a fix fails the
   run. Exceptions are listed with a reason and an end date in `.github/trivyignore.yaml`.
