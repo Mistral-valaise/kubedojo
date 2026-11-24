@@ -76,10 +76,52 @@ export interface Progress {
   exams: { sessionId: string; score: number; max: number; percent: number; passed: boolean; finishedAt: string; questions?: number; minutes?: number }[];
   recommendations: { domain: string; title: string; reason: string; next?: string }[] | null;
 }
-export interface Config { version: string; tutor: boolean; user: string; maxTerminals: number }
+/**
+ * Whether the assistant can be used and with what. `enabled` is the switch,
+ * `configured` says a provider could be built; `writable` is false on a hosted
+ * server, where the settings are flags and environment.
+ */
+export interface AssistantStatus { enabled: boolean; configured: boolean; provider: string; model: string; writable: boolean }
+/** `tutor` is `assistant.enabled && assistant.configured`, for clients before 0.5. `assistant` is missing on older servers. */
+export interface Config { version: string; tutor: boolean; user: string; maxTerminals: number; assistant?: AssistantStatus }
+
+/** One stored message of the conversation of a question. `partial` marks an answer that was cut short. */
+export interface AssistantMessage { id: number; role: "user" | "assistant"; content: string; at: string; partial: boolean }
+export interface AssistantHistory { messages: AssistantMessage[]; limits: { turns: number; messageChars: number } }
+
+/** Where a setting comes from. A value from a flag or the environment is locked. */
+export type SettingSource = "flag" | "env" | "file" | "default";
+export interface SettingField<T> { value: T; source: SettingSource; locked: boolean; lockedBy?: string }
+/** The API key is write-only: the server says that one is set and, on a local server, its last four characters. */
+export interface SettingKey { set: boolean; last4?: string; source: SettingSource; locked: boolean; lockedBy?: string }
+export interface ProviderInfo {
+  id: string; label: string; needsKey: boolean; defaultModel?: string;
+  presets?: { label: string; baseURL: string }[];
+}
+export interface Settings {
+  writable: boolean; hosted: boolean;
+  assistant: {
+    enabled: SettingField<boolean>; provider: SettingField<string>; model: SettingField<string>; baseURL: SettingField<string>;
+    apiKey: SettingKey; configured: boolean; problem: string;
+  };
+  providers: ProviderInfo[];
+  traceContent: { value: boolean; reason: string };
+}
+/** Body of PUT /api/settings and POST /api/settings/test. A field left out stays as it is; `apiKey: ""` removes the key. */
+export interface SettingsPatch { enabled?: boolean; provider?: string; model?: string; baseURL?: string; apiKey?: string }
+export type SettingsTest =
+  | { ok: true; provider: string; model: string; latencyMs: number }
+  | { ok: false; code: string; message: string };
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  /** `code` and `field` are set where the API names them: a machine-readable reason, the setting a refusal is about. */
+  constructor(public status: number, message: string, public code?: string, public field?: string, public retryAfter?: number) { super(message); }
+}
+
+/** Seconds of a Retry-After header, or undefined when it has none that can be read. */
+export function retryAfterSeconds(res: { headers: { get(name: string): string | null } }): number | undefined {
+  const n = Number(res.headers?.get("Retry-After"));
+  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : undefined;
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -88,8 +130,12 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+  // 204 has no body, and neither has an error of a proxy: both read as {}.
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error || res.statusText);
+  if (!res.ok) {
+    const e = data as { error?: string; code?: string; field?: string };
+    throw new ApiError(res.status, e.error || res.statusText, e.code, e.field, retryAfterSeconds(res));
+  }
   return data as T;
 }
 
@@ -124,4 +170,10 @@ export const api = {
   rate: (track: string, q: string, stars: number, comment: string) =>
     call<unknown>("POST", `/tracks/${track}/questions/${q}/rating`, { stars, comment }),
   tutor: (sid: string, q: string, ask: string) => call<{ markdown: string }>("POST", `/sessions/${sid}/questions/${q}/tutor`, { ask }),
+  // The answer of the assistant is a stream: see assistant/stream.ts.
+  assistantHistory: (sid: string, q: string) => call<AssistantHistory>("GET", `/sessions/${sid}/questions/${q}/assistant`),
+  assistantClear: (sid: string, q: string) => call<unknown>("DELETE", `/sessions/${sid}/questions/${q}/assistant`),
+  settings: () => call<Settings>("GET", "/settings"),
+  saveSettings: (assistant: SettingsPatch) => call<Settings>("PUT", "/settings", { assistant }),
+  testSettings: (assistant: SettingsPatch) => call<SettingsTest>("POST", "/settings/test", { assistant }),
 };
