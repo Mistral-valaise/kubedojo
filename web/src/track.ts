@@ -79,6 +79,14 @@ export interface Words {
   reportList: string;
   tutorPlaceholder: string;
   tutorNote: string;
+  /** Placeholder of the assistant's input. */
+  askPlaceholder: string;
+  /** What the assistant is given, in one sentence. */
+  assistantSees: string;
+  /** What kubedojo looked at for an answer, by the stage it reports: `checks`, `snapshot`, `diagnostics`. Empty for a stage that says nothing here. */
+  lookedAt: (stage: string) => string;
+  /** A question to ask once everything is solved. */
+  rememberPrompt: string;
 }
 
 // Counts with their units, singular and plural.
@@ -150,6 +158,10 @@ const wording: Record<Kind, () => Wording> = {
     reportList: t("Task by task"),
     tutorPlaceholder: t("Ask about this task ..."),
     tutorNote: t("The tutor sees the task, your check results and a summary of the cluster state."),
+    askPlaceholder: t("Ask about this task"),
+    assistantSees: t("The assistant sees the task, your check results and a read-only snapshot of the cluster."),
+    lookedAt: (stage) => ({ checks: t("task, check results"), snapshot: t("cluster snapshot"), diagnostics: t("failing checks") }[stage] ?? ""),
+    rememberPrompt: t("What should I remember from this task?"),
   }),
 
   skills: () => ({
@@ -208,6 +220,10 @@ const wording: Record<Kind, () => Wording> = {
     reportList: t("Exercise by exercise"),
     tutorPlaceholder: t("Ask about this exercise ..."),
     tutorNote: t("The tutor sees the exercise and your check results."),
+    askPlaceholder: t("Ask about this exercise"),
+    assistantSees: t("The assistant sees the exercise, your check results and a read-only snapshot of the host."),
+    lookedAt: (stage) => ({ checks: t("exercise, check results"), snapshot: t("host snapshot"), diagnostics: t("failing checks") }[stage] ?? ""),
+    rememberPrompt: t("What should I remember from this exercise?"),
   }),
 
   theory: () => ({
@@ -266,6 +282,10 @@ const wording: Record<Kind, () => Wording> = {
     reportList: t("Question by question"),
     tutorPlaceholder: t("Ask about this question ..."),
     tutorNote: t("The tutor sees the question and your result."),
+    askPlaceholder: t("Ask about this question"),
+    assistantSees: t("The assistant sees the question, the options and your answer. The correct answer only once it has been shown to you."),
+    lookedAt: (stage) => ({ checks: t("question, your answer") }[stage] ?? ""),
+    rememberPrompt: t("What should I remember from this question?"),
   }),
 };
 

@@ -4,6 +4,9 @@
 /* Sizes are variants here because .md is unlayered and so beats a text-* utility. */
 .md.md-sm { font-size: var(--text-label); line-height: 1.6; }
 .md.md-lg { font-size: var(--text-base); line-height: 1.7; }
+/* An answer of the assistant, in a column a third as wide as a task text. */
+.md.md-chat { font-size: var(--text-sm); line-height: 1.6; }
+.md.md-chat h1, .md.md-chat h2, .md.md-chat h3 { font-size: var(--text-body); line-height: 1.4; font-weight: 650; letter-spacing: 0; margin: 1.3em 0 0.4em; padding-bottom: 0; border-bottom: 0; }
 .md > *:first-child { margin-top: 0; }
 .md > *:last-child { margin-bottom: 0; }
 .md h1 { font-size: var(--text-3xl); line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 0.6em; }
@@ -29,6 +32,11 @@
 .md pre .pre-actions { position: absolute; right: 0.3125rem; top: 0.3125rem; display: flex; gap: 0.25rem; opacity: 0; transition: opacity .15s; }
 .md pre:hover .pre-actions, .md pre .pre-actions:focus-within { opacity: 1; }
 @media (hover: none) { .md pre .pre-actions { opacity: 1; } }
+/* In the narrow column of the assistant a command wraps, and its buttons sit
+   below it, always in view, where they cover nothing. */
+.md.md-chat pre { padding-bottom: 3.25rem; }
+.md.md-chat pre code { white-space: pre-wrap; }
+.md.md-chat pre .pre-actions { top: auto; right: auto; bottom: 0.3125rem; left: 0.3125rem; opacity: 1; }
 .md blockquote { border-left: 3px solid var(--accent); padding: 0.1em 0 0.1em 1em; color: var(--muted); }
 .md table { width: 100%; max-width: 100%; border-collapse: collapse; font-size: 0.9em; display: block; overflow-x: auto; }
 .md th { text-align: left; font-weight: 600; color: var(--muted); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; }
