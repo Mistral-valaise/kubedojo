@@ -7,6 +7,49 @@ Please report security problems privately through GitHub's
 not in a public issue. Include what you found, how to reproduce it and which version you used.
 You can expect a first answer within a week.
 
+## Verifying a release
+
+Releases newer than v0.4.0 are signed with [Sigstore](https://www.sigstore.dev/) by the workflow
+that builds them. There is no key to trust: every signature carries a short-lived certificate that
+names the workflow and the tag it ran for, and is recorded in a public transparency log. The
+commands below need [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 3 or
+newer and take `v1.2.3` as the release.
+
+**Binaries.** `checksums.txt` lists every archive and its SBOM (`<archive>.sbom.json`, SPDX), and
+`checksums.txt.sigstore.json` is the signature of that list. Download both next to the archive:
+
+```sh
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/Mistral-valaise/kubedojo/\.github/workflows/release\.yaml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --check --ignore-missing checksums.txt   # macOS: shasum -a 256 --check --ignore-missing
+```
+
+**Images.** The same check for `kubedojo-server:v1.2.3`, `kubedojo-sandbox-host:v1.2.3`,
+`kubedojo-node:<kubernetes version>-v1.2.3`, `kubedojo-terminal:<kubernetes version>-v1.2.3` and
+`kubedojo-linux:trixie-v1.2.3`:
+
+```sh
+cosign verify ghcr.io/mistral-valaise/kubedojo-server:v1.2.3 \
+  --certificate-identity-regexp '^https://github\.com/Mistral-valaise/kubedojo/\.github/workflows/release\.yaml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+All but the sandbox host also carry an SBOM and build provenance as attestations:
+`docker buildx imagetools inspect <image> --format '{{ json .SBOM }}'` (or `.Provenance`).
+
+**Helm chart.** The chart's version has no `v`:
+
+```sh
+cosign verify ghcr.io/mistral-valaise/charts/kubedojo:1.2.3 \
+  --certificate-identity-regexp '^https://github\.com/Mistral-valaise/kubedojo/\.github/workflows/release\.yaml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+To accept one release only, replace the regular expression by `--certificate-identity` with the
+full value, which ends in `release.yaml@refs/tags/v1.2.3`.
+
 ## What to keep in mind when running kubedojo
 
 kubedojo gives its users a root shell on real Kubernetes nodes. That is the product, and it shapes the
@@ -41,3 +84,26 @@ admitted where they should be and that NetworkPolicies are enforced.
 Reports that amount to "a user can break out of a sandbox onto the sandbox node" describe this known
 limit. Reports about reaching *other users' sandboxes*, the kubedojo server, its database, or the
 cluster's API from a sandbox are very welcome.
+
+### The API has no login of its own
+
+Locally the API is protected by where it listens, in hosted mode by the proxy in front of it. A web
+page you visit while kubedojo runs is on your machine too, so the server also checks what a browser
+tells it:
+
+| Protection | What it does | What it does not do |
+|---|---|---|
+| Listening on `127.0.0.1` | other machines do not reach a local kubedojo | keep out other users and programs of the same machine |
+| Host allowlist | a request is answered only under a name the server is known by: `localhost`, `127.0.0.1`, `[::1]`, names below `.localhost`, the address it listens on, and what `--allowed-hosts` (`KUBEDOJO_ALLOWED_HOSTS`, in the chart `allowedHosts`) adds. Other names get `403`. This stops DNS rebinding, where a page's own domain is made to resolve to `127.0.0.1` | apply to `/api/health` and `/api/ready`; apply at all to a server that listens on every interface without `--allowed-hosts` (it warns at start) |
+| Cross-origin protection | requests that change something (`POST`, `PATCH`, `DELETE`) are rejected with `403` when the browser marks them as coming from another site; the terminal's WebSocket checks its `Origin` | stop a program that is not a browser |
+| JSON bodies only | a request body is read only when it is sent with `Content-Type: application/json`, which a page of another site cannot send without the browser asking the server first. Anything else gets `415` | |
+| Content-Security-Policy and related headers | the UI loads scripts, styles, images and fonts from the server only and connects only to it; it cannot be framed | allow-list inline styles, which React and xterm.js need |
+| File modes | the data directory is `0700`, the database, its backups and the settings are `0600` | protect a volume in Kubernetes, where access is the cluster's matter; change `<data>/observability`, which Grafana reads |
+| Session IDs | 12 random characters from the system's random source: the ID of a session cannot be guessed | replace a login: whoever is given an ID has that session |
+
+Two of these change what worked before 0.5:
+
+- A hosted kubedojo that is reached under a name the chart does not know (a second DNS name, the
+  address of a NodePort or LoadBalancer Service) answers `403` until that name is in `allowedHosts`.
+- A request with a body but without `Content-Type: application/json` is answered with `415`. The UI
+  always sent the header; scripts that post with `curl -d` need `-H 'Content-Type: application/json'`.

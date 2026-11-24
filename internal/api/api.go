@@ -16,6 +16,7 @@ import (
 	"github.com/Mistral-valaise/kubedojo/internal/assistant"
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/session"
+	"github.com/Mistral-valaise/kubedojo/internal/span"
 	"github.com/Mistral-valaise/kubedojo/internal/store"
 )
 
@@ -34,6 +35,9 @@ type Server struct {
 	UserHeader string
 	// AllowedOrigins are extra WebSocket origin patterns (dev server).
 	AllowedOrigins []string
+	// OnReject is called with a reason of package httpsec when a request is
+	// rejected before its body is looked at (a body not declared as JSON).
+	OnReject func(reason string)
 	// OnRating is called when a learner rates a question.
 	OnRating func(ctx context.Context, track, question string, stars int)
 	// OnTerminal is called when a terminal connects (delta +1) or leaves (-1).
@@ -152,7 +156,10 @@ func (s *Server) owner(r *http.Request) string {
 	return r.Header.Get(s.UserHeader)
 }
 
-// session returns the session if it belongs to the caller.
+// session returns the session if it belongs to the caller. It names the
+// session on the span of the request, so that a request which starts no
+// session work (start an exam, store an answer, read a hint) can still be
+// found by its session.
 func (s *Server) session(w http.ResponseWriter, r *http.Request) *session.Session {
 	v, err := s.Sessions.View(r.PathValue("id"))
 	if err == nil && v.Owner != s.owner(r) {
@@ -162,6 +169,8 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) *session.Sessio
 		s.fail(w, r, err)
 		return nil
 	}
+	span.Current(r.Context()).Set(span.String("kubedojo.session.id", v.ID),
+		span.String("kubedojo.track", v.Track), span.String("kubedojo.mode", v.Mode))
 	return v
 }
 

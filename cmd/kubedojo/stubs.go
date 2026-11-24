@@ -17,7 +17,9 @@ import (
 	"github.com/Mistral-valaise/kubedojo/internal/telemetry"
 )
 
-// telemetryHooks connects session events to the telemetry instruments.
+// telemetryHooks connects session events to the telemetry instruments. The
+// store is observed through them as well: the session manager hands
+// StoreOperation to the store it is given.
 func telemetryHooks(t *telemetry.Telemetry) session.Hooks {
 	return session.Hooks{
 		Provisioned: t.Provisioned,
@@ -27,9 +29,10 @@ func telemetryHooks(t *telemetry.Telemetry) session.Hooks {
 		ExamDone: func(ctx context.Context, track string, r session.Report) {
 			t.ExamDone(ctx, track, r.Percent, r.Passed)
 		},
-		Span:   t.Span,
-		Tracer: t,
-		Detach: telemetry.Detach,
+		Tracer:         t,
+		Detach:         telemetry.Detach,
+		TerminalClosed: t.TerminalClosed,
+		StoreOperation: t.StoreOperation,
 	}
 }
 

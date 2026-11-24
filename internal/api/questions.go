@@ -7,6 +7,7 @@ import (
 
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/session"
+	"github.com/Mistral-valaise/kubedojo/internal/span"
 )
 
 // render fills the per-session placeholders of content text.
@@ -17,6 +18,9 @@ func render(text, host string) string {
 	return strings.NewReplacer("{{host}}", host, "{{worker}}", host+"-worker", "{{worker2}}", host+"-worker2").Replace(text)
 }
 
+// question returns the session and the question of a request, and the state
+// of the question in that session. It names the question on the span of the
+// request, next to the session.
 func (s *Server) question(w http.ResponseWriter, r *http.Request) (*session.Session, *catalog.Question, *session.QState) {
 	v := s.session(w, r)
 	if v == nil {
@@ -27,6 +31,7 @@ func (s *Server) question(w http.ResponseWriter, r *http.Request) (*session.Sess
 		writeErr(w, 404, "unknown question")
 		return nil, nil, nil
 	}
+	span.Current(r.Context()).Set(span.String("kubedojo.question", q.ID))
 	var qs *session.QState
 	for _, x := range v.Questions {
 		if x.ID == q.ID {
@@ -41,6 +46,13 @@ func (s *Server) question(w http.ResponseWriter, r *http.Request) (*session.Sess
 		qs = &session.QState{ID: q.ID, Status: "pending"}
 	}
 	return v, q, qs
+}
+
+// answered records on the span of the request that an answer to a choice
+// question was stored. How many options were picked is recorded, never which:
+// the answer is the learner's.
+func answered(r *http.Request, answer []string) {
+	span.Current(r.Context()).Event("question.answered", span.Int("options", len(answer)))
 }
 
 func (s *Server) getQuestion(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +126,7 @@ func (s *Server) patchQuestion(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, err)
 			return
 		}
+		answered(r, *req.Answer)
 	}
 	if req.Flagged != nil || req.Note != nil || req.Answer == nil {
 		if err := s.Sessions.Patch(v.ID, q.ID, req.Flagged, req.Note); err != nil {
@@ -154,6 +167,7 @@ func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 				s.fail(w, r, err)
 				return
 			}
+			answered(r, *req.Answer)
 		}
 	}
 	res, err := s.Sessions.Check(r.Context(), v.ID, q.ID)
@@ -178,6 +192,7 @@ func (s *Server) hint(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	span.Current(r.Context()).Event("hint.revealed", span.Int("n", n))
 	writeJSON(w, 200, map[string]any{"n": n, "markdown": render(q.Hints[n-1], v.Envs[q.Environment])})
 }
 
@@ -198,6 +213,7 @@ func (s *Server) solution(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, err)
 			return
 		}
+		span.Current(r.Context()).Event("solution.revealed")
 		writeJSON(w, 200, map[string]any{"markdown": solutionMarkdown(q.Choice), "review": review(q.Choice)})
 		return
 	}
@@ -205,5 +221,6 @@ func (s *Server) solution(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	span.Current(r.Context()).Event("solution.revealed")
 	writeJSON(w, 200, map[string]any{"markdown": render(q.SolutionMd, v.Envs[q.Environment])})
 }

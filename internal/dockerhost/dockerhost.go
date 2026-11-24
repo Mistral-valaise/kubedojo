@@ -10,6 +10,7 @@ import (
 	"os/exec"
 
 	"github.com/moby/moby/client"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // Host is one Docker endpoint.
@@ -44,8 +45,12 @@ func (h Host) Command(ctx context.Context, name string, args ...string) *exec.Cm
 }
 
 // Client returns an Engine API client for this endpoint (used for PTY attach).
+//
+// The client would trace every request to the Docker daemon as a span named
+// by its raw path, with container and exec ids in it. kubedojo's own spans
+// say what is being done (terminal.attach), so the client's are switched off.
 func (h Host) Client() (*client.Client, error) {
-	var opts []client.Opt
+	opts := []client.Opt{client.WithTraceProvider(noop.NewTracerProvider())}
 	switch {
 	case h.Endpoint == "":
 		if os.Getenv("DOCKER_HOST") != "" {

@@ -72,6 +72,9 @@ func TestMetricCatalogMatchesTheInstruments(t *testing.T) {
 	tel.ExamDone(ctx, "cka", 50, false)
 	tel.Rated(ctx, "cka", "q", 4)
 	tel.Terminal(1)
+	tel.TerminalClosed(ctx, time.Minute)
+	tel.StoreOperation("save_session", time.Millisecond)
+	tel.Rejected("host")
 
 	var rm metricdata.ResourceMetrics
 	if err := reader.Collect(ctx, &rm); err != nil {

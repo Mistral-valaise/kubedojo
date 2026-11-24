@@ -17,5 +17,17 @@ archives:
     files: [LICENSE, README.md]
 checksum:
   name_template: checksums.txt
+# An SBOM (SPDX, written by syft) next to every archive: <archive>.sbom.json.
+sboms:
+  - artifacts: archive
+# One keyless Sigstore signature covers the release: checksums.txt lists the
+# archives and their SBOMs, and checksums.txt.sigstore.json is the bundle of
+# signature and certificate. "Verifying a release" in SECURITY.md checks it.
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args: ["sign-blob", "--bundle=${signature}", "--yes", "${artifact}"]
+    output: true
 changelog:
   use: github

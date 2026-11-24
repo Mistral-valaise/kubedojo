@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/Mistral-valaise/kubedojo/internal/session"
@@ -44,7 +45,15 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		c.Close(websocket.StatusInternalError, "attach failed")
 		return
 	}
-	defer tty.Close()
+	// Why the terminal ends: whoever notices first says so. The session
+	// manager writes the reason into the log line of the terminal's end,
+	// together with how long it was open and the bytes that went through.
+	var reason atomic.Value
+	ends := func(why string) { reason.CompareAndSwap(nil, why) }
+	defer func() {
+		why, _ := reason.Load().(string)
+		_ = session.CloseTerminal(tty, why)
+	}()
 	if s.OnTerminal != nil {
 		s.OnTerminal(1)
 		defer s.OnTerminal(-1)
@@ -57,10 +66,12 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 			n, err := tty.Read(buf)
 			if n > 0 {
 				if c.Write(ctx, websocket.MessageBinary, buf[:n]) != nil {
+					ends(session.TerminalClientClosed)
 					return
 				}
 			}
 			if err != nil {
+				ends(session.TerminalShellExited)
 				return
 			}
 		}
@@ -77,6 +88,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 				err := c.Ping(pctx)
 				pc()
 				if err != nil {
+					ends(session.TerminalKeepalive)
 					cancel()
 					return
 				}
@@ -86,6 +98,9 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	for { // browser -> sandbox
 		typ, data, err := c.Read(ctx)
 		if err != nil {
+			// The browser left, unless one of the goroutines above ended
+			// the connection first and said why.
+			ends(session.TerminalClientClosed)
 			break
 		}
 		if typ == websocket.MessageText {
@@ -100,6 +115,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if _, err := tty.Write(data); err != nil {
+			ends(session.TerminalShellExited)
 			break
 		}
 	}

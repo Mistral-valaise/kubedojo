@@ -1,0 +1,118 @@
+name: trivy
+# Known vulnerabilities in what kubedojo ships: its Go and npm dependencies, and
+# the server image with its base image and bundled tools. Every scan reports to
+# Security > Code scanning and then fails on a HIGH or CRITICAL vulnerability
+# that has a fix. Misconfigurations of the Dockerfiles and the chart are
+# reported, not failed on: the sandbox images run as root on purpose.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "**/go.mod"
+      - "**/go.sum"
+      - web/package.json
+      - web/package-lock.json
+      - Dockerfile
+      - .dockerignore
+      - images/**
+      - deploy/helm/**
+      - .github/workflows/trivy.yaml
+      - .github/trivyignore.yaml
+  # Weekly: new vulnerabilities are found in old dependencies.
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trivy-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # go.mod, package-lock.json, the Dockerfiles and the Helm chart.
+  filesystem:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # upload the report to code scanning
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          # Not the manifests of the questions, which are insecure on purpose.
+          TRIVY_MISCONFIG_SCANNERS: dockerfile,helm
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig
+          severity: HIGH,CRITICAL
+          limit-severities-for-sarif: true
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-fs.sarif
+      - uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+      - name: Fail on a fixable HIGH or CRITICAL vulnerability
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .github/trivyignore.yaml
+          exit-code: 1
+          skip-setup-trivy: true
+
+  # The server image as a release would build it, for this platform. It is
+  # loaded into the local Docker and scanned there; nothing is pushed.
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write # upload the report to code scanning
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Server image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: kubedojo/server:trivy
+          # Written by hosted.yaml.
+          cache-from: type=gha,scope=server
+      - name: Report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: kubedojo/server:trivy
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          limit-severities-for-sarif: true
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-image.sarif
+      - uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+      - name: Fail on a fixable HIGH or CRITICAL vulnerability
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: kubedojo/server:trivy
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .github/trivyignore.yaml
+          exit-code: 1
+          skip-setup-trivy: true

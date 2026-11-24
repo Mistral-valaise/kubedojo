@@ -36,7 +36,8 @@ type serverParts struct {
 // newAPIServer builds the API server from its parts.
 func newAPIServer(p serverParts) *api.Server {
 	srv := &api.Server{Catalog: p.catalog, Sessions: p.sessions, Store: p.store, UI: webui.FS(), Log: p.log, Version: version,
-		UserHeader: p.userHeader, OnTerminal: p.telemetry.Terminal, OnRating: p.telemetry.Rated, Assistant: p.ai.assistant(p)}
+		UserHeader: p.userHeader, OnTerminal: p.telemetry.Terminal, OnRating: p.telemetry.Rated, OnReject: p.telemetry.Rejected,
+		Assistant: p.ai.assistant(p)}
 	if p.devOrigin != "" {
 		srv.AllowedOrigins = []string{p.devOrigin}
 	}
@@ -45,6 +46,16 @@ func newAPIServer(p serverParts) *api.Server {
 
 // newHTTPServer builds the HTTP server that serves h. cmdServe serves it on a
 // listener it already has; addr is that listener's address.
+//
+// A client has ten seconds for the request headers, and a connection nobody
+// uses is closed after two minutes. There is no ReadTimeout and no
+// WriteTimeout, on purpose: they would run for the whole request, and grading
+// holds one for minutes, an event stream and the terminal's WebSocket for
+// hours. A slow request body is bounded where it is read (internal/api).
 func newHTTPServer(addr string, h http.Handler) *http.Server {
-	return &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 10 * time.Second}
+	return &http.Server{Addr: addr, Handler: h,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    64 << 10,
+	}
 }

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
-  AlertTriangle, ArrowLeft, BookOpen, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Flag, Flame, Server,
+  AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Flag, Flame, Server,
   SquareTerminal, Trash2, XCircle,
 } from "lucide-react";
-import { api, type Config, type QuestionView, type Session, type Track } from "../api";
+import { api, type QuestionView, type Session, type Track } from "../api";
+import { useConfig } from "../config";
 import { fmtDuration, useInterval } from "../hooks";
 import { plural, t } from "../i18n";
 import { isFullAssessment, words } from "../track";
@@ -17,20 +18,21 @@ import { Results } from "../components/Results";
 import { Split } from "../components/Split";
 import { Terminal } from "../components/Terminal";
 import { TerminalTabs } from "../components/TerminalTabs";
-import { Badge, Bar, Brand, Button, Card, ErrorNote, Modal, Page, Ring, Spinner, ThemeToggle, cx } from "../components/ui";
+import { WorkspaceHeader } from "../components/WorkspaceHeader";
+import { Badge, Bar, Button, Card, ErrorNote, Modal, Page, Ring, Spinner, cx } from "../components/ui";
 
 export function ExamPage() {
   const { session: sid = "" } = useParams();
   const [session, setSession] = useState<Session | null>(null);
   const [track, setTrack] = useState<Track | null>(null);
-  const [config, setConfig] = useState<Config | null>(null);
+  const config = useConfig();
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try { setSession(await api.session(sid)); setError(null); }
     catch (e) { setError((e as Error).message); }
   }, [sid]);
-  useEffect(() => { void refresh(); api.config().then(setConfig).catch(() => undefined); }, [refresh]);
+  useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => { if (session && !track) api.track(session.track).then(setTrack).catch(() => undefined); }, [session, track]);
   const fast = session?.status === "provisioning" || session?.status === "grading";
   useInterval(() => void refresh(), fast ? 1500 : 10000, !!session && session.status !== "finished" && session.status !== "error");
@@ -62,14 +64,14 @@ export function ExamPage() {
     case "finished":
       return <ReportView session={session} track={track} tutor={!!config?.tutor} />;
     default:
-      return <Workspace session={session} track={track} onSession={setSession} refresh={refresh} />;
+      return <ExamWorkspace session={session} track={track} onSession={setSession} refresh={refresh} />;
   }
 }
 
 function Stage({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-bg px-4"><Brand /><div className="ml-auto"><ThemeToggle /></div></header>
+      <WorkspaceHeader />
       <div className="min-h-0 flex-1">{children}</div>
     </div>
   );
@@ -120,7 +122,7 @@ function Briefing({ session, track, onStart }: { session: Session; track: Track;
   );
 }
 
-function Workspace({ session, track, onSession, refresh }: {
+function ExamWorkspace({ session, track, onSession, refresh }: {
   session: Session; track: Track; onSession: (s: Session) => void; refresh: () => Promise<void>;
 }) {
   const qs = session.questions ?? [];
@@ -292,26 +294,24 @@ function Workspace({ session, track, onSession, refresh }: {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-bg px-4">
-        {/* On a phone the header has room for the timer and the button only. */}
-        <span className="hidden items-center gap-3 sm:flex"><Brand /><span className="text-line">/</span></span>
-        <span className="min-w-0 truncate text-sm text-muted">{track.short}<span className="hidden sm:inline"> · {w.assessment}</span></span>
-        <div className={cx("ml-auto shrink-0 flex items-center gap-2 rounded-lg border px-3 py-1 font-mono text-sm font-semibold tabular-nums",
-          critical ? "border-bad/50 bg-bad-soft text-bad" : low ? "border-warn/50 bg-warn-soft text-warn" : "bg-panel2")}
-          role="timer" aria-label={t("Time remaining")}>
-          {critical && <AlertTriangle className="size-3.5" />}{fmtDuration(left)}
-        </div>
-        {w.assessmentDocs && (
-          <a href={w.assessmentDocs.url} target="_blank" rel="noreferrer" title={w.assessmentDocs.title} aria-label={t("Docs")} className="inline-flex shrink-0 items-center gap-1.5 px-1 text-sm text-muted hover:text-text">
-            <BookOpen className="size-3.5" aria-hidden /><span className="hidden sm:inline">{t("Docs")}</span>
-          </a>
+      {/* On a phone the header has room for the timer and the button only. */}
+      <WorkspaceHeader
+        title={<span className="min-w-0 truncate text-sm text-muted">{track.short}<span className="hidden sm:inline"> · {w.assessment}</span></span>}
+        center={(
+          <div className={cx("ml-auto shrink-0 flex items-center gap-2 rounded-lg border px-3 py-1 font-mono text-sm font-semibold tabular-nums",
+            critical ? "border-bad/50 bg-bad-soft text-bad" : low ? "border-warn/50 bg-warn-soft text-warn" : "bg-panel2")}
+            role="timer" aria-label={t("Time remaining")}>
+            {critical && <AlertTriangle className="size-3.5" />}{fmtDuration(left)}
+          </div>
         )}
-        <ThemeToggle />
-        {/* Next to a terminal the phone header is full: the button keeps its name and shows a short one. */}
-        <Button size="sm" variant="primary" onClick={() => setConfirm(true)} aria-label={w.finishAssessment}>
-          {quiz ? w.finishAssessment : <><span className="sm:hidden">{t("Finish")}</span><span className="hidden sm:inline">{w.finishAssessment}</span></>}
-        </Button>
-      </header>
+        docs={w.assessmentDocs}
+        end={(
+          // Next to a terminal the phone header is full: the button keeps its name and shows a short one.
+          <Button size="sm" variant="primary" onClick={() => setConfirm(true)} aria-label={w.finishAssessment}>
+            {quiz ? w.finishAssessment : <><span className="sm:hidden">{t("Finish")}</span><span className="hidden sm:inline">{w.finishAssessment}</span></>}
+          </Button>
+        )}
+      />
       {quiz
         ? <div className="min-h-0 flex-1">{leftPane}</div>
         : <Split left={leftPane} right={<TerminalTabs sessionId={session.id} />} storageKey="kubedojo.split.exam" labels={{ left: w.item, right: t("Terminal") }} />}

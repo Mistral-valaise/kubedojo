@@ -176,7 +176,7 @@ func (c *common) contentFS() fs.FS {
 }
 
 func (c *common) openStore() (*store.Store, error) {
-	if err := os.MkdirAll(c.dataDir, 0o755); err != nil {
+	if err := secureDataDir(c.dataDir); err != nil {
 		return nil, err
 	}
 	return store.Open(filepath.Join(c.dataDir, "kubedojo.db"))

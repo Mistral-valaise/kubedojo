@@ -239,8 +239,7 @@ func (s *Service) observe(ctx context.Context, v *session.Session, q *catalog.Qu
 
 	stage(StageSnapshot)
 	sctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
-	// TODO(observability): purpose=snapshot
-	res, err := s.cfg.Sessions.Exec(sctx, v.ID, q.ID, "", SnapshotScript(s.cfg.Catalog, q))
+	res, err := s.cfg.Sessions.Exec(session.WithExecPurpose(sctx, session.ExecSnapshot), v.ID, q.ID, "", SnapshotScript(s.cfg.Catalog, q))
 	cancel()
 	if err == nil {
 		out.snapshot = clip(checker.Redact(strings.TrimSpace(res.Stdout)), snapshotSize)
@@ -254,8 +253,7 @@ func (s *Service) observe(ctx context.Context, v *session.Session, q *catalog.Qu
 				break
 			}
 			dctx, cancel := context.WithTimeout(all, diagnosticTimeout)
-			// TODO(observability): purpose=diagnostic
-			res, err := s.cfg.Sessions.Exec(dctx, v.ID, q.ID, d.Role, d.Script)
+			res, err := s.cfg.Sessions.Exec(session.WithExecPurpose(dctx, session.ExecDiagnostic), v.ID, q.ID, d.Role, d.Script)
 			cancel()
 			if err != nil {
 				continue

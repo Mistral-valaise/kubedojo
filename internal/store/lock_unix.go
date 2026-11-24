@@ -17,7 +17,13 @@ import (
 // directory: it ends with the process, also when the process is killed. On a
 // file system that has no such locks (some network file systems) Lock
 // succeeds without one, and held is false.
+//
+// A directory that does not exist yet is created, for its owner only: the
+// lock is the first file a server writes.
 func Lock(dir string) (release func(), held bool, err error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, false, err
+	}
 	f, err := os.OpenFile(filepath.Join(dir, "kubedojo.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, false, err
