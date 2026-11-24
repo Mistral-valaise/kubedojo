@@ -491,7 +491,7 @@ func TestSecretNeverPrints(t *testing.T) {
 		"%v":   fmt.Sprintf("%v", e),
 		"%+v":  fmt.Sprintf("%+v", e),
 		"%#v":  fmt.Sprintf("%#v", e),
-		"%s":   fmt.Sprintf("%s", e.APIKey.Value),
+		"%s":   fmt.Sprintf("key=%s", e.APIKey.Value),
 		"%q":   fmt.Sprintf("%q", e.APIKey.Value),
 		"%x":   fmt.Sprintf("%x", e.APIKey.Value),
 		"json": string(js),
