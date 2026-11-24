@@ -300,27 +300,9 @@ func (k *Kind) EnsureTerminal(ctx context.Context, h dockerhost.Host, sessionID 
 		}
 		kcs = append(kcs, out)
 	}
-	script := `set -e
-mkdir -p ~/.ssh ~/.kube ~/.kube/parts
-rm -f ~/.kube/parts/*
-printf '%s\n' "$KD_PRIV" > ~/.ssh/id_ed25519
-printf '%s\n' "$KD_SSHCFG" > ~/.ssh/config
-chmod 600 ~/.ssh/id_ed25519 ~/.ssh/config
-`
-	env := []string{"-e", "KD_PRIV=" + strings.TrimRight(keys.Private, "\n"), "-e", "KD_SSHCFG=" + sshConfig(envs)}
-	for i, kc := range kcs {
-		env = append(env, "-e", fmt.Sprintf("KD_KC_%d=%s", i, kc))
-		script += fmt.Sprintf("printf '%%s\\n' \"$KD_KC_%d\" > ~/.kube/parts/%d.yaml\n", i, i)
-	}
-	script += `if ls ~/.kube/parts/*.yaml >/dev/null 2>&1; then
-  KUBECONFIG=$(ls ~/.kube/parts/*.yaml | tr '\n' ':') kubectl config view --flatten > ~/.kube/config
-  chmod 600 ~/.kube/config
-fi
-sudo mkdir -p /opt/course && sudo chown candidate:candidate /opt/course
-`
-	args := append([]string{"exec", "-i", "-u", "candidate"}, env...)
-	args = append(args, name, "bash", "-s")
-	_, err := run(h.Command(ctx, "docker", args...), script)
+	// The key and the kubeconfigs go in on stdin, not as arguments.
+	args, stdin := terminalSetup(name, keys.Private, sshConfig(envs), kcs)
+	_, err := run(h.Command(ctx, "docker", args...), stdin)
 	return err
 }
 
