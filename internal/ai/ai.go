@@ -21,7 +21,18 @@ type Request struct {
 	ConversationID  string
 }
 
-// Usage counts the tokens of one call, as the provider reports them.
+// Usage counts the tokens of one call. The meaning is the same for every
+// provider, and it is the one of OpenTelemetry's gen_ai.usage.* attributes:
+//
+//   - InputTokens is everything the model read: the prompt, including the
+//     tokens that came from a prompt cache and those that were written to it.
+//   - CacheReadTokens and CacheWriteTokens are parts of InputTokens, not
+//     additions to it. They are zero for a provider that does not say.
+//   - OutputTokens is everything the model wrote, reasoning included.
+//
+// A provider whose API counts differently (the Claude API reports cached
+// tokens next to its input tokens, not within them) is converted by its
+// adapter. All zero means the provider reported no usage.
 type Usage struct{ InputTokens, OutputTokens, CacheReadTokens, CacheWriteTokens int64 }
 
 // Result describes a finished call. The text itself went to onDelta.

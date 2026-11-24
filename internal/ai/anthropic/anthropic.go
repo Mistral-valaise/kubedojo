@@ -100,6 +100,15 @@ func (p *Provider) Server() (string, int) {
 	return p.cfg.BaseURL.Hostname(), port
 }
 
+// MaxOutputTokens is the output limit a request asks the API for. Telemetry
+// records it.
+func (p *Provider) MaxOutputTokens(req ai.Request) int {
+	if req.MaxOutputTokens > 0 {
+		return req.MaxOutputTokens
+	}
+	return DefaultMaxTokens
+}
+
 // supportsFallbacks lists the models whose safety classifiers can decline a
 // request and that the API can re-serve on a fallback model.
 func supportsFallbacks(model string) bool {
@@ -114,13 +123,9 @@ func supportsFallbacks(model string) bool {
 // turns: kubedojo stores what was said, not the thinking blocks of earlier
 // answers, so there is nothing in the history the API would have to verify.
 func (p *Provider) params(req ai.Request) sdk.BetaMessageNewParams {
-	maxTokens := int64(DefaultMaxTokens)
-	if req.MaxOutputTokens > 0 {
-		maxTokens = int64(req.MaxOutputTokens)
-	}
 	params := sdk.BetaMessageNewParams{
 		Model:        sdk.Model(p.cfg.Model),
-		MaxTokens:    maxTokens,
+		MaxTokens:    int64(p.MaxOutputTokens(req)),
 		OutputConfig: sdk.BetaOutputConfigParam{Effort: sdk.BetaOutputConfigEffortMedium},
 	}
 	if strings.TrimSpace(req.System) != "" {
@@ -179,9 +184,12 @@ func (p *Provider) Chat(ctx context.Context, req ai.Request, onDelta func(string
 	return out, nil
 }
 
+// result reads what the API said about the call. The Claude API counts the
+// tokens it read from and wrote to the prompt cache next to input_tokens;
+// ai.Usage counts them within the input tokens, so they are added here.
 func (p *Provider) result(msg sdk.BetaMessage) ai.Result {
 	out := ai.Result{ID: msg.ID, Model: string(msg.Model), Usage: ai.Usage{
-		InputTokens:      msg.Usage.InputTokens,
+		InputTokens:      msg.Usage.InputTokens + msg.Usage.CacheReadInputTokens + msg.Usage.CacheCreationInputTokens,
 		OutputTokens:     msg.Usage.OutputTokens,
 		CacheReadTokens:  msg.Usage.CacheReadInputTokens,
 		CacheWriteTokens: msg.Usage.CacheCreationInputTokens,

@@ -121,7 +121,8 @@ get such a setting back into your own hands, remove the flag or unset the variab
 
 **Content in traces.** With `auto`, prompts and answers are recorded in traces only when they go to
 the bundled local observability stack (`kubedojo up --observability`) and the server is not hosted.
-`on` and `off` say it explicitly. Token counts and timings are recorded either way.
+`on` and `off` say it explicitly. Token counts and timings are recorded either way. What is recorded
+is redacted like the output of a check and cut at 32 KiB; see [Telemetry](#telemetry).
 
 ### The settings file and the key
 
@@ -248,7 +249,7 @@ All paths are under `/api`. Errors are `{"error": "..."}`, with a `code` where o
 ```
 
 `assistant.provider` is the name of the provider in use (`anthropic`, `openai`, `ollama`,
-`openrouter`, `groq`, `mistral_ai`, `deepseek`, `x_ai`, `openai_compatible`), or the configured
+`openrouter`, `groq`, `mistral`, `deepseek`, `x_ai`, `openai_compatible`), or the configured
 provider id while there is none. `writable` is false on a hosted server. `tutor` is
 `enabled && configured`, for clients before 0.5.
 
@@ -294,7 +295,7 @@ partial answer.
 
 ```
 event: meta
-data: {"conversation":"<session>/<question>","provider":"ollama","model":"llama3.2","turn":3,"userMessageId":41}
+data: {"conversation":"<session>/<question>","provider":"ollama","model":"llama3.2","turn":3,"userMessageId":41,"traceId":"4bf92f3577b34da6a3ce929d0e0e4736"}
 
 event: context
 data: {"stage":"checks"}
@@ -310,7 +311,9 @@ data: {"code":"unreachable","message":"Could not reach http://localhost:11434. I
 ```
 
 - `meta` comes first, once. `turn` counts the learner's messages of the conversation from 1.
-  `userMessageId` is the stored message that is being answered.
+  `userMessageId` is the stored message that is being answered. `traceId` is the trace of this
+  answer, 32 hex digits, for a client that wants to show it next to an error. It is present only
+  when the server exports telemetry and the request is traced.
 - `context` reports what kubedojo is doing before the model is asked. `stage` is `checks` (always),
   then `snapshot` and `diagnostics` when those commands actually run; they are skipped for a
   multiple-choice question, for an environment that is not ready and within 30 seconds of the last
@@ -318,8 +321,9 @@ data: {"code":"unreachable","message":"Could not reach http://localhost:11434. I
 - `delta` carries the next piece of the answer (Markdown).
 - The stream ends with exactly one `done` or `error`.
 - `done.finishReason` is `stop` or `length`. `done.model` is the model that answered, which can
-  differ from `meta.model` (a fallback model). `usage` can also have `cacheReadTokens` and
-  `cacheWriteTokens`.
+  differ from `meta.model` (a fallback model). `usage.inputTokens` is everything the model read,
+  for every provider. `usage` can also have `cacheReadTokens` and `cacheWriteTokens`: the parts of
+  the input that came from, or went into, a prompt cache. They are included in `inputTokens`.
 - `error.code` is one of the codes under [Troubleshooting](#troubleshooting). `retryable` says
   whether sending the same message again can help. `messageId` is present when a partial answer was
   stored; pass it as `retryOf` to replace it.
@@ -414,6 +418,24 @@ Try the whole path without a model:
 go run ./internal/ai/aitest/cmd/fakeopenai -addr 127.0.0.1:4497
 kubedojo up --ai --ai-provider openai --ai-base-url http://127.0.0.1:4497/v1 --ai-model fake
 ```
+
+## Telemetry
+
+With telemetry on ([docs/observability.md](observability.md)), a message is one trace: the request,
+`assistant.chat`, the gathering of the context with the commands it runs in the sandbox, the call
+to the model and its HTTP request. The call to the model follows the OpenTelemetry semantic
+conventions for generative AI (`gen_ai.*`). The span tree, every attribute, the metrics, the
+dashboard and TraceQL to start from are under
+[The assistant](observability.md#the-assistant) there. In short:
+
+- **Counted and measured, always:** provider, model, the model that answered, duration, time to the
+  first text, token counts, the size of the context, how the answer ended.
+- **Prompts and answers, only if asked for:** `--ai-trace-content` decides ([above](#configuration)).
+  By default a trace holds none of what a learner wrote or a model answered, unless the traces go
+  to the bundled local stack. What is recorded is redacted (tokens, keys, passwords) and cut at
+  32 KiB per attribute.
+- **Never:** the API key, in any span, metric or log line. And the provider gets no trace context:
+  no `traceparent` and no `baggage` header leaves kubedojo with a model call.
 
 ## Notes on the providers
 

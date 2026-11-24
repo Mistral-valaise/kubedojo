@@ -13,6 +13,7 @@ import (
 	"github.com/Mistral-valaise/kubedojo/internal/ai/settings"
 	"github.com/Mistral-valaise/kubedojo/internal/api"
 	"github.com/Mistral-valaise/kubedojo/internal/assistant"
+	"github.com/Mistral-valaise/kubedojo/internal/checker"
 )
 
 // aiFlags are the flags of the assistant. `serve` and `up` have them.
@@ -91,15 +92,23 @@ func (f *aiFlags) assistant(p serverParts) *assistant.Service {
 	// Whether traces may hold prompts and answers is decided by flags and
 	// environment alone, so it is settled here for the life of the server.
 	content, _ := assistant.TraceContent(eff, p.localStack)
+	var hooks assistant.Hooks
 	if p.telemetry != nil {
+		// A call to the model is a span and metric samples, and so is the
+		// HTTP request below it. The provider gets no trace context. Where
+		// prompts and answers are recorded, they are redacted like the
+		// output of a check.
+		p.telemetry.Redact = checker.Redact
 		factory.Wrap = func(pr ai.Provider) ai.Provider {
 			return p.telemetry.InstrumentProvider(pr, func() bool { return content })
 		}
+		factory.Transport = p.telemetry.ModelTransport
+		hooks = assistant.Hooks{Request: p.telemetry.AssistantRequest, Context: p.telemetry.AssistantContext}
 	}
 	holder := ai.NewHolder(factory.Build)
 	_ = holder.Apply(eff) // why there is no provider is logged below and shown in the settings
 	svc := assistant.New(assistant.Config{Holder: holder, Settings: resolver, Factory: factory, Store: p.store, Sessions: p.sessions,
-		Catalog: p.catalog, Log: p.log, Render: api.Render, LocalStack: p.localStack})
+		Catalog: p.catalog, Log: p.log, Render: api.Render, LocalStack: p.localStack, Hooks: hooks})
 	svc.LogState()
 	return svc
 }

@@ -27,6 +27,17 @@ func (t *Telemetry) Current(ctx context.Context) span.Span {
 	return otelSpan{trace.SpanFromContext(ctx)}
 }
 
+// TraceID returns the id of the trace ctx is in, as 32 hex digits, when a
+// span is recording there; otherwise it is empty. It is what span.TraceID
+// reports to code that does not know OpenTelemetry.
+func (t *Telemetry) TraceID(ctx context.Context) string {
+	s := trace.SpanFromContext(ctx)
+	if !s.IsRecording() || !s.SpanContext().HasTraceID() {
+		return ""
+	}
+	return s.SpanContext().TraceID().String()
+}
+
 // otelSpan is an OpenTelemetry span behind the span.Span interface.
 type otelSpan struct{ s trace.Span }
 

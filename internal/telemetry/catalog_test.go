@@ -16,6 +16,8 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/Mistral-valaise/kubedojo/internal/ai"
 )
 
 const catalogFile = "../../deploy/helm/kubedojo/observability/metrics.json"
@@ -32,8 +34,25 @@ type family struct {
 	Labels []string `json:"labels"`
 }
 
+// prometheusLabel is the name Prometheus gives an attribute of an OTLP
+// metric: gen_ai.provider.name becomes gen_ai_provider_name.
+func prometheusLabel(key string) string { return strings.ReplaceAll(key, ".", "_") }
+
+// catalogProvider is a model that answers at once, for the catalog.
+type catalogProvider struct{ err error }
+
+func (catalogProvider) Name() string          { return "ollama" }
+func (catalogProvider) Model() string         { return "llama3.2" }
+func (catalogProvider) Server() (string, int) { return "localhost", 11434 }
+func (p catalogProvider) Chat(_ context.Context, _ ai.Request, onDelta func(string) error) (ai.Result, error) {
+	_ = onDelta("text")
+	return ai.Result{ID: "1", Model: "llama3.2", FinishReason: "stop",
+		Usage: ai.Usage{InputTokens: 10, OutputTokens: 5, CacheReadTokens: 2, CacheWriteTokens: 1}}, p.err
+}
+
 // prometheusName is the name Prometheus gives an OTLP metric: dots become
-// underscores, the unit is appended, and a counter ends in _total.
+// underscores, the unit is appended, and a counter ends in _total. A unit
+// in braces, like {token}, is an annotation and adds nothing.
 func prometheusName(name, unit, typ string) string {
 	n := strings.ReplaceAll(name, ".", "_")
 	if suffix := map[string]string{"s": "seconds", "%": "percent", "1": "ratio", "By": "bytes"}[unit]; suffix != "" && !strings.HasSuffix(n, "_"+suffix) {
@@ -75,6 +94,13 @@ func TestMetricCatalogMatchesTheInstruments(t *testing.T) {
 	tel.TerminalClosed(ctx, time.Minute)
 	tel.StoreOperation("save_session", time.Millisecond)
 	tel.Rejected("host")
+	tel.AssistantRequest(ctx, "ollama", "answer", "ok", "cka", "practice")
+	tel.AssistantContext(ctx, "cka", false, time.Second)
+	// A call to a model that works and one that fails: the failed one adds
+	// the label error.type.
+	for _, p := range []ai.Provider{catalogProvider{}, catalogProvider{err: ai.Errorf(ai.ErrUpstream, "x")}} {
+		_, _ = tel.InstrumentProvider(p, nil).Chat(ctx, ai.Request{}, func(string) error { return nil })
+	}
 
 	var rm metricdata.ResourceMetrics
 	if err := reader.Collect(ctx, &rm); err != nil {
@@ -88,7 +114,7 @@ func TestMetricCatalogMatchesTheInstruments(t *testing.T) {
 			add := func(sets ...attribute.Set) {
 				for _, set := range sets {
 					for _, kv := range set.ToSlice() {
-						labels[string(kv.Key)] = true
+						labels[prometheusLabel(string(kv.Key))] = true
 					}
 				}
 			}

@@ -2,9 +2,18 @@ name: codeql
 # Static analysis of the Go server and the TypeScript UI. Findings appear under
 # Security > Code scanning and on the pull request that introduces them.
 on:
+  # Every push to main, so that a pull request is compared with a current
+  # analysis of main.
   push:
     branches: [main]
+  # A pull request that changes no code has nothing to analyse.
   pull_request:
+    paths:
+      - "**/*.go"
+      - "**/go.mod"
+      - "**/go.sum"
+      - web/**
+      - .github/workflows/codeql.yaml
   # Weekly: new queries find old code.
   schedule:
     - cron: "23 4 * * 1"

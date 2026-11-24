@@ -235,8 +235,12 @@ type usageView struct {
 func (e *eventStream) send(ev assistant.Event) error {
 	switch ev := ev.(type) {
 	case assistant.Meta:
-		return e.event("meta", map[string]any{"conversation": ev.Conversation, "provider": ev.Provider, "model": ev.Model,
-			"turn": ev.Turn, "userMessageId": ev.UserMessageID})
+		body := map[string]any{"conversation": ev.Conversation, "provider": ev.Provider, "model": ev.Model,
+			"turn": ev.Turn, "userMessageId": ev.UserMessageID}
+		if ev.TraceID != "" {
+			body["traceId"] = ev.TraceID
+		}
+		return e.event("meta", body)
 	case assistant.Context:
 		return e.event("context", map[string]string{"stage": ev.Stage})
 	case assistant.Delta:

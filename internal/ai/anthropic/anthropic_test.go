@@ -154,8 +154,10 @@ func TestChatStreamsTextAndFillsTheResult(t *testing.T) {
 	if got != "The Deployment has no replicas." {
 		t.Errorf("text = %q", got)
 	}
+	// The API reports 25 input tokens next to 300 read from and 1200
+	// written to the cache. ai.Usage counts all of them as input.
 	want := ai.Result{ID: "msg_test_1", Model: "claude-opus-5-5", FinishReason: "stop",
-		Usage: ai.Usage{InputTokens: 25, OutputTokens: 42, CacheReadTokens: 300, CacheWriteTokens: 1200}}
+		Usage: ai.Usage{InputTokens: 1525, OutputTokens: 42, CacheReadTokens: 300, CacheWriteTokens: 1200}}
 	if res != want {
 		t.Errorf("result:\n got %+v\nwant %+v", res, want)
 	}

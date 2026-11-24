@@ -336,7 +336,7 @@ func TestContextOfAClusterTask(t *testing.T) {
 
 	pc := f.svc.promptContext(v, q, qs)
 	var stages []string
-	seen := f.svc.observe(context.Background(), v, q, qs, func(s string) { stages = append(stages, s) })
+	seen, _ := f.svc.observe(context.Background(), v, q, qs, func(s string) { stages = append(stages, s) })
 	pc.Snapshot, pc.Diagnostics = seen.snapshot, seen.diagnostics
 	got := ai.UserTurn(pc, "why does it fail?")
 	golden(t, "cluster-task", got)
@@ -374,7 +374,7 @@ func TestContextBeforeAnythingHappened(t *testing.T) {
 	v := practice("s1", "l")
 	qs := &session.QState{ID: "q", Status: "pending"}
 	pc := f.svc.promptContext(v, q, qs)
-	seen := f.svc.observe(context.Background(), v, q, qs, func(string) { t.Error("a stage ran for a question that is not ready") })
+	seen, _ := f.svc.observe(context.Background(), v, q, qs, func(string) { t.Error("a stage ran for a question that is not ready") })
 	pc.Snapshot, pc.Diagnostics = seen.snapshot, seen.diagnostics
 	golden(t, "host-task-untouched", ai.UserTurn(pc, ""))
 	if len(f.sandbox.scripts()) != 0 {
@@ -547,7 +547,7 @@ func TestObserve(t *testing.T) {
 	now := time.Unix(5000, 0)
 	f.svc.now = func() time.Time { return now }
 
-	seen := f.svc.observe(context.Background(), v, q, qs, func(string) {})
+	seen, _ := f.svc.observe(context.Background(), v, q, qs, func(string) {})
 	calls := f.sandbox.scripts()
 	// The snapshot and three diagnostics: replicas, image, route. The exec
 	// check has none, and the fifth check is beyond the limit.
@@ -593,7 +593,7 @@ func TestObserve(t *testing.T) {
 	again := failed(q, "replicas", "image", "route", "pv")
 	again.At = checkedAt.Add(time.Minute)
 	qs.Last = again
-	seen = f.svc.observe(context.Background(), v, q, qs, func(string) {})
+	seen, _ = f.svc.observe(context.Background(), v, q, qs, func(string) {})
 	if n := len(f.sandbox.scripts()); n != 9 || len(seen.diagnostics) != 0 {
 		t.Errorf("after a new check: %d commands, %d diagnostics; want the snapshot only (the failing check is an exec check)", n, len(seen.diagnostics))
 	}
@@ -612,7 +612,7 @@ func TestObserveKeepsToItsTimeBudget(t *testing.T) {
 	q := f.question("k", "q")
 	f.sandbox.err = errors.New("the sandbox is gone")
 	qs := &session.QState{ID: "q", Status: "ready", Last: failed(q)}
-	seen := f.svc.observe(context.Background(), practice("s1", "k"), q, qs, func(string) {})
+	seen, _ := f.svc.observe(context.Background(), practice("s1", "k"), q, qs, func(string) {})
 	if seen.snapshot != "" || len(seen.diagnostics) != 0 {
 		t.Errorf("a failing sandbox produced context: %+v", seen)
 	}
