@@ -132,6 +132,10 @@ func TestTerminalsAreIndependent(t *testing.T) {
 	f := newFixture(t, 4)
 	ctx := context.Background()
 	a := f.dial(t, "?cols=100&rows=30")
+	// The server answers the handshake before it starts the shell, and the two
+	// connections are served side by side: without this wait the second shell
+	// may start first, and ttys[0] below would be the wrong one.
+	f.wait(t, "the first shell", func() bool { return f.drv.Open() == 1 })
 	b := f.dial(t, "?cols=80&rows=24")
 	f.wait(t, "both shells", func() bool { return f.drv.Open() == 2 })
 	ttys := f.drv.TTYs()
