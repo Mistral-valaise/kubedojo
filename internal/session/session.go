@@ -529,15 +529,6 @@ func (m *Manager) get(id string) (*Session, error) {
 	return s, nil
 }
 
-func newID() string {
-	const abc = "abcdefghjkmnpqrstuvwxyz23456789"
-	b := make([]byte, 8)
-	for i := range b {
-		b[i] = abc[rand.IntN(len(abc))]
-	}
-	return string(b)
-}
-
 func (m *Manager) newAlias(track string) string {
 	used := map[string]bool{}
 	for _, s := range m.byID {
