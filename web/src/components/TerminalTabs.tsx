@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Plus, SquareTerminal, X } from "lucide-react";
-import { api } from "../api";
+import { useConfig } from "../config";
 import { t } from "../i18n";
 import { Terminal, shortcutModifiers, type TerminalShortcut } from "./Terminal";
 import { cx } from "./ui";
@@ -31,16 +31,12 @@ export function TerminalTabs(props: { sessionId: string; max?: number }) {
 function Tabs({ sessionId, max: maxProp }: { sessionId: string; max?: number }) {
   const [tabs, setTabs] = useState<Tab[]>([first]);
   const [active, setActive] = useState(first.id);
-  const [limit, setLimit] = useState(maxProp ?? DEFAULT_MAX_TERMINALS);
   const nextId = useRef(first.id + 1);
   const tabRefs = useRef(new Map<number, HTMLButtonElement>());
 
-  useEffect(() => {
-    if (maxProp !== undefined) { setLimit(maxProp); return; }
-    let alive = true;
-    api.config().then((c) => { if (alive && c.maxTerminals > 0) setLimit(c.maxTerminals); }).catch(() => undefined);
-    return () => { alive = false; };
-  }, [maxProp]);
+  // The limit of the server counts unless the caller sets one.
+  const config = useConfig(maxProp === undefined);
+  const limit = maxProp ?? (config && config.maxTerminals > 0 ? config.maxTerminals : DEFAULT_MAX_TERMINALS);
 
   const full = tabs.length >= limit;
 
