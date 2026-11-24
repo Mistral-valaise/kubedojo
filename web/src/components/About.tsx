@@ -6,8 +6,10 @@ import { project, versionLabel } from "../project";
 import { IconButton, Popover, cx } from "./ui";
 
 /**
- * The credit of the workspace views, which have no footer: a button in the
- * header that opens the version, the source and the author. The configuration
+ * The About button of the workspace views: the version, the settings, the
+ * source and the author, a click away in the header. The compact footer of
+ * these views shows the credit too; the popover adds the way to Settings,
+ * which their header has no room for otherwise. The configuration
  * is fetched only once the popover is opened. `className` is for hiding it
  * where a header has no room (`hidden sm:inline-flex`).
  */

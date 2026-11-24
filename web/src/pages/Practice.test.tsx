@@ -73,6 +73,8 @@ describe("PracticePage", () => {
     expect(screen.queryByRole("radiogroup")).toBeNull();
     // Only the task this server can run counts.
     expect(screen.getByText("1 / 1")).toBeTruthy();
+    // The credit stays below the workspace, as below every other view.
+    expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Created by Mistral N" })).toBeTruthy();
     await waitFor(() => expect(server.calls).toEqual(["prepare"]));
   });
 
@@ -89,6 +91,7 @@ describe("PracticePage", () => {
     expect((screen.getByRole("button", { name: "Next question" }) as HTMLButtonElement).disabled).toBe(false);
     // Reading the question prepares it: there is no prepare call to wait for.
     expect(server.calls).toEqual([]);
+    expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Created by Mistral N" })).toBeTruthy();
   });
 
   it("checks an answer, reviews it and starts over", async () => {
