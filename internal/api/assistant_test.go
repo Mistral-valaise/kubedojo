@@ -579,7 +579,7 @@ func TestAssistantErrorEvent(t *testing.T) {
 	sid = a2.session("practice", "quiz")
 	_, events, _ = a2.stream(sid, "a1", `{"message":"x"}`)
 	e = events[len(events)-1].Data
-	if e["code"] != "unreachable" || e["message"] != "Could not reach 127.0.0.1." || e["retryable"] != true {
+	if e["code"] != "unreachable" || e["message"] != "Could not reach 127.0.0.1:1." || e["retryable"] != true {
 		t.Errorf("unreachable: %v", e)
 	}
 }
@@ -679,7 +679,7 @@ func TestSettingsAPI(t *testing.T) {
 		t.Errorf("test = %v", ok)
 	}
 	bad := a.json("POST", "/api/settings/test", `{"assistant":{"baseURL":"http://127.0.0.1:1/v1"}}`, 200)
-	if bad["ok"] != false || bad["code"] != "unreachable" || bad["message"] != "Could not reach 127.0.0.1." {
+	if bad["ok"] != false || bad["code"] != "unreachable" || bad["message"] != "Could not reach 127.0.0.1:1." {
 		t.Errorf("failing test = %v", bad)
 	}
 	if res, raw := a.do("POST", "/api/settings/test", `{"assistant":{"provider":"anthropic"}}`); res.StatusCode != 409 || !strings.Contains(raw, `"field":"provider"`) {

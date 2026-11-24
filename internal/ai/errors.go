@@ -41,7 +41,8 @@ func hostOf(base *url.URL) string {
 	if base == nil || base.Hostname() == "" {
 		return "the provider"
 	}
-	return base.Hostname()
+	// With the port: on one machine it is what tells two servers apart.
+	return base.Host
 }
 
 func loopbackName(host string) bool {
