@@ -135,6 +135,7 @@ jobs:
         env:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           ALL: ${{ contains(github.event.pull_request.labels.*.name, 'content') }}
+          EVENT: ${{ github.event_name }}
         run: |
           matrix=$(.github/content-matrix.sh)
           echo "$matrix"
@@ -142,8 +143,10 @@ jobs:
 
   # Proves questions against real clusters: unsolved fails, the reference
   # solution passes, the grade is stable, variants get the declared grade.
-  # Pull requests and pushes prove what they changed, with --quick; the nightly
-  # job proves everything in full. See docs/verification.md.
+  # Pull requests and pushes prove what their change can break, with --quick:
+  # the questions it touches, a sample of every track for a change to the
+  # session or sandbox code, every question for a change to the grader or the
+  # images. The nightly job proves everything in full. See docs/verification.md.
   content:
     runs-on: ubuntu-latest
     timeout-minutes: 90
