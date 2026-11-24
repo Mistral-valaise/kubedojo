@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ArrowLeft, ChevronRight, Clock, PlayCircle, RotateCcw, Server } from "lucide-react";
-import { api, type Config, type QuestionView, type Result, type Session, type Track } from "../api";
+import { api, type QuestionView, type Result, type Session, type Track } from "../api";
+import { useConfig } from "../config";
 import { useElapsed, useInterval, useLoad } from "../hooks";
 import { t } from "../i18n";
 import { practicable, words } from "../track";
@@ -32,7 +33,7 @@ export function PracticePage() {
 function TaskPractice({ track, qid }: { track: Track; qid: string }) {
   const trackId = track.id;
   const nav = useNavigate();
-  const [config, setConfig] = useState<Config | null>(null);
+  const config = useConfig();
   const [session, setSession] = useState<Session | null>(null);
   const [view, setView] = useState<QuestionView | null>(null);
   const [result, setResult] = useState<Result | null>(null);
@@ -46,10 +47,6 @@ function TaskPractice({ track, qid }: { track: Track; qid: string }) {
 
   const state = session?.questions?.find((x) => x.id === qid);
   const status = state?.status ?? "pending";
-
-  useEffect(() => {
-    api.config().then(setConfig).catch(() => undefined);
-  }, []);
 
   // Open (or reuse) the practice session and prepare this question.
   useEffect(() => {

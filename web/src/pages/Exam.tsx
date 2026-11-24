@@ -4,7 +4,8 @@ import {
   AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Flag, Flame, Server,
   SquareTerminal, Trash2, XCircle,
 } from "lucide-react";
-import { api, type Config, type QuestionView, type Session, type Track } from "../api";
+import { api, type QuestionView, type Session, type Track } from "../api";
+import { useConfig } from "../config";
 import { fmtDuration, useInterval } from "../hooks";
 import { plural, t } from "../i18n";
 import { isFullAssessment, words } from "../track";
@@ -24,14 +25,14 @@ export function ExamPage() {
   const { session: sid = "" } = useParams();
   const [session, setSession] = useState<Session | null>(null);
   const [track, setTrack] = useState<Track | null>(null);
-  const [config, setConfig] = useState<Config | null>(null);
+  const config = useConfig();
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try { setSession(await api.session(sid)); setError(null); }
     catch (e) { setError((e as Error).message); }
   }, [sid]);
-  useEffect(() => { void refresh(); api.config().then(setConfig).catch(() => undefined); }, [refresh]);
+  useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => { if (session && !track) api.track(session.track).then(setTrack).catch(() => undefined); }, [session, track]);
   const fast = session?.status === "provisioning" || session?.status === "grading";
   useInterval(() => void refresh(), fast ? 1500 : 10000, !!session && session.status !== "finished" && session.status !== "error");

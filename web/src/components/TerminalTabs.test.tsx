@@ -22,6 +22,7 @@ vi.mock("./Terminal", async () => {
 const config = vi.fn();
 vi.mock("../api", () => ({ api: { config: () => config() } }));
 
+import { resetConfigCache } from "../config";
 import { TerminalTabs } from "./TerminalTabs";
 
 const tabs = () => screen.getAllByRole("tab");
@@ -36,6 +37,7 @@ beforeEach(() => {
   shells.ended = 0;
   shells.shortcut = null;
   config.mockReset().mockResolvedValue({ maxTerminals: 4 });
+  resetConfigCache(); // the configuration is fetched once per page, here once per test
 });
 afterEach(cleanup);
 

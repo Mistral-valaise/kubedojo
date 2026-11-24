@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ArrowLeft, ChevronRight, Eye, PlayCircle, RotateCcw } from "lucide-react";
-import { api, ApiError, type Config, type QuestionView, type Track } from "../api";
+import { api, ApiError, type QuestionView, type Track } from "../api";
+import { useConfig } from "../config";
 import { t } from "../i18n";
 import { practicable, words } from "../track";
 import { Choice } from "../components/Choice";
@@ -18,7 +19,7 @@ import { Badge, Button, Card, Difficulty, ErrorNote, Spinner } from "../componen
  */
 export function QuizPractice({ track, qid }: { track: Track; qid: string }) {
   const nav = useNavigate();
-  const [config, setConfig] = useState<Config | null>(null);
+  const config = useConfig();
   const [sid, setSid] = useState<string | null>(null);
   const [view, setView] = useState<QuestionView | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -30,8 +31,6 @@ export function QuizPractice({ track, qid }: { track: Track; qid: string }) {
   const body = useRef<HTMLDivElement>(null);
   // Where the focus goes once the next render is on the page.
   const focusNext = useRef<"options" | "review" | null>(null);
-
-  useEffect(() => { api.config().then(setConfig).catch(() => undefined); }, []);
 
   const show = useCallback((v: QuestionView) => { setView(v); setSelected(v.choice?.answer ?? []); }, []);
 
