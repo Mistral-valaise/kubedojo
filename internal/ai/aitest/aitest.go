@@ -82,6 +82,15 @@ type Fake struct {
 
 	mu       sync.Mutex
 	requests []Request
+	gone     int
+}
+
+// ClientsGone is how many requests ended because the client went away
+// while the server was still answering.
+func (f *Fake) ClientsGone() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.gone
 }
 
 // Requests returns what the server received so far.
@@ -163,6 +172,13 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	out := &splitter{w: w, n: f.SplitBytes, ctx: r.Context()}
 	defer out.finish()
+	defer func() {
+		if r.Context().Err() != nil {
+			f.mu.Lock()
+			f.gone++
+			f.mu.Unlock()
+		}
+	}()
 	event := func(v any) bool {
 		b, _ := json.Marshal(v)
 		return out.write("data: " + string(b) + "\n\n")

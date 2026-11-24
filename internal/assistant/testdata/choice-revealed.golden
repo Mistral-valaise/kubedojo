@@ -1,0 +1,26 @@
+<context>
+<task title="Which object keeps Pods running" domain="d" environment="none: a multiple-choice question">
+Which object keeps three replicas of a Pod running on ?
+</task>
+<options>
+Exactly one option is correct.
+[ ] A. A Secret
+[x] B. A ConfigMap
+[ ] C. A Deployment
+[ ] D. A Namespace
+[x] marks what the learner picked.
+</options>
+<answer_key shown_to_learner="yes">
+A is wrong.
+B is wrong. KEY-WHY-WRONG
+C is correct. KEY-WHY-RIGHT
+D is wrong.
+
+KEY-EXPLANATION
+</answer_key>
+<check_results score="0" max="1" passed="false">
+The answer was graded as wrong.
+</check_results>
+</context>
+
+why?

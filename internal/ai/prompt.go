@@ -175,13 +175,14 @@ func RenderContext(c PromptContext) string {
 	} else if c.HintsTotal > 0 {
 		fmt.Fprintf(&b, "<opened_hints opened=\"0\" of=\"%d\"/>\n", c.HintsTotal)
 	}
-	if c.SolutionViewed {
-		if strings.TrimSpace(c.Solution) != "" {
-			block(&b, "solution", attr("opened_by_learner", "yes"), c.Solution)
-		} else {
-			b.WriteString("<solution opened_by_learner=\"yes\"/>\n")
-		}
-	} else {
+	// The solution of a multiple-choice question is its answer key, above.
+	switch {
+	case c.Choice != nil:
+	case c.SolutionViewed && strings.TrimSpace(c.Solution) != "":
+		block(&b, "solution", attr("opened_by_learner", "yes"), c.Solution)
+	case c.SolutionViewed:
+		b.WriteString("<solution opened_by_learner=\"yes\"/>\n")
+	default:
 		b.WriteString("<solution opened_by_learner=\"no\"/>\n")
 	}
 	block(&b, "learner_note", "", c.Note)
