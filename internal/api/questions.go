@@ -1,9 +1,6 @@
 package api
 
 import (
-	"encoding/json"
-	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -109,8 +106,7 @@ func (s *Server) patchQuestion(w http.ResponseWriter, r *http.Request) {
 		Note    *string   `json:"note"`
 		Answer  *[]string `json:"answer"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "invalid JSON")
+	if !s.decodeRequired(w, r, &req, 16<<10) {
 		return
 	}
 	if req.Answer != nil {
@@ -150,8 +146,7 @@ func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Answer *[]string `json:"answer"`
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-			writeErr(w, 400, "invalid JSON")
+		if !s.decode(w, r, &req, 8<<10) {
 			return
 		}
 		if req.Answer != nil {

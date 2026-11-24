@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -26,8 +25,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		Minutes   int    `json:"minutes"`
 		Questions int    `json:"questions"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "invalid JSON")
+	if !s.decodeRequired(w, r, &req, 64<<10) {
 		return
 	}
 	var (

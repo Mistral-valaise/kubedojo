@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"sort"
 	"strconv"
@@ -71,7 +70,7 @@ func (s *Server) rate(w http.ResponseWriter, r *http.Request) {
 		Stars   int    `json:"stars"`
 		Comment string `json:"comment"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil || req.Stars < 1 || req.Stars > 5 {
+	if err := readJSON(w, r, &req, 8<<10); err != nil || req.Stars < 1 || req.Stars > 5 {
 		writeErr(w, 400, "stars must be between 1 and 5")
 		return
 	}

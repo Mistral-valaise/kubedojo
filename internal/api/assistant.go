@@ -2,9 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"io"
 	"net/http"
 	"time"
 
@@ -40,8 +37,7 @@ func (s *Server) tutor(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Ask string `json:"ask"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		writeErr(w, 400, "invalid JSON")
+	if !s.decode(w, r, &req, 8<<10) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
