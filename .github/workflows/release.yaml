@@ -3,9 +3,9 @@ on:
   push:
     tags: ["v*"]
 
+# Nothing is granted here. Each job asks for what it publishes.
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   # Nothing is published from a commit that does not build, lint and test. The
@@ -19,6 +19,8 @@ jobs:
   binaries:
     needs: [ci]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload its files
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0}
@@ -36,6 +38,9 @@ jobs:
   images:
     needs: [ci]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # push the images
     env:
       REGISTRY: ghcr.io/mistral-valaise
       K8S_VERSION: v1.37.0
@@ -113,6 +118,9 @@ jobs:
   chart:
     needs: [images]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # push the chart
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
