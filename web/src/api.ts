@@ -95,7 +95,7 @@ export interface SettingField<T> { value: T; source: SettingSource; locked: bool
 /** The API key is write-only: the server says that one is set and, on a local server, its last four characters. */
 export interface SettingKey { set: boolean; last4?: string; source: SettingSource; locked: boolean; lockedBy?: string }
 export interface ProviderInfo {
-  id: string; label: string; needsKey: boolean; defaultModel?: string;
+  id: string; label: string; needsKey: boolean; defaultModel?: string; defaultBaseURL?: string;
   presets?: { label: string; baseURL: string }[];
 }
 export interface Settings {

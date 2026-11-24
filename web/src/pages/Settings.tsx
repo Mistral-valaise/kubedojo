@@ -194,7 +194,7 @@ function AssistantForm({ settings, saved, onEdit, onSaved }: {
             <Field label={t("Base URL")} locked={lock(a.baseURL)} error={errors.baseURL}
               description={note(a.baseURL, t("Where the model is served. Leave it empty for the address of the provider itself."))}>
               <Input mono value={baseURL} onChange={(e) => { touch("baseURL"); setBaseURL(e.target.value); }} inputMode="url" spellCheck={false} autoComplete="off"
-                placeholder={t("The provider's own address")} />
+                placeholder={info?.defaultBaseURL ?? t("The provider's own address")} />
               {info?.presets && info.presets.length > 0 && !a.baseURL.locked && editable && (
                 <div className="flex flex-wrap gap-1.5">
                   {info.presets.map((preset) => (
