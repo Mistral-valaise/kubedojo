@@ -31,7 +31,7 @@ describe("PathSection", () => {
 
   it("badges a step by its role and the kind of its track", () => {
     show(path);
-    const badge = (i: number) => steps()[i].querySelector("a span span + span")?.textContent;
+    const badge = (i: number) => steps()[i].querySelector("a span span")?.textContent;
     expect([0, 1, 2, 3].map(badge)).toEqual(["Foundation", "Theory", "Hands-on", "Hands-on"]);
   });
 
@@ -97,5 +97,25 @@ describe("PathSection", () => {
     expect(link.getAttribute("href")).toBe(path.url);
     expect(screen.getByText("3 of 3 passed")).toBeTruthy();
     expect(container.textContent).not.toMatch(/you are|you're|you have become|congratulations/i);
+  });
+
+  it("says why a step is on the path: as its description and as its tooltip", () => {
+    show(path);
+    const link = screen.getByRole("link", { name: /^Linux, / });
+    const why = document.getElementById(link.getAttribute("aria-describedby") ?? "");
+    expect(why?.textContent).toBe("The shell every exam runs in.");
+    // One line per step keeps the card short; the reason is not lost for who cannot hover.
+    expect(why?.className).toBe("sr-only");
+    expect(link.getAttribute("title")).toBe("The shell every exam runs in.");
+  });
+
+  it("shows the readiness of each step as a number and a bar, and a dash before it is known", () => {
+    show(path, { kcna: progress("kcna", 81.4) });
+    const [linuxStep, kcnaStep] = steps();
+    expect(within(linuxStep).getByText("–")).toBeTruthy();
+    expect(within(kcnaStep).getByText("81%")).toBeTruthy();
+    // Above the pass mark of the track (75%) the bar is the colour of success.
+    expect((kcnaStep.querySelector("div.rounded-full > div") as HTMLElement).className).toContain("bg-ok");
+    expect((kcnaStep.querySelector("div.rounded-full > div") as HTMLElement).style.width).toBe("81%");
   });
 });
