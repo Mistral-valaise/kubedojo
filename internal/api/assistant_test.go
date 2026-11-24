@@ -541,8 +541,8 @@ func TestAssistantNotConfigured(t *testing.T) {
 	// A server built without the assistant answers the same way.
 	bare := newQuizAPI(t, nil)
 	sid2 := bare.session("practice")
-	if code, raw := bare.call("POST", "/api/sessions/"+sid2+"/questions/a1/assistant", `{"message":"x"}`); code != 415 {
-		t.Errorf("no content type on a bare server = %d %s", code, raw)
+	if code, raw := bare.call("POST", "/api/sessions/"+sid2+"/questions/a1/assistant", `{"message":"x"}`); code != 409 || !strings.Contains(raw, `"not_configured"`) {
+		t.Errorf("a message to a bare server = %d %s", code, raw)
 	}
 	if code, raw := bare.call("GET", "/api/sessions/"+sid2+"/questions/a1/assistant", ""); code != 200 || !strings.Contains(raw, `"messages":[]`) {
 		t.Errorf("history on a bare server = %d %s", code, raw)

@@ -59,6 +59,9 @@ func registerAIFlags(fl *flag.FlagSet) *aiFlags {
 // flag that was set wins over everything else and locks its setting.
 func (f *aiFlags) given() map[string]string {
 	out := map[string]string{}
+	if f.fl == nil { // flags that were never registered: nothing was given
+		return out
+	}
 	f.fl.Visit(func(fl *flag.Flag) {
 		switch fl.Name {
 		case "ai", "ai-provider", "ai-model", "ai-base-url", "ai-trace-content":
