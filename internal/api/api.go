@@ -15,6 +15,7 @@ import (
 
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/session"
+	"github.com/Mistral-valaise/kubedojo/internal/span"
 	"github.com/Mistral-valaise/kubedojo/internal/store"
 )
 
@@ -149,7 +150,10 @@ func (s *Server) owner(r *http.Request) string {
 	return r.Header.Get(s.UserHeader)
 }
 
-// session returns the session if it belongs to the caller.
+// session returns the session if it belongs to the caller. It names the
+// session on the span of the request, so that a request which starts no
+// session work (start an exam, store an answer, read a hint) can still be
+// found by its session.
 func (s *Server) session(w http.ResponseWriter, r *http.Request) *session.Session {
 	v, err := s.Sessions.View(r.PathValue("id"))
 	if err == nil && v.Owner != s.owner(r) {
@@ -159,6 +163,8 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) *session.Sessio
 		s.fail(w, r, err)
 		return nil
 	}
+	span.Current(r.Context()).Set(span.String("kubedojo.session.id", v.ID),
+		span.String("kubedojo.track", v.Track), span.String("kubedojo.mode", v.Mode))
 	return v
 }
 

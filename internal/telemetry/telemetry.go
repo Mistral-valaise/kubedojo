@@ -18,7 +18,6 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -239,23 +238,6 @@ func result(err error) string {
 		return "error"
 	}
 	return "ok"
-}
-
-// Span starts a span for a piece of session work. attrs are pairs of key and
-// value. The returned function ends the span and records the error, if any.
-func (t *Telemetry) Span(ctx context.Context, name string, attrs ...string) (context.Context, func(error)) {
-	kv := make([]attribute.KeyValue, 0, len(attrs)/2)
-	for i := 0; i+1 < len(attrs); i += 2 {
-		kv = append(kv, attribute.String(attrs[i], attrs[i+1]))
-	}
-	ctx, span := t.tracer.Start(ctx, name, trace.WithAttributes(kv...))
-	return ctx, func(err error) {
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-		}
-		span.End()
-	}
 }
 
 // Detach returns a context for work that outlives a request: it lives as long

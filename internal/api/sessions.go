@@ -34,7 +34,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	)
 	switch req.Mode {
 	case session.ModePractice:
-		ses, err = s.Sessions.Practice(req.Track, s.owner(r))
+		ses, err = s.Sessions.PracticeContext(r.Context(), req.Track, s.owner(r))
 	case session.ModeExam:
 		ses, err = s.Sessions.NewExamContext(r.Context(), req.Track, session.ExamOptions{Minutes: req.Minutes, Questions: req.Questions, Owner: s.owner(r)})
 	default:

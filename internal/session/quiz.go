@@ -10,6 +10,7 @@ import (
 
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/checker"
+	"github.com/Mistral-valaise/kubedojo/internal/span"
 )
 
 // Multiple-choice tracks need no sandbox: their sessions never acquire a host
@@ -158,7 +159,11 @@ func (m *Manager) Answer(id, qid string, answer []string) error {
 // checkChoice grades the stored answer of a choice question in practice. A
 // graded question keeps its result until it is reset: grading it again would
 // only add attempts for an answer that can no longer change.
-func (m *Manager) checkChoice(ctx context.Context, s *Session, q *catalog.Question) (*checker.Result, error) {
+//
+// Like the grading of a task it is the span question.check, with the fields
+// that apply: there are no checks, only the score. Reading the stored result
+// of a finished exam grades nothing and is no span.
+func (m *Manager) checkChoice(ctx context.Context, s *Session, q *catalog.Question) (_ *checker.Result, err error) {
 	m.mu.Lock()
 	if s.Mode == ModeExam {
 		qs := s.q(q.ID)
@@ -172,6 +177,8 @@ func (m *Manager) checkChoice(ctx context.Context, s *Session, q *catalog.Questi
 		res := *qs.Last
 		return &res, nil
 	}
+	ctx, sp := m.span(ctx, "question.check", s, span.String("kubedojo.question", q.ID), span.String("kubedojo.question.type", q.Type))
+	defer func() { end(sp, err) }()
 	qs := s.choiceState(q)
 	if qs.Last != nil {
 		m.mu.Unlock()
@@ -181,6 +188,8 @@ func (m *Manager) checkChoice(ctx context.Context, s *Session, q *catalog.Questi
 	qs.Last = &res
 	m.save(s)
 	m.mu.Unlock()
+	sp.Set(span.Int("kubedojo.question.score", res.Score), span.Int("kubedojo.question.max", res.Max),
+		span.Bool("kubedojo.question.passed", res.Passed))
 	m.record(ctx, s, q, s.Mode, res)
 	if m.hooks.Checked != nil {
 		m.hooks.Checked(ctx, s.Track, q.ID, s.Mode, res)
@@ -191,6 +200,9 @@ func (m *Manager) checkChoice(ctx context.Context, s *Session, q *catalog.Questi
 // finishQuiz grades the exam of a sandboxless track. Answers do not converge,
 // so there is no settle time and the report exists when this returns. Results
 // appear on the session together with the finished status, never before.
+//
+// The grading is the span exam.grade, as for an exam with a sandbox. Its
+// questions are graded in memory and get no spans of their own.
 func (m *Manager) finishQuiz(ctx context.Context, s *Session) error {
 	t := m.cat.Tracks[s.Track]
 	m.mu.Lock()
@@ -198,6 +210,7 @@ func (m *Manager) finishQuiz(ctx context.Context, s *Session) error {
 		m.mu.Unlock()
 		return fmt.Errorf("%w: session cannot be finished in state %s", ErrConflict, s.Status)
 	}
+	ctx, sp := m.span(ctx, "exam.grade", s, span.Int("kubedojo.exam.questions", len(s.Questions)))
 	s.Status = StatusGrading
 	now := time.Now().UTC()
 	s.FinishedAt = &now
@@ -207,6 +220,7 @@ func (m *Manager) finishQuiz(ctx context.Context, s *Session) error {
 	}
 	m.save(s)
 	m.mu.Unlock()
-	m.conclude(ctx, s, t, results)
+	sp.Set(examAttrs(m.conclude(ctx, s, t, results))...)
+	end(sp, nil)
 	return nil
 }
