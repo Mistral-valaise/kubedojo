@@ -1,22 +1,61 @@
-/* Design tokens: the colours of both themes and their mapping to Tailwind. */
+/* Design tokens: the colours of both themes, the type scale and their mapping
+   to Tailwind. Components use the utilities (bg-panel, text-muted, text-label);
+   a raw colour belongs in this file and nowhere else.
+
+   Every text colour reaches 4.5:1 on the surfaces it is used on, in both
+   themes: text and muted on bg, panel, panel-2, code and the soft surfaces;
+   accent, ok, bad and warn on bg, panel, panel-2 and their own soft surface;
+   each on-* colour on its fill. */
 
 :root {
   --bg: #f4f6fb;
   --panel: #ffffff;
   --panel-2: #eef1f8;
-  --line: #dde2ee;
+  --line: #d5dbea;
   --text: #121a2b;
-  --muted: #5d6a85;
-  --accent: #2f6fed;
-  --accent-soft: #e6eeff;
-  --ok: #0f9d6b;
-  --ok-soft: #e2f6ee;
-  --bad: #d43f4f;
+  --muted: #536079;
+  --accent: #2159cf;
+  --accent-soft: #e3ecff;
+  --on-accent: #ffffff;
+  --ok: #0a7a52;
+  --ok-soft: #e0f5ec;
+  --on-ok: #ffffff;
+  --bad: #c2303f;
   --bad-soft: #fdeaec;
-  --warn: #b97708;
+  --on-bad: #ffffff;
+  --warn: #8a5a00;
   --warn-soft: #fdf3dc;
   --code: #eef1f8;
+  --scrim: rgb(18 26 43 / 0.45);
   --shadow: 0 1px 2px rgb(16 24 40 / 0.06), 0 8px 24px rgb(16 24 40 / 0.06);
+
+  /* Terminal surfaces are dark in both themes, so they have colours of their
+     own: the accent of the light theme would be unreadable on them. */
+  --term: #070a11;
+  --term-line: #1a2233;
+  --term-text: #d7deec;
+  --term-muted: #7f8ba6;
+  --term-accent: #5b9dff;
+  --term-on-accent: #06122b;
+  --term-ok: #3ddc97;
+  --term-selection: #2a3b5e;
+  /* The 16 ANSI colours of the shell, read by Terminal.tsx. */
+  --term-black: #1b2233;
+  --term-red: #ff7a88;
+  --term-green: #3ddc97;
+  --term-yellow: #f5b942;
+  --term-blue: #5b9dff;
+  --term-magenta: #c792ea;
+  --term-cyan: #56d4dd;
+  --term-white: #d7deec;
+  --term-bright-black: #7f8ba6;
+  --term-bright-red: #ff9aa5;
+  --term-bright-green: #6ee7b1;
+  --term-bright-yellow: #ffd479;
+  --term-bright-blue: #86b7ff;
+  --term-bright-magenta: #d9b3f5;
+  --term-bright-cyan: #86e5ec;
+  --term-bright-white: #ffffff;
 }
 :root[data-theme="dark"] {
   --bg: #090d15;
@@ -24,16 +63,20 @@
   --panel-2: #161e2f;
   --line: #222c42;
   --text: #e7ecf6;
-  --muted: #8d99b3;
+  --muted: #93a0bb;
   --accent: #5b9dff;
   --accent-soft: #14233f;
+  --on-accent: #06122b;
   --ok: #3ddc97;
   --ok-soft: #0f2a22;
-  --bad: #ff6b7a;
+  --on-ok: #04130c;
+  --bad: #ff7a88;
   --bad-soft: #33161b;
+  --on-bad: #2b060b;
   --warn: #f5b942;
   --warn-soft: #30250e;
   --code: #0b101b;
+  --scrim: rgb(0 0 0 / 0.6);
   --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px rgb(0 0 0 / 0.35);
 }
 
@@ -46,14 +89,54 @@
   --color-muted: var(--muted);
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
   --color-ok: var(--ok);
   --color-ok-soft: var(--ok-soft);
+  --color-on-ok: var(--on-ok);
   --color-bad: var(--bad);
   --color-bad-soft: var(--bad-soft);
+  --color-on-bad: var(--on-bad);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
   --color-code: var(--code);
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --color-scrim: var(--scrim);
+  --color-term: var(--term);
+  --color-term-line: var(--term-line);
+  --color-term-text: var(--term-text);
+  --color-term-muted: var(--term-muted);
+  --color-term-accent: var(--term-accent);
+  --color-term-on-accent: var(--term-on-accent);
+  --color-term-ok: var(--term-ok);
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --shadow-card: var(--shadow);
+}
+
+/* The type scale. These are all the sizes there are: a component picks one of
+   them and never a pixel value of its own. 12 px is the floor. `static` keeps
+   every step in the stylesheet, for the rules that read one with var(). */
+@theme static {
+  --text-*: initial;
+  --text-xs: 0.75rem;        /* 12: badges, captions, section labels */
+  --text-xs--line-height: 1rem;
+  --text-label: 0.8125rem;   /* 13: dense controls, meta lines, terminal chrome */
+  --text-label--line-height: 1.125rem;
+  --text-sm: 0.875rem;       /* 14: the default of the interface */
+  --text-sm--line-height: 1.25rem;
+  --text-body: 0.9375rem;    /* 15: reading text, primary actions */
+  --text-body--line-height: 1.5rem;
+  --text-base: 1rem;         /* 16: lead paragraphs */
+  --text-base--line-height: 1.625rem;
+  --text-lg: 1.125rem;       /* 18: card titles */
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.25rem;        /* 20: panel titles */
+  --text-xl--line-height: 1.625rem;
+  --text-title: 1.375rem;    /* 22: section and workspace titles */
+  --text-title--line-height: 1.75rem;
+  --text-2xl: 1.5rem;        /* 24: figures */
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.875rem;      /* 30: page titles */
+  --text-3xl--line-height: 2.25rem;
+  --text-display: clamp(2rem, 4.4vw, 3.1rem); /* the hero */
+  --text-display--line-height: 1.08;
 }
