@@ -117,7 +117,7 @@ ingress controller, a registry to push to.
 | `.github/workflows/ci.yaml` | add the id to the `track:` matrix of `content-nightly` (pull requests find tracks by themselves) |
 | `.github/workflows/content-next.yaml` | add the id to the `track:` matrix (cluster tracks only: it tests another Kubernetes version) |
 | `cmd/kubedojo/main.go`, `deploy/helm/kubedojo/Chart.yaml` | the exam names in usage and chart description |
-| `internal/tutor/tutor.go`, `internal/export/killercoda.go` | the exam names in the tutor prompt and the export intro |
+| `internal/ai/prompt.go`, `internal/export/killercoda.go` | the exam names in the assistant's prompt and the export intro |
 | `README.md`, `docs/verification.md` | question counts and the CI table |
 
 ## 6. Prove it

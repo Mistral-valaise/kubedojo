@@ -215,6 +215,36 @@ ingress:
   tls: {enabled: true, secretName: kubedojo-tls}
 ```
 
+**The server only answers for hosts it knows.** A request whose `Host` header names anything else
+gets `403`; that is what keeps a web page from reaching kubedojo under a name of its own. The chart
+tells the server its `ingress.host` and the names of its Service. Everything else it is reached
+under goes into `allowedHosts`: a second host name of the ingress, the address of a NodePort or
+LoadBalancer, a cluster domain that is not `cluster.local`.
+
+```yaml
+allowedHosts: [dojo.example.com, "*.dojo.example.com", 192.0.2.10]
+```
+
+The health and readiness probes are exempt, because the kubelet calls the Pod by its IP.
+
+### The assistant
+
+The assistant is off unless you switch it on. In hosted mode it is configured here, not in the UI,
+whose Settings page is read-only:
+
+```yaml
+assistant:
+  enabled: true
+  provider: openai              # anthropic | openai (any OpenAI-compatible server)
+  baseURL: http://ollama.ai.svc.cluster.local:11434/v1
+  model: llama3.2
+  existingSecret: kubedojo-ai   # key "api-key"; not needed for a server without keys
+```
+
+What is sent to the model, the limits and every setting are in [assistant.md](assistant.md). A
+model server on plain `http` must have a private (RFC 1918) or loopback address. Prompts and answers
+are not written to traces in hosted mode unless `assistant.traceContent: "on"`.
+
 ## Check the cluster first
 
 Two checks, one before the installation and one after. Neither changes anything that stays.
