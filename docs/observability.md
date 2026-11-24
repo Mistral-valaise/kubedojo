@@ -101,14 +101,20 @@ second) and wait until it is ready.
 2. **Metric → trace.** Open *kubedojo / Sessions & sandboxes*, panel *Time to a ready sandbox*. The
    dots on the line are exemplars: single sandbox starts. Click one and follow its trace link.
 3. **The trace.** Tempo shows the request and, below it, what the request started:
-   `question.prepare`, then `sandbox.provision` with `sandbox.host.acquire`, `sandbox.env.create` and
-   `sandbox.terminal.connect`, then `question.setup`. The widths show where the time went.
+   `question.prepare`, then `sandbox.provision` with `sandbox.host.acquire`, `sandbox.env.create`
+   (and below it the phases of starting the host or the cluster) and `sandbox.terminal.connect`,
+   then `question.setup` with the command it ran. The widths show where the time went. The whole
+   tree is described under [Traces](#traces).
 4. **Trace → logs.** Open the span `question.prepare` and use its link to the logs. Loki returns
    the progress lines that were written inside this trace: "Starting host …", "Host … is ready",
    "Exercise … is ready".
 5. **Logs → trace.** Each of those lines carries a link back to the trace.
 6. **Trace → metrics.** The request span links to the request rate, the error rate and the p95
    latency of its route.
+7. **A check.** Type a wrong answer into the terminal and press *Check*. The trace of
+   `POST /api/sessions/{id}/questions/{q}/check` has one `check.run` per check below
+   `question.check`. The failed ones say `kubedojo.check.outcome = failed`; none of them is marked
+   as an error, because the server did its work.
 
 Grafana names these links slightly differently from version to version; they sit on the exemplar,
 on the span and on the log line.
@@ -146,11 +152,17 @@ In Grafana's *Explore*:
 | How long does a sandbox take to start? | Prometheus | `histogram_quantile(0.95, sum by (le, mode) (rate(kubedojo_sandbox_provision_duration_seconds_bucket[1h])))` |
 | Which questions fail most often? | Prometheus | `topk(10, sum by (track, question) (increase(kubedojo_check_runs_total{result="failed"}[24h])))` |
 | How much memory do my sandboxes use? | Prometheus | `sum by (role) (kubedojo_sandbox_memory_usage_bytes)` |
+| How long is a terminal open? | Prometheus | `histogram_quantile(0.5, sum by (le) (rate(kubedojo_terminal_session_duration_seconds_bucket[24h])))` |
+| Is the database slow? | Prometheus | `histogram_quantile(0.99, sum by (le, operation) (rate(kubedojo_store_operation_duration_seconds_bucket[5m])))` |
 | What did one session do? | Loki | `{service_name="kubedojo"} \| session = "abcd1234"` |
 | Warnings and errors | Loki | `{service_name="kubedojo"} \| detected_level =~ "warn\|error"` |
+| When and why did terminals end? | Loki | `{service_name="kubedojo"} \|= "terminal closed"` |
 | Slow sandbox starts | Tempo | `{name = "sandbox.provision" && duration > 60s}` |
 | Everything one session did | Tempo | `{span.kubedojo.session.id = "abcd1234"}` |
+| Checks that did not pass | Tempo | `{span.kubedojo.check.passed = false}` |
 | Failed operations | Tempo | `{resource.service.name = "kubedojo" && status = error}` |
+
+More TraceQL is under [Finding things](#finding-things).
 
 ### When it does not work
 
@@ -236,7 +248,8 @@ What your stack needs so that everything in this document works:
   the settings; adapt the UIDs.
 - **Retention and storage** are decisions of your stack. As a starting point for a team: 15 days of
   metrics, 7 days of logs and traces. kubedojo itself produces little: a few hundred metric series
-  and a handful of log lines and spans per session operation.
+  and a handful of log lines per session operation. A graded question is one span per check, the
+  grading of a full exam about a hundred spans.
 
 A minimal Alloy pipeline:
 
@@ -259,6 +272,7 @@ Names as they appear in Prometheus/Mimir:
 |---|---|---|---|
 | `kubedojo_sessions_active` | gauge | `mode` | live sessions; each owns a sandbox, except in the theory tracks |
 | `kubedojo_terminal_connections` | gauge | | open browser terminals |
+| `kubedojo_terminal_session_duration_seconds` | histogram | | how long a browser terminal stayed open, recorded when it ends |
 | `kubedojo_sandboxes_active` | gauge | | sessions that own a sandbox; these count against the session limit |
 | `kubedojo_sandboxes_limit` | gauge | | the session limit (`--max-sessions`) |
 | `kubedojo_sandbox_provision_duration_seconds` | histogram | `track`, `mode`, `result` | time until a cluster (practice) or a whole exam environment is ready |
@@ -271,39 +285,249 @@ Names as they appear in Prometheus/Mimir:
 | `kubedojo_sandbox_memory_usage_bytes` | gauge | `role` | local only: memory the sandbox containers use |
 | `kubedojo_sandbox_cpu_usage` | gauge | `role` | local only: CPU cores the sandbox containers use |
 | `kubedojo_docker_memory_limit_bytes` | gauge | | local only: memory Docker has |
+| `kubedojo_store_operation_duration_seconds` | histogram | `operation` | time of one operation on the progress database (SQLite) |
+| `kubedojo_http_requests_rejected_total` | counter | `reason` | requests refused before they reached the API |
 | `http_server_request_duration_seconds` | histogram | `http_route`, `http_request_method`, `http_response_status_code` | API latency (OTel HTTP semantic conventions) |
 
 The `question` label has one value per question (212 today). No metric carries user or session ids.
 
-## Traces and logs
+`operation` is one of eleven fixed names, one per method of the store: `ping`, `save_session`,
+`load_sessions`, `add_attempt`, `attempts`, `add_exam`, `exams`, `add_rating`, `ratings`,
+`mark_all_destroyed`, `backup`. `save_session` is by far the most frequent: every change of a
+session is written at once. `reason` is a fixed word chosen by the check that refused the request,
+never text of the request.
 
-- **Traces**: one span per API request (named by route). The terminal WebSocket, health checks and
-  static files are not traced. Work on a session is traced below the request that started it, also
-  when it goes on after the request was answered:
+## Traces
 
-  | Span | Children | When |
-  |---|---|---|
-  | `question.prepare` | `sandbox.provision`, `question.setup` | a practice question is prepared |
-  | `exam.provision` | `sandbox.provision`, `question.setup` per question | an exam environment is built |
-  | `sandbox.provision` | `sandbox.host.acquire`, `sandbox.env.create`, `sandbox.terminal.connect` | a cluster or a Linux host is created |
-  | `question.check` | | a question is graded |
-  | `exam.grade` | `question.check` per question | an exam is graded |
-  | `sandbox.destroy` | | a sandbox is removed |
+A trace is meant to be read from top to bottom, like a story: the request, the operation it
+started, each check with its outcome, the commands that ran. It is detailed but not deep: one span
+per step a person would name, events for what repeats inside a step.
 
-  Spans carry `kubedojo.session.id`, `kubedojo.track`, `kubedojo.mode` and, where it applies,
-  `kubedojo.question` and `kubedojo.environment`. Work the server starts itself (an exam whose time
-  is up, an idle sandbox) is a trace of its own.
-- **Logs**: structured, to stderr (JSON in `serve` mode) and to OTLP, with `service.name=kubedojo`.
-  Session lifecycle messages carry a `session` attribute, and every line written inside a span
-  carries its trace and span ID.
+### The span tree
+
+```text
+POST /api/sessions/{id}/questions/{q}/check     the request: session, track, mode, question
+└─ question.check                               score, max, passed, number of checks and of failed ones
+   └─ check.run  (one per check)                id, command, target, outcome, attempts, exit code
+                                                events: attempt
+
+POST /api/sessions/{id}/questions/{q}/prepare
+└─ question.prepare
+   ├─ sandbox.env.delete                        only for a question that needs a fresh environment
+   ├─ sandbox.provision                         only when the session has no environment yet
+   │  ├─ sandbox.host.acquire
+   │  │  ├─ sandbox.pod.create                  hosted mode: the sandbox Pod is created ...
+   │  │  └─ sandbox.pod.wait                    ... and waited for. events: pod.state
+   │  ├─ sandbox.env.create
+   │  │  ├─ kind.create_cluster                 a cluster:
+   │  │  ├─ sandbox.nodes.init                    events: node.initialized
+   │  │  ├─ sandbox.registry.configure            only with an image cache or mirror
+   │  │  ├─ sandbox.nodes.wait_ready
+   │  │  ├─ sandbox.container.start             a Linux host:
+   │  │  └─ sandbox.container.wait_ssh
+   │  └─ sandbox.terminal.connect
+   ├─ sandbox.exec  (purpose=heal)              another question left the environment broken
+   └─ question.setup
+      └─ sandbox.exec  (purpose=cleanup, setup)
+
+POST /api/sessions                              mode=practice
+└─ session.practice.open                        created: true or false
+
+POST /api/sessions                              mode=exam
+└─ exam.provision
+   ├─ sandbox.provision  (one per environment)  as above
+   └─ question.setup  (one per question)
+
+POST /api/sessions/{id}/finish
+└─ exam.grade                                   score, max, percent, passed, questions
+   ├─ question.check  (one per question)        the first look
+   │  └─ check.run  (one per check)
+   └─ exam.grade.settle                         only if something failed. events: round
+
+DELETE /api/sessions/{id}
+└─ sandbox.destroy
+
+terminal.attach                                 a trace of its own, see below
+```
+
+Work on a session is traced below the request that started it, also when it goes on after the
+request was answered. Work the server starts itself (an exam whose time is up, an idle sandbox) is a
+trace of its own. Health checks, static files and the terminal WebSocket are not traced.
+
+Three rules keep a trace readable:
+
+- **Small operations get no span.** Starting an exam, storing an answer, a note or a flag, opening a
+  hint or the solution: the request span is all there is. It carries `kubedojo.session.id`,
+  `kubedojo.track`, `kubedojo.mode` and `kubedojo.question`, and an event says what happened:
+  `question.answered` (`options`: how many were picked, never which), `hint.revealed` (`n`),
+  `solution.revealed`.
+- **One span per phase, not per command.** Creating a cluster with one worker runs eight `docker`
+  and `kind` commands; the trace shows the four phases. The Docker client's own HTTP spans are switched off.
+  Requests to the Kubernetes API that change something (create or delete a sandbox Pod) are client
+  spans, named like `POST /api/v1/namespaces/{namespace}/pods`; a `GET` is not traced, because a Pod
+  is looked up for every command that runs in a sandbox.
+- **What repeats is an event.** A check that is retried is one `check.run` with an `attempt` event
+  for the first five attempts and for the last. Waiting for a Pod is one `sandbox.pod.wait` with a
+  `pod.state` event whenever the Pod waits for something else, and the number of looks as `polls`.
+  The second look at an exam's failed answers is one `exam.grade.settle` with a `round` event per
+  round. The grading of an exam of 17 questions with five checks each is 105 spans.
+
+### A failed check is not an error
+
+A learner who has not solved a question yet is the normal case, not a fault of the server. The span
+status says whether **kubedojo** worked; the attributes say how the **learner** did.
+
+| `kubedojo.check.outcome` | Meaning | Span status |
+|---|---|---|
+| `passed` | the check passed | unset |
+| `failed` | the command ran and the answer is not what the check expects | unset |
+| `timed_out` | the command did not finish within the check's timeout | unset |
+| `grader_error` | the check could not be evaluated: the sandbox did not take the command | **error**, `error.type=grader_error` |
+
+`question.check` follows its checks: it is an error only if at least one check ended with
+`grader_error`, or if the question could not be graded at all (it is not ready, its sandbox is
+gone). So `{ span.kubedojo.check.outcome = "grader_error" }` finds what an operator has to look at,
+and `{ span.kubedojo.check.passed = false }` finds what a content author or a trainer is interested
+in.
+
+A span of session work that fails says what kind of failure it was in `error.type`:
+
+| `error.type` | Meaning | Whose fault |
+|---|---|---|
+| `grader_error` | a check could not be evaluated | the server or the sandbox |
+| `sandbox_gone` | the sandbox of the session no longer exists (its Pod was evicted, its node went away) | the platform |
+| `timeout`, `cancelled` | the operation ran out of time, or the server shut down | the platform |
+| `internal` | anything else, such as a setup script that failed | the server or the content |
+| `conflict`, `not_found` | kubedojo refused the request: the question is not prepared, it is graded already, the exam is still running. The API answered with 409 or 404 | nobody's |
+| `limit` | the session limit or the terminal limit is reached. The API answered with 429, the terminal with close code 4429 | capacity |
+
+The spans below `sandbox.env.create` and `sandbox.host.acquire` have a status and no `error.type`;
+their parent has both.
+
+What a check **printed** is never on a span: its output, the expected and the observed value can
+quote what the learner wrote. The command of the check is on the span, because the content defines
+it. To see the output, take `kubedojo.session.id`, `kubedojo.question` and `kubedojo.check.id` from
+the trace and read the result of the question through the API or in the UI.
+
+### Attributes
+
+| Span | Attributes |
+|---|---|
+| every span of session work | `kubedojo.session.id`, `kubedojo.track`, `kubedojo.mode` (`practice`, `exam`) |
+| the request span (`/api/sessions/{id}/…`) | the same three, and `kubedojo.question` on routes of a question; `http.route` |
+| `question.check` | `kubedojo.question`, `kubedojo.question.type` (`task`, `choice`), `kubedojo.question.score`, `kubedojo.question.max`, `kubedojo.question.passed`, `kubedojo.checks.total`, `kubedojo.checks.failed`. A choice question has no checks and no `kubedojo.checks.*` |
+| `check.run` | `kubedojo.check.id`, `kubedojo.check.command` (at most 500 characters), `kubedojo.check.points`, `kubedojo.check.guard`, `kubedojo.check.passed`, `kubedojo.check.outcome`, `kubedojo.check.attempts`, `kubedojo.check.timed_out`, `kubedojo.exec.target`, `process.exit.code`. Event `attempt`: `n`, `exit_code`, `passed` |
+| `sandbox.exec` | `kubedojo.question`, `kubedojo.exec.purpose`, `kubedojo.exec.target`, `process.exit.code` |
+| `question.prepare`, `question.setup` | `kubedojo.question`, `kubedojo.question.reset` |
+| `sandbox.provision`, `sandbox.env.create`, `sandbox.env.delete` | `kubedojo.environment` (the name in the track), `kubedojo.environment.alias` (the name of the cluster or host, what the learner types after `ssh`), `kubedojo.environment.type` (`cluster`, `container`), and on `sandbox.env.create`: `kubedojo.environment.nodes`, `container.image.name`, `kubedojo.kubernetes.version` (from the tag of the node image) |
+| `kind.create_cluster`, `sandbox.nodes.init`, `sandbox.nodes.wait_ready`, `sandbox.registry.configure`, `sandbox.container.start`, `sandbox.container.wait_ssh` | `kubedojo.environment.alias`; where it applies `kubedojo.environment.nodes`, `container.image.name`, `kubedojo.registry.mirror`, `polls`. Event `node.initialized`: `node` |
+| `sandbox.pod.create`, `sandbox.pod.wait` | `k8s.pod.name`, `k8s.namespace.name`; `container.image.name` and `http.response.status_code` on the creation, `polls` on the wait. Event `pod.state`: `reason` (`Unschedulable`, `ContainerCreating`, `ImagePullBackOff`, …, or the phase), `k8s.pod.phase` |
+| `session.practice.open` | `kubedojo.session.id`, `kubedojo.session.created` |
+| `exam.provision` | `kubedojo.exam.questions` |
+| `exam.grade` | `kubedojo.exam.questions`, `kubedojo.exam.score`, `kubedojo.exam.max`, `kubedojo.exam.percent`, `kubedojo.exam.passed` |
+| `exam.grade.settle` | `kubedojo.settle.rounds`, `kubedojo.settle.passed` (questions that passed on a later look). Event `round`: `n`, `questions` (looked at again), `passed` |
+| `terminal.attach` | `terminal.cols`, `terminal.rows` |
+
+`kubedojo.exec.target` is the machine a command ran on: `control-plane`, `worker`, `worker2`,
+`host` (the Linux host of a track without a cluster) or `terminal`.
+
+`kubedojo.exec.purpose` says why a command ran outside a check:
+
+| Purpose | The command is |
+|---|---|
+| `setup` | `setup.sh` of a question |
+| `cleanup` | `cleanup.sh`, before a question is set up again |
+| `heal` | `cleanup.sh` of another question that left the environment broken |
+| `solution` | a reference solution (`kubedojo content test`) |
+| `snapshot` | the state of the sandbox, collected for the assistant |
+| `diagnostic` | anything else |
+
+A `setup` or `heal` command that exits with another code than 0 is an error of its span and of
+`question.setup` or `question.prepare`: the content or the sandbox is broken, not the learner.
+
+In an exam, `question.check` and `check.run` show the **first** look at each answer.
+`exam.grade.settle` then looks again at what failed, for up to 20 seconds, because an answer given
+just before the deadline may still be rolling out. Its events say how many questions passed on a
+later look; `exam.grade` carries the final score. A re-check starts no spans.
+
+### Terminals
+
+A terminal stays open for as long as the learner works, often for hours. A span that long would not
+be seen until it ends, so the terminal is traced at its two ends:
+
+- `terminal.attach` is the short span of starting the shell. The WebSocket request is not traced, so
+  this span is the root of a trace of its own. It fails with `error.type=limit` when the session has
+  all its terminals open.
+- When the terminal ends, one log line says so: `terminal closed` with `session`, `reason`,
+  `duration_s`, `bytes_in` (typed by the learner) and `bytes_out` (printed by the shell). It carries
+  the trace ID of the `terminal.attach` span. The same moment is one sample of
+  `kubedojo_terminal_session_duration_seconds`.
+
+| `reason` | The terminal ended because |
+|---|---|
+| `client_closed` | the browser closed the tab or lost the connection |
+| `shell_exited` | the shell ended (`exit`), or its container did |
+| `keepalive_failed` | the browser stopped answering pings |
+| `session_closed` | the sandbox was removed, or the server shut down |
+
+### Finding things
+
+In Grafana's *Explore*, data source Tempo, query type TraceQL:
+
+| Question | TraceQL |
+|---|---|
+| Everything one session did | `{ span.kubedojo.session.id = "abcd1234" }` |
+| Checks that did not pass | `{ span.kubedojo.check.passed = false }` |
+| Checks that could not be evaluated | `{ span.kubedojo.check.outcome = "grader_error" }` |
+| Checks that needed many attempts | `{ name = "check.run" && span.kubedojo.check.attempts > 3 }` |
+| Checks that ran out of time | `{ span.kubedojo.check.outcome = "timed_out" }` |
+| The failed checks of one question | `{ name = "question.check" && span.kubedojo.question = "pod-basics" } >> { span.kubedojo.check.passed = false }` |
+| The checks of one session | `{ span.kubedojo.session.id = "abcd1234" } >> { name = "check.run" }` |
+| Clusters that took long to create | `{ name = "sandbox.env.create" && duration > 90s }` |
+| Where a slow cluster lost its time | `{ name = "sandbox.env.create" && duration > 90s } > { duration > 20s }` |
+| Sandbox Pods that waited long | `{ name = "sandbox.pod.wait" && duration > 60s }` |
+| Setup scripts that failed | `{ name = "sandbox.exec" && span.kubedojo.exec.purpose = "setup" && status = error }` |
+| Exams that were failed | `{ name = "exam.grade" && span.kubedojo.exam.passed = false }` |
+| Answers that passed only on a later look | `{ name = "exam.grade.settle" && span.kubedojo.settle.passed > 0 }` |
+| Every failed operation | `{ resource.service.name = "kubedojo" && status = error }` |
+| Faults of the server in session work | `{ span.error.type =~ "internal\|grader_error\|sandbox_gone\|timeout" }` |
+| Requests kubedojo refused | `{ span.error.type =~ "conflict\|not_found\|limit" }` |
+
+**From a response to its trace.** Every traced API response carries the header
+`Server-Timing: traceparent;desc="00-<trace id>-<span id>-01"`. In the browser's network tab, or with
+`curl -i`, copy the trace ID from a request that failed and paste it into Tempo.
+
+**From stderr to a trace.** The lines kubedojo writes to stderr (JSON in `serve`, text in `up`)
+carry `trace_id` and `span_id` when they were written inside a span. `kubectl logs` or the terminal
+you started `kubedojo up` in is enough to get from a line to its trace:
+
+```sh
+kubectl -n kubedojo logs deploy/kubedojo | jq -r 'select(.msg | test("Could not prepare")) | .trace_id'
+```
+
+## Logs
+
+Structured, to stderr (JSON in `serve` mode, text in `up`) and to OTLP, with
+`service.name=kubedojo`. Session lifecycle messages carry a `session` attribute. Every line written
+inside a span carries its trace and span ID: as `trace_id` and `span_id` on stderr, and as the trace
+context of the record over OTLP. Without telemetry there are no spans, and stderr looks as it always
+did.
+
+| Line | Fields | When |
+|---|---|---|
+| the progress lines a learner sees (`Creating cluster …`, `Question … is ready.`) | `session` | while a sandbox is built or an exam is graded |
+| `terminal closed` | `session`, `reason`, `duration_s`, `bytes_in`, `bytes_out` | a browser terminal ended |
+| `request failed` | `route`, `err` | the API answered with 500 |
 
 ### How the signals are linked
 
 | From | To | By |
 |---|---|---|
-| a metric sample | the trace that produced it | exemplars on `http_server_request_duration_seconds`, `kubedojo_sandbox_provision_duration_seconds`, `kubedojo_check_runs_total` and the score histograms |
+| a metric sample | the trace that produced it | exemplars on `http_server_request_duration_seconds`, `kubedojo_sandbox_provision_duration_seconds`, `kubedojo_check_runs_total`, the score histograms and `kubedojo_terminal_session_duration_seconds` |
 | a trace | its log lines | the trace ID on the log line |
 | a log line | its trace | the same |
+| an API response | its trace | the `Server-Timing` header of the response |
+| a line on stderr | its trace | `trace_id` on the line |
 | a trace | request rate, error rate and latency of its route | the `service.name` and `http.route` of the span |
 
 The links are real identifiers, never matching timestamps. Session and user never become metric
