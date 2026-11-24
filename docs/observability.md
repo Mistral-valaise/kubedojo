@@ -161,6 +161,8 @@ In Grafana's *Explore*:
 | Everything one session did | Tempo | `{span.kubedojo.session.id = "abcd1234"}` |
 | Checks that did not pass | Tempo | `{span.kubedojo.check.passed = false}` |
 | Failed operations | Tempo | `{resource.service.name = "kubedojo" && status = error}` |
+| How fast does the assistant start to answer (p95)? | Prometheus | `histogram_quantile(0.95, sum by (le) (rate(gen_ai_client_inference_time_to_first_chunk_seconds_bucket[15m])))` |
+| What did the assistant do for one question? | Tempo | `{ span.gen_ai.conversation.id = "abcd1234/pod-basics" }` |
 
 More TraceQL is under [Finding things](#finding-things).
 
@@ -287,6 +289,9 @@ Names as they appear in Prometheus/Mimir:
 | `kubedojo_docker_memory_limit_bytes` | gauge | | local only: memory Docker has |
 | `kubedojo_store_operation_duration_seconds` | histogram | `operation` | time of one operation on the progress database (SQLite) |
 | `kubedojo_http_requests_rejected_total` | counter | `reason` | requests refused before they reached the API |
+| `kubedojo_assistant_requests_total` | counter | `provider`, `phase`, `result`, `track`, `mode` | messages to the assistant: answered, failed, or refused |
+| `kubedojo_assistant_context_duration_seconds` | histogram | `track`, `cached` | time to gather the context of one message to the assistant |
+| `gen_ai_client_inference_*` | | | calls to the model of the assistant (OTel GenAI semantic conventions), see [The assistant](#metrics-of-the-assistant) |
 | `http_server_request_duration_seconds` | histogram | `http_route`, `http_request_method`, `http_response_status_code` | API latency (OTel HTTP semantic conventions) |
 
 The `question` label has one value per question (212 today). No metric carries user or session ids.
@@ -346,6 +351,12 @@ POST /api/sessions/{id}/finish
 
 DELETE /api/sessions/{id}
 └─ sandbox.destroy
+
+POST /api/sessions/{id}/questions/{q}/assistant
+└─ assistant.chat                               a message to the assistant, see "The assistant"
+   ├─ assistant.context
+   │  └─ sandbox.exec  (purpose=snapshot, diagnostic)
+   └─ chat <model>                              the call to the model, with the HTTP request below it
 
 terminal.attach                                 a trace of its own, see below
 ```
@@ -504,6 +515,7 @@ In Grafana's *Explore*, data source Tempo, query type TraceQL:
 | What broke, by kind | `{ span.error.type = "sandbox_gone" }` (or `internal`, `grader_error`, `timeout`) |
 | Requests kubedojo refused | `{ span.kubedojo.refused != nil }` |
 | Learners who hit a limit | `{ span.kubedojo.refused = "limit" }` |
+| Calls to the model of the assistant | `{ span.gen_ai.operation.name = "chat" }`; more under [The assistant](#finding-an-answer) |
 
 **From a response to its trace.** Every traced API response carries the header
 `Server-Timing: traceparent;desc="00-<trace id>-<span id>-01"`. In the browser's network tab, or with
@@ -516,6 +528,227 @@ you started `kubedojo up` in is enough to get from a line to its trace:
 ```sh
 kubectl -n kubedojo logs deploy/kubedojo | jq -r 'select(.msg | test("Could not prepare")) | .trace_id'
 ```
+
+## The assistant
+
+A message to the [assistant](assistant.md) is traced like every request, down to the call to the
+model. That call follows the OpenTelemetry **semantic conventions for generative AI**, so a tool or
+a dashboard that knows `gen_ai.*` reads kubedojo's data without a mapping.
+
+The conventions are matched against
+[`open-telemetry/semantic-conventions-genai`](https://github.com/open-telemetry/semantic-conventions-genai)
+**v0.1.0** (November 2026), which builds on semantic-conventions v1.45.0. They still have the status
+*Development*: names can change, as they did in that release, which renamed the client metrics.
+Every name kubedojo uses is in one file,
+[`internal/telemetry/genaiconv.go`](../internal/telemetry/genaiconv.go).
+
+### The trace of a message
+
+```text
+POST /api/sessions/{id}/questions/{q}/assistant   the request: session, track, mode, question
+└─ assistant.chat                                 the answer: conversation, turn, history, result
+   ├─ assistant.context                           what kubedojo gathers for the model: size, failing checks, cached
+   │  └─ sandbox.exec  (purpose=snapshot, diagnostic)   one per command read from the sandbox
+   └─ chat <model>                                the call to the model (kind CLIENT): the GenAI span
+      └─ POST <host>                              the HTTP request to the provider
+```
+
+- **`assistant.chat`** lasts as long as the answer streams. It is the place to start from: it names
+  the session, the question and the conversation, and says how the answer ended.
+- **`assistant.context`** is the time before the model is asked. Within 30 seconds of the last
+  message, or until the checks run again, nothing is read from the sandbox a second time: the span
+  is then short, has no spans below it and says `kubedojo.assistant.context.cached = true`.
+- **`chat <model>`** is one span for every provider, with the same attributes. The Anthropic SDK's
+  own OpenTelemetry span is switched off, so a call is one span and its tokens are counted once. The
+  span covers the whole call, retries included.
+- **`POST <host>`** is named after the method and the host, never the full URL. A retry is a second
+  one.
+
+The test of a settings change (`POST /api/settings/test`) calls the model too: a `chat <model>`
+span directly below that request, without a conversation.
+
+| Span | Attributes |
+|---|---|
+| `assistant.chat` | `kubedojo.session.id`, `kubedojo.track`, `kubedojo.mode`, `kubedojo.question`, `gen_ai.conversation.id` (`<session>/<question>`, the `conversation` of the stream's `meta` event), `kubedojo.assistant.turn` (the learner's messages in this conversation, from 1), `kubedojo.assistant.history.messages` (earlier messages sent along), `kubedojo.assistant.result` |
+| `assistant.context` | the same four of the session, and `kubedojo.assistant.context.bytes` (size of the context block), `.failing_checks`, `.hints_used`, `.solution_viewed`, `.cached` |
+| `chat <model>` | `gen_ai.operation.name` (`chat`), `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.request.stream` (`true`), `gen_ai.request.max_tokens`, `gen_ai.conversation.id`, `server.address`, `server.port`, `gen_ai.response.id`, `gen_ai.response.model`, `gen_ai.response.finish_reasons`, `gen_ai.response.time_to_first_chunk`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.usage.cache_read.input_tokens`, `gen_ai.usage.cache_write.input_tokens`, `error.type`. With content switched on also `gen_ai.system_instructions`, `gen_ai.input.messages`, `gen_ai.output.messages`, `kubedojo.assistant.content.truncated` |
+| `POST <host>` | the HTTP client attributes of OpenTelemetry: `http.request.method`, `http.response.status_code`, `server.address`, `url.full`, ... |
+
+Some of them in more words:
+
+- `gen_ai.provider.name` is `anthropic`, or what the base URL of the OpenAI-compatible provider says:
+  `openai`, `ollama`, `groq`, `mistral`, `deepseek`, `x_ai` (values the conventions know),
+  `openrouter`, or `openai_compatible` for everything else.
+- `gen_ai.response.model` is the model that answered. It differs from `gen_ai.request.model` when an
+  alias resolves to a version, or when the Claude API serves a request on a fallback model.
+- `gen_ai.response.time_to_first_chunk` is in seconds, from the start of the call to the first piece
+  of **answer text**. kubedojo does not read the reasoning a model streams before its answer, so for
+  such a model this is the time until the learner sees something, not until the model began to think.
+- `gen_ai.response.finish_reasons` has one entry: what the provider said (`stop`, `length`),
+  `content_filter` when the model declined, `error` when an answer began and did not end properly.
+  It is absent when no answer began.
+- A value that is not known is left out, not recorded as 0: no token counts from a server that
+  reports none, no `gen_ai.response.id` from one that sends none.
+
+### How an answer ended
+
+The span status says whether the call worked, as [everywhere](#a-failed-check-is-not-an-error).
+`kubedojo.assistant.result` on `assistant.chat` says how the answer ended in every case:
+
+| `kubedojo.assistant.result` | `assistant.chat` and `chat <model>` |
+|---|---|
+| `ok` | status unset |
+| `auth`, `model_not_found`, `rate_limited`, `unreachable`, `timeout`, `bad_request`, `blocked_url`, `not_configured`, `upstream` | status **error**, `error.type` = the same word. The status description is the sentence the learner saw. What they mean is in the [troubleshooting table](assistant.md#troubleshooting) |
+| `refused` | status unset: the model declined to answer, which is an outcome of the call and no fault of it. `gen_ai.response.finish_reasons` is `content_filter`, whatever the provider calls it |
+| `canceled` | status unset, `kubedojo.refused = cancelled`: the learner closed the page while the answer streamed |
+
+The cause of a failure (the error of the HTTP client, the request id of the provider) is in the log
+line `assistant: no answer`, which carries the trace ID. It is not on a span: such text can quote
+the provider.
+
+A message kubedojo refuses before an answer starts (too many messages, an exam, ...) has no
+`assistant.chat` span. Its request span ends with the HTTP status of the refusal, and the refusal is
+counted, see [below](#metrics-of-the-assistant).
+
+### Prompts and answers
+
+**Unless you say so, nothing a learner wrote and nothing a model answered leaves your machine in a
+trace**: not the message, not the task, not the snapshot of the sandbox, not the answer. The spans
+count and measure; they do not quote. For `assistant.chat` and `assistant.context` that holds
+always.
+
+The `chat <model>` span can hold the conversation. Whether it does is decided by
+`--ai-trace-content` (`KUBEDOJO_AI_TRACE_CONTENT`, Helm `assistant.traceContent`):
+
+| Value | Content is recorded |
+|---|---|
+| `auto` (the default) | only when the traces go to the bundled local stack (`kubedojo up --observability`) and the server is not hosted. With your own OTLP endpoint, with the chart, behind a proxy that names users: **no** |
+| `on` | always. The traces then hold what learners type; treat the trace store accordingly |
+| `off` | never |
+
+`GET /api/settings` says which it is and why (`traceContent`). When content is recorded, the span
+has three more attributes, in the structure the conventions define (not JSON text):
+
+| Attribute | Value |
+|---|---|
+| `gen_ai.system_instructions` | `[{type: "text", content: <the system prompt>}]` |
+| `gen_ai.input.messages` | `[{role: "user" \| "assistant", parts: [{type: "text", content}]}, ...]`: the conversation as it was sent, in its order. The last one is the new message with its context block |
+| `gen_ai.output.messages` | `[{role: "assistant", parts: [{type: "text", content: <the answer>}]}]`. Also of a call that failed half way, with what had arrived; absent when nothing arrived |
+
+Two things are done to every text before it is recorded:
+
+- **Redaction.** Credentials are replaced by `[redacted]` with the same rules as the output of a
+  check: PEM blocks (keys and certificates), JSON Web Tokens, `Bearer` and `Basic` credentials, and
+  the values of fields named like `password`, `token`, `secret` or `api_key`. The check results,
+  the snapshot and the diagnostics went through these rules before they were sent to the model;
+  the task, the learner's message and note and the model's answer go through them here. The rules
+  know the shapes of credentials, not every secret a person can type.
+- **A cap of 32 KiB** per attribute. Text beyond it is cut and ends in `… [truncated]`, and the span
+  says `kubedojo.assistant.content.truncated = true`. Of a long conversation the oldest messages
+  are the ones cut: the newest message, with the context the model saw, stays whole as long as it
+  fits. No message is dropped.
+
+The three are structured values, not strings: find a call by its other attributes and read the
+conversation on the span. The API key of the provider is never in a span, a metric or a log line.
+
+### Nothing travels to the provider
+
+A model provider is a third party. The HTTP request to it carries **no trace context**: no
+`traceparent`, no `tracestate` and no `baggage` header, whatever the rest of the process
+propagates. The provider cannot join its telemetry to yours, and learns no trace or span ID. The
+request is still a span of your trace, on your side.
+
+### Token counts
+
+`gen_ai.usage.input_tokens` is everything the model read, **including** the tokens that were read
+from a prompt cache and those that were written to it. `gen_ai.usage.cache_read.input_tokens` and
+`gen_ai.usage.cache_write.input_tokens` are parts of that number, not additions to it, and exist
+only when they are not zero. `gen_ai.usage.output_tokens` is everything the model wrote, reasoning
+included.
+
+Providers count differently, and kubedojo converts: an OpenAI-compatible server reports cached
+tokens within `prompt_tokens`, which is taken as it is; the Claude API reports them next to
+`input_tokens`, so the three are added. The numbers are the same on the span, in the metrics and in
+the `usage` of the stream's `done` event.
+
+To add up the tokens of a trace or of a time range, filter on `gen_ai.operation.name = "chat"`, or
+use the metrics: they are not sampled.
+
+### Metrics of the assistant
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `kubedojo_assistant_requests_total` | counter | `provider`, `phase`, `result`, `track`, `mode` | messages to the assistant |
+| `kubedojo_assistant_context_duration_seconds` | histogram | `track`, `cached` | time to gather the context of one message |
+| `gen_ai_client_inference_duration_seconds` | histogram | the GenAI labels, `error_type` | duration of a call to the model |
+| `gen_ai_client_inference_time_to_first_chunk_seconds` | histogram | the GenAI labels | time to the first text of the answer |
+| `gen_ai_client_inference_usage_input_tokens_total`, `..._usage_output_tokens_total` | counter | the GenAI labels, `gen_ai_token_modality` | tokens used: for totals, rates and costs |
+| `gen_ai_client_inference_usage_cache_read_input_tokens_total`, `..._usage_cache_write_input_tokens_total` | counter | the same | the part of the input that was read from, or written to, a prompt cache |
+| `gen_ai_client_inference_operation_input_tokens`, `..._operation_output_tokens` | histogram | the GenAI labels, `error_type` | tokens of one call: for percentiles, not for totals |
+
+The `gen_ai_*` metrics are the client metrics of the conventions (`gen_ai.client.inference.duration`
+and so on, as Prometheus spells them), with the units and bucket boundaries the conventions give.
+**The GenAI labels** are `gen_ai_operation_name` (`chat`), `gen_ai_provider_name`,
+`gen_ai_request_model`, `gen_ai_response_model`, `server_address` and `server_port`.
+`gen_ai_token_modality` is always `text`. `error_type` is set on a failed call only, as on the span.
+The token histograms record every call, with 0 when the provider reported nothing; the counters add
+only what was reported.
+
+`kubedojo_assistant_requests_total` counts every message once:
+
+| `phase` | `result` |
+|---|---|
+| `answer`: the model was asked | `ok`, or how the answer failed: the values of `kubedojo.assistant.result` above |
+| `admission`: kubedojo refused the message before an answer started | the `code` of the refusal: `rate_limited` (10 messages a minute per user, or 4 answers at once), `busy` (the question is still being answered), `exam_running`, `not_configured`, `too_long`, `bad_retry`, `no_such_message` |
+
+`rate_limited` with `phase="answer"` is the provider's limit, with `phase="admission"` kubedojo's
+own. `provider` is the name of the provider in use, or `none` while there is none.
+
+No label holds a session, a user, a question or text: the model name is the only one an operator
+does not find in a fixed list, and the operator configures it. Every sample of an answer is recorded
+inside its span and carries the trace as an exemplar. A refusal is counted without one.
+
+```promql
+# messages per minute by result
+sum by (result) (rate(kubedojo_assistant_requests_total{phase="answer"}[5m])) * 60
+# share of failed answers
+sum(rate(kubedojo_assistant_requests_total{phase="answer",result!~"ok|canceled|refused"}[15m]))
+  / sum(rate(kubedojo_assistant_requests_total{phase="answer"}[15m]))
+# p95 until the first text, by model
+histogram_quantile(0.95, sum by (le, gen_ai_request_model) (rate(gen_ai_client_inference_time_to_first_chunk_seconds_bucket[15m])))
+# tokens per hour
+sum(rate(gen_ai_client_inference_usage_input_tokens_total[15m])) * 3600
+# share of the input that came from the prompt cache
+sum(rate(gen_ai_client_inference_usage_cache_read_input_tokens_total[1h])) / sum(rate(gen_ai_client_inference_usage_input_tokens_total[1h]))
+```
+
+The dashboard **kubedojo / Assistant** shows these: messages per minute by result, failed answers by
+kind, duration and time to the first text by provider and model (with exemplars), tokens per hour
+and per message, the time to gather the context, the refused messages, the most recent calls to the
+model from Tempo and the log lines of the assistant from Loki.
+
+### Finding an answer
+
+| Question | TraceQL |
+|---|---|
+| Every call to a model | `{ span.gen_ai.operation.name = "chat" }` |
+| One conversation | `{ span.gen_ai.conversation.id = "<session>/<question>" }` |
+| Long answers | `{ span.gen_ai.operation.name = "chat" && span.gen_ai.usage.output_tokens > 500 }` |
+| Large prompts | `{ span.gen_ai.operation.name = "chat" && span.gen_ai.usage.input_tokens > 8000 }` |
+| A slow start of the answer | `{ span.gen_ai.response.time_to_first_chunk > 10 }` |
+| Failed calls to a local model | `{ span.gen_ai.provider.name = "ollama" && status = error }` |
+| Failed calls of one kind | `{ span.gen_ai.operation.name = "chat" && span.error.type = "timeout" }` |
+| Another model answered than was asked | `{ span.gen_ai.operation.name = "chat" && span.gen_ai.response.model != span.gen_ai.request.model }` |
+| Answers that did not end with `ok` | `{ name = "assistant.chat" && span.kubedojo.assistant.result != "ok" }` |
+| Answers the model declined | `{ name = "assistant.chat" && span.kubedojo.assistant.result = "refused" }` |
+| Slow gathering of the context | `{ name = "assistant.context" && duration > 3s }` |
+| The commands read for a slow context | `{ name = "assistant.context" && duration > 3s } > { name = "sandbox.exec" }` |
+| Late in a long conversation | `{ name = "assistant.chat" && span.kubedojo.assistant.turn > 10 }` |
+| Everything the assistant did in one session | `{ span.kubedojo.session.id = "abcd1234" && name =~ "assistant.*" }` |
+| Calls whose recorded content was cut | `{ span.kubedojo.assistant.content.truncated = true }` |
+
+**From an error in the UI to its trace.** The first event of an answer's stream, `meta`, carries
+`traceId` when the request is traced. The UI can show it next to an error; paste it into Tempo.
 
 ## Logs
 
@@ -530,15 +763,17 @@ did.
 | the progress lines a learner sees (`Creating cluster …`, `Question … is ready.`) | `session` | while a sandbox is built or an exam is graded |
 | `terminal closed` | `session`, `reason`, `duration_s`, `bytes_in`, `bytes_out` | a browser terminal ended |
 | `request failed` | `route`, `err` | the API answered with 500 |
+| `assistant: no answer` | `session`, `question`, `provider`, `model`, `kind`, `status`, `err`, `partial` | an answer of the assistant failed (a warning), or the learner left (an info line) |
 
 ### How the signals are linked
 
 | From | To | By |
 |---|---|---|
-| a metric sample | the trace that produced it | exemplars on `http_server_request_duration_seconds`, `kubedojo_sandbox_provision_duration_seconds`, `kubedojo_check_runs_total`, the score histograms and `kubedojo_terminal_session_duration_seconds` |
+| a metric sample | the trace that produced it | exemplars on `http_server_request_duration_seconds`, `kubedojo_sandbox_provision_duration_seconds`, `kubedojo_check_runs_total`, the score histograms, `kubedojo_terminal_session_duration_seconds` and the metrics of the assistant |
 | a trace | its log lines | the trace ID on the log line |
 | a log line | its trace | the same |
 | an API response | its trace | the `Server-Timing` header of the response |
+| an answer of the assistant | its trace | `traceId` in the `meta` event of the stream |
 | a line on stderr | its trace | `trace_id` on the line |
 | a trace | request rate, error rate and latency of its route | the `service.name` and `http.route` of the span |
 
@@ -555,6 +790,7 @@ ConfigMaps labelled `grafana_dashboard: "1"` for the Grafana sidecar:
 | **Platform health** | Is it up, fast and error free? Request rate, errors, latency with exemplars, slow routes, recent traces, warning and error logs | everywhere |
 | **Sessions & sandboxes** | Do we have capacity? Active sessions, sandbox starts and failures, time to a ready sandbox with exemplars | everywhere |
 | **Learning analytics** | What do people practise and where do they struggle? Pass rates, share of points, hardest and lowest rated questions, exam results | everywhere |
+| **Assistant** | Does the assistant answer, how fast, and what does it use? Messages by result, failures by kind, duration and time to the first text with exemplars, tokens, refused messages, recent calls to the model, log lines | everywhere; empty without the assistant |
 | **Sandbox containers** | What do the sandboxes of a local kubedojo use? Memory and CPU of the kind nodes, the terminal and the Linux hosts, against the memory Docker has | `kubedojo up --observability` |
 | **Telemetry pipeline** | Is telemetry arriving? What the collector receives, hands on, refuses and queues | `kubedojo up --observability`, `lgtm.enabled` |
 | **Sandbox Pods** | What do the sandbox Pods of hosted mode use? Memory, CPU, phases, restarts | the chart's ConfigMaps |
