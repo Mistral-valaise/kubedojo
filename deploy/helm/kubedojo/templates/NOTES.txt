@@ -8,6 +8,11 @@ kubedojo is installed.
     http://localhost:4400
 {{- end }}
 
+  The server answers under {{ if .Values.ingress.enabled }}{{ .Values.ingress.host }}, {{ end }}the names of its Service and localhost
+  {{- range (default (list) .Values.allowedHosts) }}, {{ . }}{{ end }}.
+  Another name or an IP address in the address bar gets "403 ... not allowed":
+  add it to `allowedHosts`.
+
 {{- if not .Values.oidc.enabled }}
 
   WARNING: authentication is disabled. Everyone who can reach the UI gets a
