@@ -45,8 +45,11 @@ func (f *secFlags) hosts() []string {
 // The order is: recover from a panic, check the Host, reject state-changing
 // requests of other origins, set the security headers, then h.
 func (f *secFlags) wrap(h http.Handler, p serverParts) http.Handler {
+	cfg := httpsec.Config{ListenAddr: p.addr, AllowedHosts: f.hosts(), DevOrigin: p.devOrigin, Log: p.log}
 	// These rejections never reach the HTTP span, so the counter is all that
 	// shows them.
-	return httpsec.Chain(httpsec.Config{ListenAddr: p.addr, AllowedHosts: f.hosts(), DevOrigin: p.devOrigin, Log: p.log,
-		OnReject: p.telemetry.Rejected})(h)
+	if p.telemetry != nil {
+		cfg.OnReject = p.telemetry.Rejected
+	}
+	return httpsec.Chain(cfg)(h)
 }
