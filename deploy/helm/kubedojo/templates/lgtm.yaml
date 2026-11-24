@@ -30,8 +30,10 @@ spec:
                  the flags of the two in step. */}}
           {{- $keep := default "168h" .Values.lgtm.retention }}
           env:
+            # The feature makes the first event of a new series count in
+            # increase() and rate(); internal/observability sets the same.
             - name: PROMETHEUS_EXTRA_ARGS
-              value: "--storage.tsdb.retention.time={{ $keep }}"
+              value: "--storage.tsdb.retention.time={{ $keep }} --enable-feature=created-timestamp-zero-ingestion"
             - name: LOKI_EXTRA_ARGS
               value: "-store.retention={{ $keep }} -compactor.retention-enabled=true -compactor.delete-request-store=filesystem -compactor.working-directory=/data/loki/compactor"
             - name: TEMPO_EXTRA_ARGS

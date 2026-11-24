@@ -162,6 +162,11 @@ In Grafana's *Explore*:
 | Checks that did not pass | Tempo | `{span.kubedojo.check.passed = false}` |
 | Failed operations | Tempo | `{resource.service.name = "kubedojo" && status = error}` |
 
+Counts in the dashboards come from `increase()`. Prometheus extends what it measured to the edges
+of the time range, so a count of a few events is shown with decimals (3 events as 3.4). The bundled
+Prometheus starts every new series at zero (`created-timestamp-zero-ingestion`), so the first event
+of a series is part of the count; with your own Prometheus, switch that feature on as well.
+
 More TraceQL is under [Finding things](#finding-things).
 
 ### When it does not work
