@@ -164,6 +164,11 @@ In Grafana's *Explore*:
 | How fast does the assistant start to answer (p95)? | Prometheus | `histogram_quantile(0.95, sum by (le) (rate(gen_ai_client_inference_time_to_first_chunk_seconds_bucket[15m])))` |
 | What did the assistant do for one question? | Tempo | `{ span.gen_ai.conversation.id = "abcd1234/pod-basics" }` |
 
+Counts in the dashboards come from `increase()`. Prometheus extends what it measured to the edges
+of the time range, so a count of a few events is shown with decimals (3 events as 3.4). The bundled
+Prometheus starts every new series at zero (`created-timestamp-zero-ingestion`), so the first event
+of a series is part of the count; with your own Prometheus, switch that feature on as well.
+
 More TraceQL is under [Finding things](#finding-things).
 
 ### When it does not work

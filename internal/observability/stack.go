@@ -47,7 +47,11 @@ const (
 	componentLabel = "kubedojo.component"
 	component      = "observability"
 	hashLabel      = "kubedojo.config-hash"
-	versionLabel   = "kubedojo.version"
+	// prometheusFeatures are the features of Prometheus the dashboards rely
+	// on beyond what the image switches on. The chart sets the same
+	// (templates/lgtm.yaml).
+	prometheusFeatures = "--enable-feature=created-timestamp-zero-ingestion"
+	versionLabel       = "kubedojo.version"
 )
 
 // Runner runs a command and returns its combined output.
@@ -226,7 +230,12 @@ func (s *Stack) args(prov []file) (args []string, hash string) {
 		args = append(args, "-v", s.volume()+":/data")
 	}
 	args = append(args,
-		"-e", "PROMETHEUS_EXTRA_ARGS=--storage.tsdb.retention.time="+hours,
+		// A counter that appears with its first event starts at 1, and
+		// increase() and rate() only see what comes after the first sample: the
+		// first check of a question, the first message to the assistant would
+		// not count. With this feature Prometheus writes a zero at the start
+		// time the SDK reports, so the first event counts like every other.
+		"-e", "PROMETHEUS_EXTRA_ARGS=--storage.tsdb.retention.time="+hours+" "+prometheusFeatures,
 		"-e", "LOKI_EXTRA_ARGS=-store.retention="+hours+" -compactor.retention-enabled=true -compactor.delete-request-store=filesystem -compactor.working-directory=/data/loki/compactor",
 		// Tempo keeps the traces of the last minutes in its live store, which
 		// the image leaves outside the volume: without the paths, a restart

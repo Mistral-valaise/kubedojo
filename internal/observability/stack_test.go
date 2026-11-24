@@ -142,7 +142,7 @@ func TestUpStartsAPinnedLoopbackStack(t *testing.T) {
 		"-p 127.0.0.1:3000:3000",
 		"-p 127.0.0.1:4318:4318",
 		"-v " + Volume + ":/data",
-		"--storage.tsdb.retention.time=168h",
+		"--storage.tsdb.retention.time=168h --enable-feature=created-timestamp-zero-ingestion",
 		"-store.retention=168h",
 		"block-retention=168h",
 		":/otel-lgtm/kubedojo-dashboards:ro",
