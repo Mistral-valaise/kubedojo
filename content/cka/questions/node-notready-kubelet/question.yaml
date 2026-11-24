@@ -23,10 +23,11 @@ checks:
     type: exec
     on: worker
     run: |-
-      systemctl is-active kubelet
-    expect: {equals: active}
+      state=$(systemctl is-active kubelet) || { echo "kubelet.service is $state, not active" >&2; exit 1; }
+      curl -fsS -m 3 http://127.0.0.1:10248/healthz || { echo "kubelet.service is active, but no kubelet answers on http://127.0.0.1:10248/healthz" >&2; exit 1; }
+    expect: {equals: ok}
     explain: >-
-      The kubelet is not a Pod — it is a systemd service on every node. If it is not active, the node cannot run or report anything.
+      The kubelet is not a Pod — it is a systemd service on every node. If it is not active, the node cannot run or report anything. A unit that systemd restarts every second is `activating (auto-restart)`, not running: a kubelet that runs answers `ok` on its local health port 10248.
   - id: unit-path
     title: The kubelet unit starts an existing binary
     type: exec
