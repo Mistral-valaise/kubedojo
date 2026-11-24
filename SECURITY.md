@@ -84,3 +84,26 @@ admitted where they should be and that NetworkPolicies are enforced.
 Reports that amount to "a user can break out of a sandbox onto the sandbox node" describe this known
 limit. Reports about reaching *other users' sandboxes*, the kubedojo server, its database, or the
 cluster's API from a sandbox are very welcome.
+
+### The API has no login of its own
+
+Locally the API is protected by where it listens, in hosted mode by the proxy in front of it. A web
+page you visit while kubedojo runs is on your machine too, so the server also checks what a browser
+tells it:
+
+| Protection | What it does | What it does not do |
+|---|---|---|
+| Listening on `127.0.0.1` | other machines do not reach a local kubedojo | keep out other users and programs of the same machine |
+| Host allowlist | a request is answered only under a name the server is known by: `localhost`, `127.0.0.1`, `[::1]`, names below `.localhost`, the address it listens on, and what `--allowed-hosts` (`KUBEDOJO_ALLOWED_HOSTS`, in the chart `allowedHosts`) adds. Other names get `403`. This stops DNS rebinding, where a page's own domain is made to resolve to `127.0.0.1` | apply to `/api/health` and `/api/ready`; apply at all to a server that listens on every interface without `--allowed-hosts` (it warns at start) |
+| Cross-origin protection | requests that change something (`POST`, `PATCH`, `DELETE`) are rejected with `403` when the browser marks them as coming from another site; the terminal's WebSocket checks its `Origin` | stop a program that is not a browser |
+| JSON bodies only | a request body is read only when it is sent with `Content-Type: application/json`, which a page of another site cannot send without the browser asking the server first. Anything else gets `415` | |
+| Content-Security-Policy and related headers | the UI loads scripts, styles, images and fonts from the server only and connects only to it; it cannot be framed | allow-list inline styles, which React and xterm.js need |
+| File modes | the data directory is `0700`, the database, its backups and the settings are `0600` | protect a volume in Kubernetes, where access is the cluster's matter; change `<data>/observability`, which Grafana reads |
+| Session IDs | 12 random characters from the system's random source: the ID of a session cannot be guessed | replace a login: whoever is given an ID has that session |
+
+Two of these change what worked before 0.5:
+
+- A hosted kubedojo that is reached under a name the chart does not know (a second DNS name, the
+  address of a NodePort or LoadBalancer Service) answers `403` until that name is in `allowedHosts`.
+- A request with a body but without `Content-Type: application/json` is answered with `415`. The UI
+  always sent the header; scripts that post with `curl -d` need `-H 'Content-Type: application/json'`.

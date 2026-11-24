@@ -31,6 +31,9 @@ type Server struct {
 	UserHeader string
 	// AllowedOrigins are extra WebSocket origin patterns (dev server).
 	AllowedOrigins []string
+	// OnReject is called with a reason of package httpsec when a request is
+	// rejected before its body is looked at (a body not declared as JSON).
+	OnReject func(reason string)
 	// OnRating is called when a learner rates a question.
 	OnRating func(ctx context.Context, track, question string, stars int)
 	// OnTerminal is called when a terminal connects (delta +1) or leaves (-1).
