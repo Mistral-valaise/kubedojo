@@ -40,8 +40,7 @@ func (m *Manager) span(ctx context.Context, name string, s *Session, attrs ...sp
 // errGrader marks a question whose checks could not all be evaluated.
 var errGrader = errors.New("grader error")
 
-// errorType names the kind of a failure in a few fixed words, so that a
-// trace query can tell a refused request from a broken server.
+// errorType names the kind of a failure in a few fixed words.
 func errorType(err error) string {
 	switch {
 	case errors.Is(err, errGrader):
@@ -64,11 +63,35 @@ func errorType(err error) string {
 	return "internal"
 }
 
-// end ends a span of session work and names the kind of its failure.
-func end(sp span.Span, err error) {
-	if err != nil {
-		sp.Set(span.String("error.type", errorType(err)))
+// refusal reports whether a failure of this kind is kubedojo saying no to a
+// request (the question is not prepared, a limit is reached, the caller went
+// away), as opposed to something that broke.
+func refusal(kind string) bool {
+	switch kind {
+	case "not_found", "invalid", "limit", "conflict", "cancelled":
+		return true
 	}
+	return false
+}
+
+// end ends a span of session work. A fault ends it as an error and names its
+// kind in error.type. A refusal is not an error of the server, just as a
+// failed check is not: the span keeps its status and says in kubedojo.refused
+// why nothing was done. So a search for failed spans finds what an operator
+// has to look at.
+func end(sp span.Span, err error) {
+	if err == nil {
+		sp.End(nil)
+		return
+	}
+	kind := errorType(err)
+	if refusal(kind) {
+		sp.Set(span.String("kubedojo.refused", kind))
+		sp.Event("refused", span.String("reason", err.Error()))
+		sp.End(nil)
+		return
+	}
+	sp.Set(span.String("error.type", kind))
 	sp.End(err)
 }
 

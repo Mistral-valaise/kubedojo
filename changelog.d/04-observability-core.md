@@ -37,9 +37,10 @@
   did. Only a check that could not be evaluated is an error (`error.type=grader_error`), on
   `check.run` and on `question.check`.
 - `question.check` now starts before the question is validated, so a check that is refused (the
-  question is not ready, its sandbox is gone) is a span with the reason in `error.type` instead of
-  no span at all.
-- Spans of session work that fail carry `error.type`.
+  question is not ready) or cannot run (its sandbox is gone) is a span that says why instead of no
+  span at all.
+- Spans of session work that fail carry `error.type`. A request kubedojo refuses (not found,
+  conflict, a limit) is no error: its span keeps its status and carries `kubedojo.refused`.
 - The spans of the Docker client (one per request to the Docker daemon, named by its raw path) are
   switched off. The phase spans cover what they showed.
 - Exam grading stops waiting for answers to settle as soon as the settle time is over, instead of

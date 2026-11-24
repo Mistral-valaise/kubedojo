@@ -437,7 +437,7 @@ POST /api/sessions/{id}/questions/{q}/check
 		}
 	})
 	spans = x.trace(t, refused, "question.check")
-	if q = spans[0]; q.Name() != "question.check" || q.Status().Code != codes.Error || str(q, "error.type") != "not_found" {
+	if q = spans[0]; q.Name() != "question.check" || q.Status().Code != codes.Unset || str(q, "kubedojo.refused") != "not_found" || str(q, "error.type") != "" {
 		t.Errorf("the refused check: %s status %v %v", q.Name(), q.Status().Code, q.Attributes())
 	}
 }
@@ -626,7 +626,7 @@ func TestTraceOfATerminal(t *testing.T) {
 	if _, err := x.mgr.Attach(context.Background(), sid, 80, 24); !errors.Is(err, session.ErrTerminalLimit) {
 		t.Fatalf("attach beyond the limit: %v", err)
 	}
-	if s := x.ended(t, "terminal.attach", 3)[2]; s.Status().Code != codes.Error || str(s, "error.type") != "limit" {
+	if s := x.ended(t, "terminal.attach", 3)[2]; s.Status().Code != codes.Unset || str(s, "kubedojo.refused") != "limit" {
 		t.Errorf("terminal.attach beyond the limit: status %v %v", s.Status().Code, s.Attributes())
 	}
 }
@@ -694,7 +694,7 @@ POST /api/sessions/{id}/questions/{q}/check
 			t.Fatalf("second check: %v", err)
 		}
 	})
-	if s := x.rec.Named("question.check")[1]; s.Status().Code != codes.Error || str(s, "error.type") != "conflict" {
+	if s := x.rec.Named("question.check")[1]; s.Status().Code != codes.Unset || str(s, "kubedojo.refused") != "conflict" {
 		t.Errorf("the refused check: status %v, %v", s.Status().Code, s.Attributes())
 	}
 

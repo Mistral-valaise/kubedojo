@@ -385,21 +385,32 @@ status says whether **kubedojo** worked; the attributes say how the **learner** 
 | `grader_error` | the check could not be evaluated: the sandbox did not take the command | **error**, `error.type=grader_error` |
 
 `question.check` follows its checks: it is an error only if at least one check ended with
-`grader_error`, or if the question could not be graded at all (it is not ready, its sandbox is
-gone). So `{ span.kubedojo.check.outcome = "grader_error" }` finds what an operator has to look at,
+`grader_error`, or if its sandbox is gone. A question that is not ready is a refused request, see
+below. So `{ span.kubedojo.check.outcome = "grader_error" }` finds what an operator has to look at,
 and `{ span.kubedojo.check.passed = false }` finds what a content author or a trainer is interested
 in.
 
-A span of session work that fails says what kind of failure it was in `error.type`:
+A span of session work that fails says what kind of failure it was in `error.type`, and has the
+status **error**:
 
 | `error.type` | Meaning | Whose fault |
 |---|---|---|
 | `grader_error` | a check could not be evaluated | the server or the sandbox |
 | `sandbox_gone` | the sandbox of the session no longer exists (its Pod was evicted, its node went away) | the platform |
-| `timeout`, `cancelled` | the operation ran out of time, or the server shut down | the platform |
+| `timeout` | the operation ran out of time | the platform |
 | `internal` | anything else, such as a setup script that failed | the server or the content |
-| `conflict`, `not_found` | kubedojo refused the request: the question is not prepared, it is graded already, the exam is still running. The API answered with 409 or 404 | nobody's |
-| `limit` | the session limit or the terminal limit is reached. The API answered with 429, the terminal with close code 4429 | capacity |
+
+**A refused request is not an error either.** When kubedojo says no, the span keeps its status and
+says why in `kubedojo.refused`; an event `refused` carries the message the API answered with:
+
+| `kubedojo.refused` | Meaning |
+|---|---|
+| `conflict`, `not_found`, `invalid` | the question is not prepared, it is graded already, the exam is still running, the request made no sense. The API answered with 409, 404 or 400 |
+| `limit` | the session limit or the terminal limit is reached. The API answered with 429, the terminal with close code 4429 |
+| `cancelled` | the caller went away, or the server shut down |
+
+So `status = error` means that something broke, in session work as in the HTTP spans, where a 4xx
+answer is no error of the server either.
 
 The spans below `sandbox.env.create` and `sandbox.host.acquire` have a status and no `error.type`;
 their parent has both.
@@ -456,7 +467,7 @@ A terminal stays open for as long as the learner works, often for hours. A span 
 be seen until it ends, so the terminal is traced at its two ends:
 
 - `terminal.attach` is the short span of starting the shell. The WebSocket request is not traced, so
-  this span is the root of a trace of its own. It fails with `error.type=limit` when the session has
+  this span is the root of a trace of its own. It says `kubedojo.refused=limit` when the session has
   all its terminals open.
 - When the terminal ends, one log line says so: `terminal closed` with `session`, `reason`,
   `duration_s`, `bytes_in` (typed by the learner) and `bytes_out` (printed by the shell). It carries
@@ -489,9 +500,10 @@ In Grafana's *Explore*, data source Tempo, query type TraceQL:
 | Setup scripts that failed | `{ name = "sandbox.exec" && span.kubedojo.exec.purpose = "setup" && status = error }` |
 | Exams that were failed | `{ name = "exam.grade" && span.kubedojo.exam.passed = false }` |
 | Answers that passed only on a later look | `{ name = "exam.grade.settle" && span.kubedojo.settle.passed > 0 }` |
-| Every failed operation | `{ resource.service.name = "kubedojo" && status = error }` |
-| Faults of the server in session work | `{ span.error.type =~ "internal\|grader_error\|sandbox_gone\|timeout" }` |
-| Requests kubedojo refused | `{ span.error.type =~ "conflict\|not_found\|limit" }` |
+| Everything that broke | `{ resource.service.name = "kubedojo" && status = error }` |
+| What broke, by kind | `{ span.error.type = "sandbox_gone" }` (or `internal`, `grader_error`, `timeout`) |
+| Requests kubedojo refused | `{ span.kubedojo.refused != nil }` |
+| Learners who hit a limit | `{ span.kubedojo.refused = "limit" }` |
 
 **From a response to its trace.** Every traced API response carries the header
 `Server-Timing: traceparent;desc="00-<trace id>-<span id>-01"`. In the browser's network tab, or with
