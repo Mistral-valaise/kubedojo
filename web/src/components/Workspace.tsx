@@ -143,7 +143,7 @@ export function Workspace({ panes, storageKey = "kubedojo.split", asideStorageKe
   const tabButton = (pane: Pane, among: Pane[], current: string, small = false) => (
     <button key={pane.id} role="tab" id={`split-tab-${pane.id}`} aria-selected={current === pane.id} aria-controls={`split-pane-${pane.id}`}
       tabIndex={current === pane.id ? 0 : -1} onClick={() => select(pane.id)} onKeyDown={(e) => onTabKey(e, among, current)}
-      className={cx(small ? "relative h-8 flex-1 px-3 text-[13px] font-medium transition-colors" : "relative h-10 flex-1 px-3 text-sm font-medium transition-colors",
+      className={cx(small ? "relative h-9 flex-1 px-3 text-label font-medium transition-colors" : "relative h-11 flex-1 px-3 text-sm font-medium transition-colors",
         current === pane.id ? "text-text" : "text-muted hover:text-text")}>
       {pane.label}
       {current === pane.id && <span aria-hidden className="absolute inset-x-0 -bottom-px h-0.5 bg-accent" />}
@@ -160,10 +160,10 @@ export function Workspace({ panes, storageKey = "kubedojo.split", asideStorageKe
       <div
         key={`divider-${which}`} ref={main ? undefined : asideDivider}
         role="separator" aria-orientation="vertical" tabIndex={0}
-        // A focusable separator is a slider to a screen reader. The two-pane layout keeps the markup it always had.
-        aria-valuenow={measured ? Math.round(main ? clamp(pct, SPLIT) : aside) : undefined}
-        aria-valuemin={measured ? range.min : undefined} aria-valuemax={measured ? range.max : undefined}
-        aria-label={!measured ? undefined : main ? t("Resize the columns") : t("Resize {name}", { name: third?.label ?? "" })}
+        // A focusable separator is a slider to a screen reader: it has a name and a value.
+        aria-valuenow={Math.round(main ? clamp(pct, SPLIT) : aside)}
+        aria-valuemin={range.min} aria-valuemax={range.max}
+        aria-label={main ? t("Resize the columns") : t("Resize {name}", { name: third?.label ?? "" })}
         onPointerDown={(e) => { dragging.current = which; setActive(which); e.preventDefault(); }}
         onKeyDown={(e) => {
           if (e.key === less) set((v) => Math.max(range.min, v - range.step));
@@ -182,8 +182,9 @@ export function Workspace({ panes, storageKey = "kubedojo.split", asideStorageKe
   const paneBox = (pane: Pane, i: number) => {
     if (layout === "css") {
       // Narrow: the pane fills the area, and only the selected one is visible. Wide: back in the row.
+      // It is the panel of its tab; from `md` on the tabs are gone and the name stays.
       return (
-        <div key={`pane-${pane.id}`} id={`split-pane-${pane.id}`}
+        <div key={`pane-${pane.id}`} id={`split-pane-${pane.id}`} role="tabpanel" aria-labelledby={`split-tab-${pane.id}`}
           className={cx("absolute inset-0 min-w-0 overflow-hidden md:static", shownTab !== pane.id && "max-md:invisible",
             i === 0 ? "md:w-(--split) md:shrink-0" : "md:flex-1", i > 0 && active && "pointer-events-none")}>
           {pane.content}
@@ -212,7 +213,7 @@ export function Workspace({ panes, storageKey = "kubedojo.split", asideStorageKe
   return (
     <div ref={root} data-layout={measured ? layout : undefined} className="flex min-h-0 flex-1 flex-col">
       {(layout === "css" || layout === "tabs") && (
-        <div role="tablist" aria-label={t("Panes")} className={cx("flex shrink-0 border-b bg-bg", layout === "css" && "md:hidden")}>
+        <div role="tablist" aria-label={t("Panes")} className={cx("flex shrink-0 border-b bg-panel", layout === "css" && "md:hidden")}>
           {selectable.map((p) => tabButton(p, selectable, shownTab))}
         </div>
       )}
@@ -220,7 +221,7 @@ export function Workspace({ panes, storageKey = "kubedojo.split", asideStorageKe
         style={measured ? { gridTemplateColumns: columns, gridTemplateRows: "auto minmax(0, 1fr)" } : { "--split": `${pct}%` } as CSSProperties}>
         {[
           leftColumn && (
-            <div key="switcher" role="tablist" aria-label={t("Left column")} className="flex border-b bg-bg" style={{ gridColumn: 1, gridRow: 1 }}>
+            <div key="switcher" role="tablist" aria-label={t("Left column")} className="flex border-b bg-panel" style={{ gridColumn: 1, gridRow: 1 }}>
               {leftColumn.map((p) => tabButton(p, leftColumn, shownSide, true))}
             </div>
           ),

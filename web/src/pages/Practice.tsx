@@ -14,8 +14,9 @@ import { Results } from "../components/Results";
 import { Split } from "../components/Split";
 import { TerminalTabs } from "../components/TerminalTabs";
 import { HeaderPager, WorkspaceHeader } from "../components/WorkspaceHeader";
-import { Badge, Button, Difficulty, ErrorNote, Modal, Page, Spinner, cx } from "../components/ui";
+import { Badge, Button, Difficulty, ErrorNote, Loading, MAIN_ID, Modal, Page, Skeleton, Spinner, cx } from "../components/ui";
 import { QuizPractice } from "./QuizPractice";
+import { LoadError } from "./Track";
 
 /** After this many seconds a running check gets a note that says why it takes long. */
 const SLOW_CHECK_SECONDS = 3;
@@ -24,10 +25,27 @@ const SLOW_CHECK_SECONDS = 3;
 export function PracticePage() {
   const { track: trackId = "", question: qid = "" } = useParams();
   const track = useLoad(() => api.track(trackId), [trackId]);
-  if (track.error) return <Page docs={null}><ErrorNote>{track.error}</ErrorNote></Page>;
-  if (!track.data) return <Page docs={null}><Spinner /></Page>;
+  if (track.error) return <Page docs={null}><LoadError message={track.error} onRetry={() => void track.reload()} /></Page>;
+  if (!track.data) return <WorkspaceSkeleton />;
   const choice = track.data.questions?.find((q) => q.id === qid)?.type === "choice";
   return choice ? <QuizPractice track={track.data} qid={qid} /> : <TaskPractice track={track.data} qid={qid} />;
+}
+
+/** The workspace before its track is known: the header and the shape of a question. */
+export function WorkspaceSkeleton() {
+  return (
+    <div className="flex h-full flex-col">
+      <WorkspaceHeader />
+      <main id={MAIN_ID} className="min-h-0 flex-1 overflow-hidden">
+        <Loading label={t("Loading the question")} className="mx-auto w-full max-w-[46rem] space-y-4 px-4 py-6 sm:px-6 sm:py-10">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-7 w-3/4" />
+          {[0, 1, 2, 3].map((i) => <Skeleton key={i} className={i === 3 ? "h-4 w-1/2" : "h-4"} />)}
+          <Skeleton className="h-11 w-44 rounded-lg" />
+        </Loading>
+      </main>
+    </div>
+  );
 }
 
 function TaskPractice({ track, qid }: { track: Track; qid: string }) {
@@ -103,17 +121,17 @@ function TaskPractice({ track, qid }: { track: Track; qid: string }) {
   const w = words(track);
 
   const left = (
-    <div ref={scroller} className="h-full overflow-y-auto bg-panel">
-      <div className="space-y-5 px-4 py-5 sm:px-6">
+    <div ref={scroller} className="h-full overflow-y-auto bg-bg">
+      <div className="space-y-5 px-4 py-5 sm:p-6">
         <div>
-          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
             {/* inline-flex: as plain inline content the badge would sit on the text baseline, below its neighbours. */}
             {domain && <Link to={`/t/${trackId}/lesson/${domain.id}`} className="inline-flex max-w-full"><Badge tone="accent">{domain.title}</Badge></Link>}
             {meta && <Difficulty level={meta.difficulty} />}
-            {meta && <Badge><Clock className="size-3" />{meta.minutes} min</Badge>}
-            {view?.host && <Badge><Server className="size-3" />{view.host}</Badge>}
+            {meta && <Badge><Clock className="size-3" aria-hidden />{meta.minutes} min</Badge>}
+            {view?.host && <Badge><Server className="size-3" aria-hidden />{view.host}</Badge>}
           </div>
-          <h1 className="text-xl font-semibold tracking-tight">{meta?.title ?? " "}</h1>
+          <h1 className="text-title font-semibold tracking-tight">{meta?.title ?? " "}</h1>
         </div>
 
         {error && <ErrorNote>{error}</ErrorNote>}
@@ -124,7 +142,7 @@ function TaskPractice({ track, qid }: { track: Track; qid: string }) {
             <Button size="sm" onClick={reset}>{t("Try again")}</Button>
           </ErrorNote>
         )}
-        {!view && status !== "error" && (
+        {!view && status !== "error" && !error && (
           <div className="flex items-center gap-3 rounded-xl border border-dashed px-4 py-6 text-sm text-muted">
             <Spinner />{w.preparing}
           </div>
@@ -133,9 +151,9 @@ function TaskPractice({ track, qid }: { track: Track; qid: string }) {
         {view && (
           <>
             <Markdown>{view.task}</Markdown>
-            <div className="flex flex-wrap items-center gap-2 border-t pt-4">
-              <Button variant="primary" loading={checking} icon={<PlayCircle className="size-4" />} onClick={check}>{t("Check my solution")}</Button>
-              <Button variant="ghost" icon={<RotateCcw className="size-4" />} onClick={() => setConfirmReset(true)}>{w.reset}</Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="primary" loading={checking} icon={<PlayCircle className="size-4" aria-hidden />} onClick={check}>{t("Check my solution")}</Button>
+              <Button icon={<RotateCcw className="size-4" aria-hidden />} onClick={() => setConfirmReset(true)}>{w.reset}</Button>
               {/* Always present, so that a screen reader announces the note when it appears. The counter is not announced. */}
               <p role="status" aria-live="polite" className={cx("basis-full text-xs leading-relaxed text-muted", !(checking && waited >= SLOW_CHECK_SECONDS) && "hidden")}>
                 {checking && waited >= SLOW_CHECK_SECONDS && (
@@ -149,8 +167,8 @@ function TaskPractice({ track, qid }: { track: Track; qid: string }) {
             )}
             {result && <Rating track={trackId} question={qid} />}
             {result?.passed && next && (
-              <Button variant="ok" className="w-full" onClick={() => nav(`/t/${trackId}/q/${next.id}`)}>
-                {w.next}<ChevronRight className="size-4" />
+              <Button variant="ok" size="lg" className="w-full" onClick={() => nav(`/t/${trackId}/q/${next.id}`)}>
+                {w.next}<ChevronRight className="size-4" aria-hidden />
               </Button>
             )}
           </>
@@ -167,8 +185,8 @@ function TaskPractice({ track, qid }: { track: Track; qid: string }) {
     <div className="flex h-full flex-col">
       <WorkspaceHeader
         back={(
-          <Link to={`/t/${trackId}`} className="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted hover:text-text">
-            <ArrowLeft className="size-3.5 shrink-0" /><span className="truncate">{track.short} · {t("Practice")}</span>
+          <Link to={`/t/${trackId}`} className="inline-flex min-h-9 min-w-0 items-center gap-1.5 text-sm text-muted hover:text-text">
+            <ArrowLeft className="size-4 shrink-0" aria-hidden /><span className="truncate">{track.short} · {t("Practice")}</span>
           </Link>
         )}
         nav={(
@@ -177,7 +195,9 @@ function TaskPractice({ track, qid }: { track: Track; qid: string }) {
         )}
         docs={w.docs}
       />
-      <Split left={left} right={right} labels={{ left: w.item, right: t("Terminal") }} />
+      <main id={MAIN_ID} className="flex min-h-0 flex-1 flex-col">
+        <Split left={left} right={right} labels={{ left: w.item, right: t("Terminal") }} />
+      </main>
       {confirmReset && (
         <Modal title={w.resetTitle} onClose={() => setConfirmReset(false)}
           footer={<><Button onClick={() => setConfirmReset(false)}>{t("Cancel")}</Button><Button variant="danger" onClick={reset}>{t("Reset")}</Button></>}>

@@ -10,7 +10,7 @@ import { TutorBox } from "../components/Help";
 import { Markdown } from "../components/Markdown";
 import { Rating } from "../components/Rating";
 import { HeaderPager, WorkspaceHeader } from "../components/WorkspaceHeader";
-import { Badge, Button, Card, Difficulty, ErrorNote, Spinner } from "../components/ui";
+import { Badge, Button, ButtonLink, Card, Difficulty, ErrorNote, Loading, MAIN_ID, Skeleton } from "../components/ui";
 
 /**
  * Practice of a multiple-choice question: the stem, the options and, once
@@ -27,6 +27,8 @@ export function QuizPractice({ track, qid }: { track: Track; qid: string }) {
   const [busy, setBusy] = useState<"check" | "reveal" | "reset" | null>(null);
   // Counts the rounds of this question, so that a reset mounts fresh options.
   const [round, setRound] = useState(0);
+  // Counts the tries to load the question, so that a failed load can be repeated.
+  const [attempt, setAttempt] = useState(0);
   const scroller = useRef<HTMLElement>(null);
   const body = useRef<HTMLDivElement>(null);
   // Where the focus goes once the next render is on the page.
@@ -51,7 +53,7 @@ export function QuizPractice({ track, qid }: { track: Track; qid: string }) {
       }
     })();
     return () => { stop = true; };
-  }, [track.id, qid, show]);
+  }, [track.id, qid, show, attempt]);
 
   useEffect(() => {
     if (!focusNext.current || !view) return;
@@ -94,13 +96,14 @@ export function QuizPractice({ track, qid }: { track: Track; qid: string }) {
   const result = view?.state.last ?? null;
   const reviewed = !!choice?.review;
 
+
   const again = (
     <Button key="again" variant={result?.passed && next ? "secondary" : "primary"} size="lg" loading={busy === "reset"}
-      icon={<RotateCcw className="size-4" />} onClick={reset}>{t("Try again")}</Button>
+      icon={<RotateCcw className="size-4" aria-hidden />} onClick={reset}>{t("Try again")}</Button>
   );
   const onward = next && (
     <Button key="next" variant={result?.passed ? "primary" : "secondary"} size="lg" onClick={() => nav(`/t/${track.id}/q/${next.id}`)}>
-      {w.next}<ChevronRight className="size-4" />
+      {w.next}<ChevronRight className="size-4" aria-hidden />
     </Button>
   );
 
@@ -108,8 +111,8 @@ export function QuizPractice({ track, qid }: { track: Track; qid: string }) {
     <div className="flex h-full flex-col">
       <WorkspaceHeader
         back={(
-          <Link to={`/t/${track.id}`} className="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted hover:text-text">
-            <ArrowLeft className="size-3.5 shrink-0" /><span className="truncate">{track.short} · {t("Practice")}</span>
+          <Link to={`/t/${track.id}`} className="inline-flex min-h-9 min-w-0 items-center gap-1.5 text-sm text-muted hover:text-text">
+            <ArrowLeft className="size-4 shrink-0" aria-hidden /><span className="truncate">{track.short} · {t("Practice")}</span>
           </Link>
         )}
         nav={(
@@ -119,21 +122,27 @@ export function QuizPractice({ track, qid }: { track: Track; qid: string }) {
         docs={w.docs}
       />
 
-      <main ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
+      <main id={MAIN_ID} ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[46rem] px-3 py-4 sm:px-6 sm:py-10">
           <Card className="p-4 sm:p-8">
             <div ref={body} className="space-y-6">
               <div>
-                <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
                   {/* inline-flex: as plain inline content the badge would sit on the text baseline, below its neighbour. */}
                   {domain && <Link to={`/t/${track.id}/lesson/${domain.id}`} className="inline-flex max-w-full"><Badge tone="accent">{domain.title}</Badge></Link>}
                   {meta && <Difficulty level={meta.difficulty} />}
                 </div>
-                <h1 className="text-xl font-semibold tracking-tight">{meta?.title ?? " "}</h1>
+                <h1 className="text-title font-semibold tracking-tight">{meta?.title ?? " "}</h1>
               </div>
 
-              {error && <ErrorNote>{error}</ErrorNote>}
-              {!view && !error && <Spinner />}
+              {error && <ErrorNote onRetry={view ? undefined : () => setAttempt((n) => n + 1)}>{error}</ErrorNote>}
+              {!view && !error && (
+                <Loading label={t("Loading the question")} className="space-y-3">
+                  <Skeleton className="h-5" />
+                  <Skeleton className="h-5 w-2/3" />
+                  {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-12 rounded-xl" />)}
+                </Loading>
+              )}
 
               {view && choice && (
                 <>
@@ -144,9 +153,9 @@ export function QuizPractice({ track, qid }: { track: Track; qid: string }) {
                         disabled={busy !== null} label={meta?.title} />
                       <div className="flex flex-wrap items-center gap-2 border-t pt-5">
                         <Button variant="primary" size="lg" loading={busy === "check"} disabled={selected.length === 0 || busy !== null}
-                          icon={<PlayCircle className="size-4" />} onClick={check}>{t("Check answer")}</Button>
+                          icon={<PlayCircle className="size-4" aria-hidden />} onClick={check}>{t("Check answer")}</Button>
                         <Button variant="ghost" size="lg" loading={busy === "reveal"} disabled={busy !== null}
-                          icon={<Eye className="size-4" />} onClick={reveal}>{t("Show answer")}</Button>
+                          icon={<Eye className="size-4" aria-hidden />} onClick={reveal}>{t("Show answer")}</Button>
                         <span className="ml-auto hidden text-xs text-muted sm:block">{t("Press 1-{n} to select, Enter to check", { n: Math.min(9, choice.options.length) })}</span>
                       </div>
                     </>
@@ -160,7 +169,7 @@ export function QuizPractice({ track, qid }: { track: Track; qid: string }) {
                       <div className="flex flex-wrap items-center gap-2 border-t pt-5">
                         {/* The step the learner most likely wants comes first: on after a right answer, again after a wrong one. */}
                         {result?.passed ? <>{onward}{again}</> : <>{again}{onward}</>}
-                        {!next && <Link to={`/t/${track.id}`}><Button variant="ghost" size="lg">{t("Back to {track}", { track: track.short })}</Button></Link>}
+                        {!next && <ButtonLink to={`/t/${track.id}`} variant="ghost" size="lg">{t("Back to {track}", { track: track.short })}</ButtonLink>}
                       </div>
                       {sid && config?.tutor && <TutorBox sid={sid} qid={qid} result={result} w={w} />}
                       <Rating track={track.id} question={qid} />
