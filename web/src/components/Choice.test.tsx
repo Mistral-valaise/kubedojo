@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { choiceView } from "../fixtures";
@@ -166,5 +167,39 @@ describe("Choice, review", () => {
     render(<Choice choice={choiceView({ answer: ["a"] }, true)} value={["a"]} onChange={change} passed={false} />);
     key(document.body, "2");
     expect(change).not.toHaveBeenCalled();
+  });
+});
+
+describe("Choice, the number keys", () => {
+  // A page that loads its question renders the options in an update React
+  // schedules itself, and effects of such an update run one task after the
+  // options are on the page. A key pressed in between must still count.
+  it("work from the moment the options are on the page", async () => {
+    const env = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+    const was = env.IS_REACT_ACT_ENVIRONMENT;
+    env.IS_REACT_ACT_ENVIRONMENT = false;
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      // Press the key in the same task in which the options appear: a
+      // mutation observer reports right after React has written them.
+      const pressed = new Promise<void>((resolve) => {
+        const seen = new MutationObserver(() => {
+          if (!host.querySelector('[role="radiogroup"]')) return;
+          seen.disconnect();
+          document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "2", bubbles: true, cancelable: true }));
+          resolve();
+        });
+        seen.observe(host, { childList: true, subtree: true });
+      });
+      root.render(<Harness />);
+      await pressed;
+      await new Promise((r) => setTimeout(r, 20));
+      expect(host.querySelector("output")?.textContent).toBe("b");
+    } finally {
+      root.unmount();
+      host.remove();
+      env.IS_REACT_ACT_ENVIRONMENT = was;
+    }
   });
 });

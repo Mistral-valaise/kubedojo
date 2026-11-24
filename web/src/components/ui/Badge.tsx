@@ -9,5 +9,5 @@ export function Badge({ tone = "muted", children }: { tone?: "muted" | "accent" 
     bad: "bg-bad-soft text-bad",
     warn: "bg-warn-soft text-warn",
   };
-  return <span className={cx("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium leading-4 whitespace-nowrap", tones[tone])}>{children}</span>;
+  return <span className={cx("inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium whitespace-nowrap", tones[tone])}>{children}</span>;
 }

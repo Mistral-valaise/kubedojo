@@ -4,7 +4,7 @@ import { api, type QuestionMeta, type Result, type Track } from "../api";
 import { t } from "../i18n";
 import { words, type Words } from "../track";
 import { Markdown } from "./Markdown";
-import { Button, ErrorNote, Modal } from "./ui";
+import { Button, ErrorNote, Modal, SectionLabel } from "./ui";
 
 /** Tiered hints, the worked solution and the optional AI tutor for one question. */
 export function Help({ sid, q, result, tutor, track, initialHints = 0, confirmSolution = true }: {
@@ -45,30 +45,39 @@ export function Help({ sid, q, result, tutor, track, initialHints = 0, confirmSo
   return (
     <div className="space-y-4">
       {error && <ErrorNote>{error}</ErrorNote>}
-      {hints.map((h, i) => (
-        <div key={i} className="rounded-xl border border-warn/30 bg-warn-soft/60 px-4 py-3">
-          <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-warn">
-            <Lightbulb className="size-3.5" />{t("Hint {n}", { n: i + 1 })}
+      {/* A live region, so that a hint is read out when it appears. It is always here: one added together with its content is not announced. */}
+      <div aria-live="polite" className="space-y-4 empty:hidden">
+        {hints.map((h, i) => (
+          <div key={i} className="rounded-xl border border-warn/30 bg-warn-soft px-4 py-3">
+            <SectionLabel tone="warn" icon={<Lightbulb aria-hidden />} className="mb-1">{t("Hint {n}", { n: i + 1 })}</SectionLabel>
+            <Markdown>{h}</Markdown>
           </div>
-          <Markdown className="text-[0.9rem]">{h}</Markdown>
-        </div>
-      ))}
+        ))}
+      </div>
       {!solution && (
-        <div className="flex flex-wrap gap-2">
-          {hints.length < q.hints && (
-            <Button size="sm" loading={busy} icon={<Lightbulb className="size-3.5" />} onClick={nextHint}>
-              {hints.length === 0 ? t("Show a hint") : t("Next hint ({n} of {m})", { n: hints.length + 1, m: q.hints })}
-            </Button>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-panel py-2 pr-2 pl-4">
+          {q.hints > 0 && (
+            <>
+              <span className="text-sm font-medium">{t("Hints")}</span>
+              <span className="text-label text-muted">{t("{n} of {m} used", { n: hints.length, m: q.hints })}</span>
+            </>
           )}
-          {/* Once every check has passed there is no attempt left to protect: the solution opens without asking. */}
-          <Button size="sm" variant="ghost" icon={<Eye className="size-3.5" />} onClick={() => (confirmSolution && !result?.passed ? setConfirm(true) : void showSolution())}>
-            {t("Show solution")}
-          </Button>
+          <div className="ml-auto flex flex-wrap items-center gap-1">
+            {hints.length < q.hints && (
+              <Button size="sm" loading={busy} icon={<Lightbulb className="size-3.5" aria-hidden />} onClick={nextHint}>
+                {hints.length === 0 ? t("Show a hint") : t("Next hint ({n} of {m})", { n: hints.length + 1, m: q.hints })}
+              </Button>
+            )}
+            {/* Once every check has passed there is no attempt left to protect: the solution opens without asking. */}
+            <Button size="sm" variant="ghost" icon={<Eye className="size-3.5" aria-hidden />} onClick={() => (confirmSolution && !result?.passed ? setConfirm(true) : void showSolution())}>
+              {t("Show solution")}
+            </Button>
+          </div>
         </div>
       )}
       {solution && (
-        <div className="rounded-xl border bg-panel2/40 px-4 py-4">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-accent">{t("Solution")}</div>
+        <div className="rounded-xl border bg-panel px-4 py-4">
+          <SectionLabel tone="accent" className="mb-2">{t("Solution")}</SectionLabel>
           <Markdown>{solution}</Markdown>
         </div>
       )}
@@ -100,19 +109,22 @@ export function TutorBox({ sid, qid, result, w }: { sid: string; qid: string; re
   const failed = result && !result.passed;
 
   return (
-    <div className="rounded-xl border bg-panel2/40 p-4">
-      <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-accent"><Bot className="size-3.5" />{t("AI tutor")}</div>
-      {answer && <Markdown className="mb-3">{answer}</Markdown>}
+    <div className="rounded-xl border bg-panel p-4">
+      <SectionLabel tone="accent" icon={<Bot aria-hidden />} className="mb-2">{t("AI tutor")}</SectionLabel>
+      {/* Always here, so that the answer is read out when it arrives. */}
+      <div aria-live="polite" className="empty:hidden">
+        {answer && <Markdown className="mb-3">{answer}</Markdown>}
+      </div>
       {error && <div className="mb-3"><ErrorNote>{error}</ErrorNote></div>}
       {failed && !answer && (
         <Button size="sm" variant="primary" loading={busy} className="mb-3" onClick={() => send("")}>{t("Explain what went wrong")}</Button>
       )}
       <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (ask.trim()) void send(ask.trim()); }}>
-        <input value={ask} onChange={(e) => setAsk(e.target.value)} placeholder={w.tutorPlaceholder}
-          className="h-9 min-w-0 flex-1 rounded-lg border bg-panel px-3 text-sm outline-none placeholder:text-muted focus:border-accent" />
-        <Button size="md" loading={busy} disabled={!ask.trim()} aria-label={t("Send")}><Send className="size-4" /></Button>
+        <input value={ask} onChange={(e) => setAsk(e.target.value)} placeholder={w.tutorPlaceholder} aria-label={w.tutorPlaceholder}
+          className="h-10 min-w-0 flex-1 rounded-lg border bg-bg px-3 text-sm placeholder:text-muted focus-visible:border-accent" />
+        <Button size="md" variant="primary" loading={busy} disabled={!ask.trim()} aria-label={t("Send")} className="px-3">{!busy && <Send className="size-4" aria-hidden />}</Button>
       </form>
-      <p className="mt-2 text-[11px] text-muted">{w.tutorNote}</p>
+      <p className="mt-2 text-xs text-muted">{w.tutorNote}</p>
     </div>
   );
 }
