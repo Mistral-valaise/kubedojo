@@ -70,7 +70,11 @@ func (s *Server) rate(w http.ResponseWriter, r *http.Request) {
 		Stars   int    `json:"stars"`
 		Comment string `json:"comment"`
 	}
-	if err := readJSON(w, r, &req, 8<<10); err != nil || req.Stars < 1 || req.Stars > 5 {
+	err := readJSON(w, r, &req, 8<<10)
+	if s.rejected(w, err) {
+		return
+	}
+	if err != nil || req.Stars < 1 || req.Stars > 5 {
 		writeErr(w, 400, "stars must be between 1 and 5")
 		return
 	}

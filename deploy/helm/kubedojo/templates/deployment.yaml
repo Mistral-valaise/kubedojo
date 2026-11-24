@@ -53,6 +53,11 @@ spec:
               value: /tmp
             - name: KUBEDOJO_SHUTDOWN_GRACE
               value: "{{ $grace }}s"
+            # The Host names the server answers to: the Ingress, the Service,
+            # and what allowedHosts adds. localhost always is one, and the
+            # probes are answered under any name.
+            - name: KUBEDOJO_ALLOWED_HOSTS
+              value: {{ $ns := .Release.Namespace }}{{ $hosts := list $name (printf "%s.%s" $name $ns) (printf "%s.%s.svc" $name $ns) (printf "%s.%s.svc.cluster.local" $name $ns) }}{{ if .Values.ingress.enabled }}{{ $hosts = prepend $hosts .Values.ingress.host }}{{ end }}{{ range (default (list) .Values.allowedHosts) }}{{ $hosts = append $hosts (toString .) }}{{ end }}{{ join "," $hosts | quote }}
             - name: KUBEDOJO_SANDBOX_NAMESPACE
               valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
             - name: KUBEDOJO_SANDBOX_IMAGE
@@ -105,12 +110,31 @@ spec:
             - name: KUBEDOJO_SANDBOX_PULL_SECRET
               value: {{ .name | quote }}
             {{- end }}{{ end }}
-            {{- if .Values.tutor.existingSecret }}
-            - name: ANTHROPIC_API_KEY
-              valueFrom: {secretKeyRef: {name: {{ .Values.tutor.existingSecret }}, key: api-key}}
-            {{- if .Values.tutor.model }}
-            - name: KUBEDOJO_TUTOR_MODEL
-              value: {{ .Values.tutor.model | quote }}
+            {{- /* The assistant. tutor.existingSecret and tutor.model are the deprecated names of two of its values. */}}
+            {{- $aiSecret := .Values.assistant.existingSecret | default .Values.tutor.existingSecret }}
+            {{- $aiModel := .Values.assistant.model | default .Values.tutor.model }}
+            {{- if or .Values.assistant.enabled $aiSecret }}
+            - name: KUBEDOJO_AI
+              value: "true"
+            {{- if .Values.assistant.provider }}
+            - name: KUBEDOJO_AI_PROVIDER
+              value: {{ .Values.assistant.provider | quote }}
+            {{- end }}
+            {{- if $aiModel }}
+            - name: KUBEDOJO_AI_MODEL
+              value: {{ $aiModel | quote }}
+            {{- end }}
+            {{- if .Values.assistant.baseURL }}
+            - name: KUBEDOJO_AI_BASE_URL
+              value: {{ .Values.assistant.baseURL | quote }}
+            {{- end }}
+            {{- if $aiSecret }}
+            - name: KUBEDOJO_AI_API_KEY
+              valueFrom: {secretKeyRef: {name: {{ $aiSecret }}, key: api-key}}
+            {{- end }}
+            {{- if .Values.assistant.traceContent }}
+            - name: KUBEDOJO_AI_TRACE_CONTENT
+              value: {{ .Values.assistant.traceContent | quote }}
             {{- end }}
             {{- end }}
             {{- with (include "kubedojo.otlpEndpoint" .) }}

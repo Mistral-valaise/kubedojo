@@ -128,6 +128,14 @@
         }
       }
     },
+    "allowedHosts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^(\\*|(\\*\\.)?[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?|\\[?[0-9A-Fa-f:.]+\\]?)$"
+      }
+    },
     "sandbox": {
       "type": "object",
       "properties": {
@@ -302,8 +310,36 @@
         }
       }
     },
+    "assistant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["", "anthropic", "openai"]
+        },
+        "model": {
+          "type": "string"
+        },
+        "baseURL": {
+          "type": "string",
+          "pattern": "^$|^https?://"
+        },
+        "existingSecret": {
+          "type": "string"
+        },
+        "traceContent": {
+          "type": "string",
+          "enum": ["", "auto", "on", "off"]
+        }
+      }
+    },
     "tutor": {
       "type": "object",
+      "description": "Deprecated: use assistant.existingSecret and assistant.model.",
       "properties": {
         "existingSecret": {
           "type": "string"

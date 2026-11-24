@@ -92,6 +92,9 @@ func (a *quizAPI) call(method, path, body string) (int, string) {
 	if err != nil {
 		a.t.Fatal(err)
 	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		a.t.Fatal(err)

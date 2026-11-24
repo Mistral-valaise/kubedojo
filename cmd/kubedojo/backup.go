@@ -40,6 +40,11 @@ func cmdBackup(ctx context.Context, args []string) error {
 	if err := st.Backup(ctx, *out); err != nil {
 		return err
 	}
+	// SQLite writes the copy readable for everyone. It holds what the
+	// database holds.
+	if err := os.Chmod(*out, 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: the backup may be readable for other users of this machine: %v\n", err)
+	}
 	c, err := store.Inspect(ctx, *out)
 	if err != nil {
 		return fmt.Errorf("the backup was written but does not verify: %w", err)
@@ -63,7 +68,9 @@ func cmdRestore(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(*data, 0o755); err != nil {
+	// Also takes the access of others away from the database that is there
+	// now: it keeps its mode when it is renamed below.
+	if err := secureDataDir(*data); err != nil {
 		return err
 	}
 	db := filepath.Join(*data, "kubedojo.db")

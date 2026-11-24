@@ -58,6 +58,18 @@ ingress:
     enabled: false
     secretName: kubedojo-tls
 
+# The server answers only requests whose Host header is a name it is known
+# by; other names get 403. That keeps a web page from reaching kubedojo
+# through a DNS name the page controls (DNS rebinding). Known without listing
+# them: ingress.host, the Service (<release>, <release>.<namespace>, ....svc,
+# ....svc.cluster.local) and localhost, which is what a port-forward uses.
+# List here what else people type into the address bar: a second DNS name, the
+# address of a NodePort or LoadBalancer Service, a cluster domain that is not
+# cluster.local.
+#   allowedHosts: [dojo.example.com, "*.dojo.example.com", 192.0.2.10]
+# ["*"] turns the check off.
+allowedHosts: []
+
 # -- Sandboxes
 # Every session gets its own Pod running Docker-in-Docker, in which kubedojo
 # creates the practice clusters. These Pods are PRIVILEGED. Run them on a
@@ -132,7 +144,32 @@ oidc:
   image: quay.io/oauth2-proxy/oauth2-proxy:v7.9.0@sha256:37c1570c0427e02fc7c947ef2c04e8995b8347b7abc9fcf1dbb4e376a4b221a7
   extraArgs: []
 
-# -- AI tutor (optional). Secret with the key `api-key`.
+# -- AI assistant (optional). It answers questions about the task a learner is
+# working on. A hosted server takes this configuration only: the settings API
+# is read-only here. See docs/assistant.md.
+assistant:
+  # Switch the assistant on. It is also on when existingSecret is set.
+  enabled: false
+  # anthropic | openai (any OpenAI-compatible server: OpenAI, Ollama, vLLM,
+  # OpenRouter ...). Empty: anthropic.
+  provider: ""
+  # Model name. Empty: claude-opus-5-5 for anthropic; openai has no default.
+  model: ""
+  # Base URL of the provider's API, e.g. http://ollama.ai.svc:11434/v1.
+  # Empty: the provider's own API. Plain http is accepted for private and
+  # loopback addresses only.
+  baseURL: ""
+  # Secret with the key `api-key`. Needed for anthropic; a local model server
+  # usually needs none.
+  existingSecret: ""
+  # Record prompts and answers in traces: auto | on | off. On a hosted server
+  # auto means off; switch it on only if the trace backend may hold what
+  # learners type.
+  traceContent: ""
+
+# -- Deprecated: use `assistant`. `tutor.existingSecret` and `tutor.model` still
+# work as `assistant.existingSecret` and `assistant.model` where those are not
+# set, and will be removed in 0.6.
 tutor:
   existingSecret: ""
   model: ""

@@ -3,6 +3,7 @@ package checker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
+	"github.com/Mistral-valaise/kubedojo/internal/span"
 )
 
 // Runner executes a script on a sandbox machine identified by role.
@@ -35,6 +37,44 @@ type CheckResult struct {
 	Attempts   int    `json:"attempts"`
 	TimedOut   bool   `json:"timedOut,omitempty"`
 	Guard      bool   `json:"guard,omitempty"`
+}
+
+// How a check can end. A check that failed or ran out of time says something
+// about the learner's work. A grader error says the check could not be
+// evaluated at all (the sandbox did not take the command), which is a fault
+// of the server and the only outcome a trace marks as an error.
+const (
+	OutcomePassed      = "passed"
+	OutcomeFailed      = "failed"
+	OutcomeTimedOut    = "timed_out"
+	OutcomeGraderError = "grader_error"
+)
+
+// graderError starts what a check that could not be evaluated observed.
+const graderError = "grader error: "
+
+// Outcome says how the check ended, as one of the Outcome constants.
+func (c CheckResult) Outcome() string {
+	switch {
+	case c.Passed:
+		return OutcomePassed
+	case c.TimedOut:
+		return OutcomeTimedOut
+	case strings.HasPrefix(c.Observed, graderError):
+		return OutcomeGraderError
+	}
+	return OutcomeFailed
+}
+
+// GraderErrors counts the checks of the result that could not be evaluated.
+func (r Result) GraderErrors() int {
+	n := 0
+	for _, c := range r.Checks {
+		if c.Outcome() == OutcomeGraderError {
+			n++
+		}
+	}
+	return n
 }
 
 type Result struct {
@@ -85,7 +125,7 @@ func RunOnce(ctx context.Context, q *catalog.Question, run Runner, once func(*ca
 			single.RetryD = 0
 			c = &single
 		}
-		res.Checks = append(res.Checks, runCheck(ctx, c, run))
+		res.Checks = append(res.Checks, tracedCheck(ctx, c, run))
 	}
 	score(q, &res)
 	return res
@@ -96,7 +136,7 @@ func RunOnce(ctx context.Context, q *catalog.Question, run Runner, once func(*ca
 func RunSettled(ctx context.Context, q *catalog.Question, run Runner, settle time.Duration) Result {
 	res := Result{QuestionID: q.ID, Max: q.Points, At: time.Now().UTC()}
 	for _, c := range q.Checks {
-		res.Checks = append(res.Checks, runCheck(ctx, c, run))
+		res.Checks = append(res.Checks, tracedCheck(ctx, c, run))
 	}
 	score(q, &res)
 	end := time.Now().Add(settle)
@@ -110,6 +150,10 @@ func RunSettled(ctx context.Context, q *catalog.Question, run Runner, settle tim
 // passed ones. Exam grading uses it: a Deployment fixed seconds before the
 // deadline is still rolling out, and a single look would grade the rollout
 // instead of the answer. A pass can never turn into a failure this way.
+//
+// A re-check starts no span: an exam full of open answers is looked at again
+// every few seconds, and a span per check and round would bury the trace. The
+// caller records the round instead.
 func Recheck(ctx context.Context, q *catalog.Question, run Runner, prev Result) Result {
 	res := Result{QuestionID: q.ID, Max: q.Points, At: time.Now().UTC(), Checks: append([]CheckResult(nil), prev.Checks...)}
 	for i, c := range q.Checks {
@@ -117,7 +161,7 @@ func Recheck(ctx context.Context, q *catalog.Question, run Runner, prev Result) 
 			continue
 		}
 		old := res.Checks[i]
-		cr := runCheck(ctx, c, run)
+		cr := runCheck(ctx, c, run, nil)
 		cr.Attempts += old.Attempts
 		cr.DurationMs += old.DurationMs
 		res.Checks[i] = cr
@@ -165,15 +209,71 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	}
 }
 
+// attemptEvents is how many attempts of a retried check its span keeps as
+// events from the start. The last attempt is always kept as well.
+const attemptEvents = 5
+
+// commandAttrLimit clips the command of a check on its span.
+const commandAttrLimit = 500
+
+// tracedCheck runs one check as the span check.run. The span says what was
+// asked (the command the content defines, the machine) and how it ended; each
+// attempt of a retried check is an event. What the command printed stays out
+// of the trace: it can quote what the learner wrote, and the API response has
+// it under the same check id.
+func tracedCheck(ctx context.Context, c *catalog.Check, run Runner) CheckResult {
+	ctx, sp := span.Start(ctx, "check.run",
+		span.String("kubedojo.check.id", c.ID),
+		span.String("kubedojo.check.command", clipRunes(Command(c), commandAttrLimit)),
+		span.Int("kubedojo.check.points", c.Points),
+		span.Bool("kubedojo.check.guard", c.Guard),
+		span.String("kubedojo.exec.target", target(c)))
+	event := func(cr CheckResult) {
+		sp.Event("attempt", span.Int("n", cr.Attempts), span.Int("exit_code", cr.ExitCode), span.Bool("passed", cr.Passed))
+	}
+	cr := runCheck(ctx, c, run, func(cr CheckResult) {
+		if cr.Attempts <= attemptEvents {
+			event(cr)
+		}
+	})
+	if cr.Attempts > attemptEvents {
+		event(cr)
+	}
+	outcome := cr.Outcome()
+	sp.Set(span.Bool("kubedojo.check.passed", cr.Passed),
+		span.String("kubedojo.check.outcome", outcome),
+		span.Int("kubedojo.check.attempts", cr.Attempts),
+		span.Bool("kubedojo.check.timed_out", cr.TimedOut),
+		span.Int("process.exit.code", cr.ExitCode))
+	if outcome != OutcomeGraderError {
+		sp.End(nil)
+		return cr
+	}
+	sp.Set(span.String("error.type", OutcomeGraderError))
+	sp.End(errors.New(strings.TrimPrefix(cr.Observed, graderError)))
+	return cr
+}
+
+// target is the machine a check runs on.
+func target(c *catalog.Check) string {
+	if c.On == "" {
+		return "control-plane"
+	}
+	return c.On
+}
+
 // runCheck runs one check, repeating it while it fails when the check asks
-// for that with retry.
-func runCheck(ctx context.Context, c *catalog.Check, run Runner) CheckResult {
+// for that with retry. each, if not nil, sees the result of every attempt.
+func runCheck(ctx context.Context, c *catalog.Check, run Runner, each func(CheckResult)) CheckResult {
 	start := time.Now()
 	end := start.Add(c.RetryD)
 	var cr CheckResult
 	for n := 1; ; n++ {
 		cr = attempt(ctx, c, run)
 		cr.Attempts = n
+		if each != nil {
+			each(cr)
+		}
 		if cr.Passed || c.RetryD == 0 || time.Now().Add(retryPause).After(end) || sleepCtx(ctx, retryPause) != nil {
 			break
 		}
@@ -185,10 +285,7 @@ func runCheck(ctx context.Context, c *catalog.Check, run Runner) CheckResult {
 func attempt(ctx context.Context, c *catalog.Check, run Runner) CheckResult {
 	cr := CheckResult{ID: c.ID, Title: c.Title, Points: c.Points, Explain: strings.TrimSpace(c.Explain),
 		Command: Command(c), Expected: describe(c), Guard: c.Guard}
-	cr.On = c.On
-	if cr.On == "" {
-		cr.On = "control-plane"
-	}
+	cr.On = target(c)
 	timeout := c.TimeoutD
 	if timeout <= 0 {
 		timeout = catalog.DefaultCheckTimeout
@@ -206,7 +303,7 @@ func attempt(ctx context.Context, c *catalog.Check, run Runner) CheckResult {
 		return cr
 	}
 	if err != nil {
-		cr.Observed = "grader error: " + Redact(err.Error())
+		cr.Observed = graderError + Redact(err.Error())
 		return cr
 	}
 	stdout := strings.TrimSpace(out.Stdout)
@@ -282,6 +379,14 @@ func clip(s string) string {
 	const max = 600
 	if len(s) > max {
 		return s[:max] + " …"
+	}
+	return s
+}
+
+// clipRunes cuts s to at most max characters, never inside one.
+func clipRunes(s string, max int) string {
+	if r := []rune(s); len(r) > max {
+		return string(r[:max]) + " …"
 	}
 	return s
 }
