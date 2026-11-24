@@ -107,3 +107,22 @@ Two of these change what worked before 0.5:
   address of a NodePort or LoadBalancer Service) answers `403` until that name is in `allowedHosts`.
 - A request with a body but without `Content-Type: application/json` is answered with `415`. The UI
   always sent the header; scripts that post with `curl -d` need `-H 'Content-Type: application/json'`.
+
+### The assistant sends data to a model
+
+The assistant is off unless you switch it on. When it is on, a message to it leaves kubedojo for the
+model server you configured: Anthropic, another provider, or a model on your own machine.
+
+| What | How it is handled |
+|---|---|
+| What is sent | the task, the results of the checks, the hints you opened, the solution only if you viewed it, your note, and a read-only look at the sandbox (a fixed snapshot, plus fixed commands for failing checks). Never files on a deny list such as keys, kubeconfigs and tokens; outputs are redacted the way check outputs are |
+| What the model may do | nothing. It runs no command and calls no tool; the server gathers the context itself, from templates the content defines |
+| Text from the sandbox | is marked as data in the prompt and cannot close its block. A model can still be misled by what it reads: treat an answer as advice, not as fact |
+| The API key | stored in `settings.json` (mode `0600`) or taken from the environment. No endpoint returns it, only that one is set and its last four characters. It is in no log line, span or metric. There is no command-line flag for it |
+| Where requests may go | `http` and `https` only. The address is checked when the connection is made, after name resolution: link-local addresses (cloud metadata) are always refused, redirects are not followed, plain `http` is allowed only for loopback and private addresses |
+| A key and its server | a stored key belongs to one provider and one server: changing either without a new key removes it. A key from the environment locks both, so the UI cannot point it elsewhere |
+| Hosted mode | the settings cannot be changed through the UI or the API; `settings.json` is not read |
+| Traces | provider, model, token counts and timing are always recorded. Prompts and answers only with `--ai-trace-content=on`, or with the bundled local stack; never by default for another telemetry endpoint or in hosted mode. The model server receives no trace headers |
+| Limits | 10 messages a minute per user, one answer per question and four in all at a time, and not during a running exam |
+
+Details: [docs/assistant.md](docs/assistant.md).

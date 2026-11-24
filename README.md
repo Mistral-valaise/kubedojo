@@ -118,7 +118,8 @@ kubedojo version
 
 Useful flags for `up`: `--observability` (local Grafana with dashboards; ports and retention are in
 [docs/observability.md](docs/observability.md#the-local-stack)), `--addr`, `--no-open`,
-`--kubernetes-version`, `--registry-cache=false`. The optional AI assistant is set up on the Settings
+`--kubernetes-version`, `--registry-cache=false`, `--allowed-hosts` (the names the server answers
+under, when it is reached under more than `localhost`). The optional AI assistant is set up on the Settings
 page of the UI, or with flags: Claude with `ANTHROPIC_API_KEY`, any OpenAI-compatible server such as a
 local Ollama with `--ai --ai-provider openai --ai-base-url http://localhost:11434/v1 --ai-model llama3.2`.
 See [docs/assistant.md](docs/assistant.md).
@@ -284,9 +285,11 @@ kubedojo up --observability
 ```
 
 starts Grafana next to kubedojo, on <http://127.0.0.1:3000>, with Prometheus, Loki, Tempo and an
-OpenTelemetry Collector in one container. You get five dashboards, seven alert rules and working
+OpenTelemetry Collector in one container. You get six dashboards, seven alert rules and working
 links between the signals: from a slow sandbox start in a graph to its trace, from the trace to its
-log lines, and back. It needs Docker and nothing else.
+log lines, and back. A trace reads from the request down to every check with its outcome, and, with
+the assistant, down to the call to the model with its tokens (OpenTelemetry GenAI conventions). It
+needs Docker and nothing else.
 
 ![Grafana dashboard for kubedojo](docs/images/grafana.png)
 

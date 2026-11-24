@@ -14,7 +14,12 @@
 | `internal/catalog` | loads and validates content |
 | `internal/store` | SQLite: sessions, attempts, exam results |
 | `internal/telemetry` | OpenTelemetry setup and instruments |
-| `internal/tutor` | optional AI tutor (Claude API) |
+| `internal/span` | tracing API of kubedojo's own code: typed attributes and events, no OpenTelemetry import |
+| `internal/observability` | the local Grafana stack: start, status, stop, reset, verify |
+| `internal/httpsec` | what stands in front of the API: Host allowlist, cross-origin protection, security headers |
+| `internal/ai` | the assistant's model side: provider contract, prompt, Anthropic and OpenAI-compatible adapters, base URL guard, settings |
+| `internal/assistant` | the assistant itself: gathers the context of a question, keeps the conversation, limits use |
+| `internal/ratelimit` | token bucket per key and a gate for answers that run at the same time |
 | `internal/export` | export questions to other platforms (Killercoda) |
 | `web/` | React + TypeScript UI, xterm.js terminal |
 | `content/` | tracks, lessons, questions |
