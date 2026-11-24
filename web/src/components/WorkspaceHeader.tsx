@@ -40,7 +40,7 @@ const given = (node: ReactNode) => node !== undefined && node !== null && node !
  *
  * Left to right: brand, `back`, `title`, children, `center`, `nav`, `docs`,
  * `actions`, About, theme toggle, `end`. Every slot is optional. The About
- * button stands in for the footer these views do not have. With a `back`, a
+ * button opens the version, Settings and the credit. With a `back`, a
  * `title` or children the brand is followed by a slash and hidden on a phone,
  * where the header has room for the way back and the controls only.
  *

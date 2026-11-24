@@ -9,6 +9,7 @@ import { practicable, words } from "../track";
 import { Choice } from "../components/Choice";
 import { Markdown } from "../components/Markdown";
 import { Rating } from "../components/Rating";
+import { Footer } from "../components/Footer";
 import { HeaderPager, WorkspaceHeader } from "../components/WorkspaceHeader";
 import { Badge, Button, ButtonLink, Card, Difficulty, ErrorNote, Loading, MAIN_ID, Skeleton, cx } from "../components/ui";
 
@@ -226,6 +227,7 @@ export function QuizPractice({ track, qid }: { track: Track; qid: string }) {
           </aside>
         )}
       </main>
+      <Footer compact />
     </div>
   );
 }
