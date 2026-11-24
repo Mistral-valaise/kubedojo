@@ -41,6 +41,8 @@ lint: go ## validate the content
 	./bin/kubedojo content lint
 
 lint-dashboards: ## check the queries of the Grafana dashboards against the metrics kubedojo exports
+	@# The module proxy sometimes drops a download; a second or third try gets it.
+	cd tools/obslint && for try in 1 2 3; do go mod download && break; [ $$try = 3 ] && exit 1; sleep 10; done
 	cd tools/obslint && go test -count=1 ./...
 
 test-observability: ## run the observability stack in Docker and prove signals, links, restart and reset
