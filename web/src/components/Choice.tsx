@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Check, CheckCircle2, Circle, ExternalLink, Eye, XCircle } from "lucide-react";
 import type { ChoiceReview, ChoiceView } from "../api";
 import { t } from "../i18n";
 import { Markdown } from "./Markdown";
-import { Badge, cx } from "./ui";
+import { SectionLabel, cx } from "./ui";
 
 /** Keys typed into a text field belong to that field, never to the options. */
 function isTextField(el: EventTarget | null): boolean {
@@ -84,7 +84,10 @@ function Options({ choice, value, onChange, onSubmit, hotkeys, disabled, label }
       case " ": e.preventDefault(); if (at >= 0) pick(at); break;
     }
   };
-  useEffect(() => {
+  // A layout effect: the keys work from the moment the options are on the
+  // page, not one task later. A learner who types ahead, and a test that
+  // presses a key as soon as it sees the options, both rely on that.
+  useLayoutEffect(() => {
     const handler = (e: KeyboardEvent) => onKey.current(e);
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -92,7 +95,7 @@ function Options({ choice, value, onChange, onSubmit, hotkeys, disabled, label }
 
   return (
     <div>
-      <p id="choice-hint" className="mb-2.5 text-xs text-muted">
+      <p id="choice-hint" className="mb-2.5 text-label text-muted">
         {multiple ? t("Select every answer that applies.") : t("Select one answer.")}
       </p>
       <div ref={group} role={multiple ? "group" : "radiogroup"} aria-label={label ?? t("Answers")} aria-describedby="choice-hint"
@@ -105,14 +108,14 @@ function Options({ choice, value, onChange, onSubmit, hotkeys, disabled, label }
               onClick={() => { setFocus(i); pick(i); }} onFocus={() => setFocus(i)}
               className={cx("flex min-h-11 items-start gap-3 rounded-xl border px-4 py-3 transition select-none",
                 disabled ? "cursor-default opacity-70" : "cursor-pointer",
-                on ? "border-accent bg-accent-soft" : "bg-panel2/40 hover:border-accent/60")}>
+                on ? "border-accent bg-accent-soft" : "bg-panel hover:border-accent/60")}>
               <span aria-hidden className={cx("mt-0.5 flex size-5 shrink-0 items-center justify-center border-2 transition",
-                multiple ? "rounded-md" : "rounded-full", on ? "border-accent bg-accent text-white" : "border-muted/60 bg-panel")}>
-                {on && (multiple ? <Check className="size-3.5" strokeWidth={3} /> : <span className="size-2 rounded-full bg-white" />)}
+                multiple ? "rounded-md" : "rounded-full", on ? "border-accent bg-accent text-on-accent" : "border-muted bg-panel")}>
+                {on && (multiple ? <Check className="size-3.5" strokeWidth={3} /> : <span className="size-2 rounded-full bg-on-accent" />)}
               </span>
               <Markdown plain className="min-w-0 flex-1">{o.text}</Markdown>
               {i < 9 && (
-                <kbd aria-hidden className="mt-0.5 hidden h-5 min-w-5 shrink-0 items-center justify-center rounded-md border bg-panel px-1 font-mono text-[11px] text-muted sm:flex">{i + 1}</kbd>
+                <kbd aria-hidden className="mt-0.5 hidden h-5 min-w-5 shrink-0 items-center justify-center rounded-md border bg-panel px-1 font-mono text-xs text-muted sm:flex">{i + 1}</kbd>
               )}
             </div>
           );
@@ -121,6 +124,9 @@ function Options({ choice, value, onChange, onSubmit, hotkeys, disabled, label }
     </div>
   );
 }
+
+/** The label under a reviewed option. Plain text: a badge of the same tone would vanish on the tinted row. */
+const verdictLabel = "block text-xs font-semibold";
 
 function Review({ choice, review, passed }: { choice: ChoiceView; review: ChoiceReview; passed?: boolean }) {
   const answered = choice.answer.length > 0;
@@ -139,7 +145,7 @@ function Review({ choice, review, passed }: { choice: ChoiceView; review: Choice
         {verdict.icon}
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold">{verdict.title}</div>
-          <div className="text-xs text-muted">{verdict.note}</div>
+          <div className="text-label text-muted">{verdict.note}</div>
         </div>
       </div>
 
@@ -149,17 +155,17 @@ function Review({ choice, review, passed }: { choice: ChoiceView; review: Choice
           const why = review.options[o.id];
           return (
             <li key={o.id} className={cx("flex items-start gap-3 rounded-xl border px-4 py-3",
-              correct ? "border-ok/50 bg-ok-soft/60" : picked ? "border-bad/50 bg-bad-soft/60" : "bg-panel2/40")}>
+              correct ? "border-ok/50 bg-ok-soft" : picked ? "border-bad/50 bg-bad-soft" : "bg-panel")}>
               {correct ? <CheckCircle2 aria-hidden className="mt-0.5 size-5 shrink-0 text-ok" />
                 : picked ? <XCircle aria-hidden className="mt-0.5 size-5 shrink-0 text-bad" />
-                  : <Circle aria-hidden className="mt-0.5 size-5 shrink-0 text-muted/50" />}
+                  : <Circle aria-hidden className="mt-0.5 size-5 shrink-0 text-muted" />}
               <div className="min-w-0 flex-1">
                 <Markdown>{o.text}</Markdown>
                 {(correct || picked) && (
                   <div className="mt-1.5">
-                    {correct && picked && <Badge tone="ok">{t("Your answer · correct")}</Badge>}
-                    {correct && !picked && <Badge tone="ok">{t("Correct answer")}</Badge>}
-                    {!correct && picked && <Badge tone="bad">{t("Your answer · incorrect")}</Badge>}
+                    {correct && picked && <span className={verdictLabel + " text-ok"}>{t("Your answer · correct")}</span>}
+                    {correct && !picked && <span className={verdictLabel + " text-ok"}>{t("Correct answer")}</span>}
+                    {!correct && picked && <span className={verdictLabel + " text-bad"}>{t("Your answer · incorrect")}</span>}
                   </div>
                 )}
                 {why && <Markdown className="md-sm mt-1.5 text-muted">{why}</Markdown>}
@@ -170,19 +176,19 @@ function Review({ choice, review, passed }: { choice: ChoiceView; review: Choice
       </ul>
 
       {review.explanation && (
-        <div className="rounded-xl border bg-panel2/40 px-4 py-4">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-accent">{t("Explanation")}</div>
+        <div className="rounded-xl border bg-panel2 px-4 py-4">
+          <SectionLabel tone="accent" className="mb-2">{t("Explanation")}</SectionLabel>
           <Markdown>{review.explanation}</Markdown>
         </div>
       )}
       {refs.length > 0 && (
         <div>
-          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted">{t("References")}</div>
+          <SectionLabel className="mb-1.5">{t("References")}</SectionLabel>
           <ul className="space-y-1">
             {refs.map((r) => (
               <li key={r.url}>
                 <a href={r.url} target="_blank" rel="noopener noreferrer"
-                  className="inline-flex min-h-6 items-center gap-1.5 text-sm text-accent underline underline-offset-2 hover:brightness-110">
+                  className="inline-flex min-h-9 items-center gap-1.5 text-sm text-accent underline underline-offset-2 hover:brightness-110">
                   <ExternalLink aria-hidden className="size-3.5 shrink-0" />{r.title}
                 </a>
               </li>

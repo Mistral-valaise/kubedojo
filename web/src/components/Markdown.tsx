@@ -44,19 +44,21 @@ function useCopied(): [boolean, (text: string) => void] {
   return [copied, (text) => void copyText(text).then((ok) => ok && setCopied(true))];
 }
 
-/** Inline code: one click copies it — names, paths and commands in task texts. */
+/**
+ * Inline code: one click copies it — names, paths and commands in task texts.
+ *
+ * It is a convenience for the pointer and no control: a task text has dozens
+ * of snippets, and a tab stop on each would bury the real controls for a
+ * keyboard user, who selects and copies the text as any other. Only the
+ * buttons of a code block are in the tab order.
+ */
 function InlineCode({ children }: { children?: ReactNode }) {
   const [copied, copy] = useCopied();
   const text = textOf(children);
   return (
-    <code
-      role="button" tabIndex={0} title={t("Click to copy")}
-      onClick={() => copy(text)}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); copy(text); } }}
-      className={"copyable" + (copied ? " copied" : "")}
-    >
+    <code title={t("Click to copy")} onClick={() => copy(text)} className={"copyable" + (copied ? " copied" : "")}>
       {children}
-      {copied && <span className="copied-tip" aria-live="polite">{t("Copied")}</span>}
+      {copied && <span className="copied-tip" role="status">{t("Copied")}</span>}
     </code>
   );
 }
@@ -75,17 +77,18 @@ function Pre({ children }: { children?: ReactNode }) {
     if (runInTerminal(text)) { setRan(true); setTimeout(() => setRan(false), 1300); }
   };
   return (
-    <pre className="group">
-      <span className="absolute right-2 top-2 flex gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+    <pre>
+      {/* Shown on hover and on focus, and always on a touch screen: see .pre-actions in markdown.css. */}
+      <span className="pre-actions">
         {runnable && (
-          <button onClick={run} title={t("Run in terminal")} aria-label={t("Run in terminal")}
-            className="inline-flex items-center gap-1 rounded-md border bg-panel px-1.5 py-1 font-sans text-[11px] font-medium text-muted hover:border-accent hover:text-accent">
-            {ran ? <Check className="size-3.5 text-ok" /> : <Play className="size-3.5" />}{t("Run")}
+          <button type="button" onClick={run} title={t("Run in terminal")} aria-label={t("Run in terminal")}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border bg-panel px-2.5 font-sans text-xs font-semibold text-accent hover:border-accent">
+            {ran ? <Check className="size-3.5 text-ok" aria-hidden /> : <Play className="size-3.5" aria-hidden />}{t("Run")}
           </button>
         )}
-        <button onClick={() => copy(text)} title={t("Copy")} aria-label={t("Copy")}
-          className="rounded-md border bg-panel p-1.5 text-muted hover:text-text">
-          {copied ? <Check className="size-3.5 text-ok" /> : <Copy className="size-3.5" />}
+        <button type="button" onClick={() => copy(text)} title={t("Copy")} aria-label={t("Copy")}
+          className="inline-flex size-9 items-center justify-center rounded-lg border bg-panel text-muted hover:text-text">
+          {copied ? <Check className="size-4 text-ok" aria-hidden /> : <Copy className="size-4" aria-hidden />}
         </button>
       </span>
       <code className={className}>{text}</code>
@@ -106,7 +109,7 @@ export const Markdown = memo(function Markdown({ children, className, plain }: {
         components={{
           pre: Pre,
           code: plain ? "code" : InlineCode,
-          a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
+          a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
         }}
       >
         {children}

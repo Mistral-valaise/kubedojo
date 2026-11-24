@@ -11,9 +11,9 @@ export function Logo({ className }: { className?: string }) {
 
 export function Brand() {
   return (
-    <Link to="/" className="flex items-center gap-2 font-semibold tracking-tight">
+    <Link to="/" className="flex shrink-0 items-center gap-2 font-semibold tracking-tight">
       <Logo className="size-7" />
-      <span className="text-[15px]">kubedojo</span>
+      <span className="text-base">kubedojo</span>
     </Link>
   );
 }
