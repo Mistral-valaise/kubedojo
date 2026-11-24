@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { ArrowLeft, ChevronLeft, ChevronRight, Eye, PlayCircle, RotateCcw } from "lucide-react";
+import { ArrowLeft, ChevronRight, Eye, PlayCircle, RotateCcw } from "lucide-react";
 import { api, ApiError, type Config, type QuestionView, type Track } from "../api";
 import { t } from "../i18n";
 import { practicable, words } from "../track";
@@ -8,7 +8,8 @@ import { Choice } from "../components/Choice";
 import { TutorBox } from "../components/Help";
 import { Markdown } from "../components/Markdown";
 import { Rating } from "../components/Rating";
-import { Badge, Brand, Button, Card, Difficulty, ErrorNote, Spinner, ThemeToggle } from "../components/ui";
+import { HeaderPager, WorkspaceHeader } from "../components/WorkspaceHeader";
+import { Badge, Button, Card, Difficulty, ErrorNote, Spinner } from "../components/ui";
 
 /**
  * Practice of a multiple-choice question: the stem, the options and, once
@@ -106,19 +107,18 @@ export function QuizPractice({ track, qid }: { track: Track; qid: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-bg px-4">
-        <span className="hidden items-center gap-3 sm:flex"><Brand /><span className="text-line">/</span></span>
-        <Link to={`/t/${track.id}`} className="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted hover:text-text">
-          <ArrowLeft className="size-3.5 shrink-0" /><span className="truncate">{track.short} · {t("Practice")}</span>
-        </Link>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <Button size="sm" variant="ghost" disabled={!prev} onClick={() => prev && nav(`/t/${track.id}/q/${prev.id}`)} aria-label={w.previous}><ChevronLeft className="size-4" /></Button>
-          <span className="px-1 text-xs whitespace-nowrap tabular-nums text-muted">{pos >= 0 ? `${pos + 1} / ${sameDomain.length}` : ""}</span>
-          <Button size="sm" variant="ghost" disabled={!next} onClick={() => next && nav(`/t/${track.id}/q/${next.id}`)} aria-label={w.next}><ChevronRight className="size-4" /></Button>
-          {w.docs && <a href={w.docs.url} target="_blank" rel="noreferrer" title={w.docs.title} className="hidden px-2 text-sm text-muted hover:text-text sm:block">{t("Docs")}</a>}
-          <ThemeToggle />
-        </div>
-      </header>
+      <WorkspaceHeader
+        back={(
+          <Link to={`/t/${track.id}`} className="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted hover:text-text">
+            <ArrowLeft className="size-3.5 shrink-0" /><span className="truncate">{track.short} · {t("Practice")}</span>
+          </Link>
+        )}
+        nav={(
+          <HeaderPager position={pos >= 0 ? `${pos + 1} / ${sameDomain.length}` : ""} previousLabel={w.previous} nextLabel={w.next}
+            onPrevious={prev && (() => nav(`/t/${track.id}/q/${prev.id}`))} onNext={next && (() => nav(`/t/${track.id}/q/${next.id}`))} />
+        )}
+        docs={w.docs}
+      />
 
       <main ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[46rem] px-3 py-4 sm:px-6 sm:py-10">
