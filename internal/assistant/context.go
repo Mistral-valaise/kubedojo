@@ -13,6 +13,7 @@ import (
 	"github.com/Mistral-valaise/kubedojo/internal/checker"
 	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 	"github.com/Mistral-valaise/kubedojo/internal/session"
+	"github.com/Mistral-valaise/kubedojo/internal/span"
 )
 
 // Stages of gathering the context, as the stream reports them.
@@ -220,10 +221,11 @@ func (s *Service) promptContext(v *session.Session, q *catalog.Question, qs *ses
 
 // observe reads the sandbox: the snapshot and the diagnostics of the failing
 // checks. It reports each stage it actually runs. Nothing here can fail a
-// message: what cannot be read is left out.
-func (s *Service) observe(ctx context.Context, v *session.Session, q *catalog.Question, qs *session.QState, stage func(string)) observed {
+// message: what cannot be read is left out. cached says the sandbox was not
+// asked: what was read for an earlier message still holds.
+func (s *Service) observe(ctx context.Context, v *session.Session, q *catalog.Question, qs *session.QState, stage func(string)) (seen observed, cached bool) {
 	if qs.Status != "ready" || q.Type == catalog.TypeChoice || s.cfg.Sessions == nil {
-		return observed{}
+		return observed{}, false
 	}
 	// The state of the sandbox is taken to hold for a short while, and
 	// certainly not beyond the next check.
@@ -233,7 +235,7 @@ func (s *Service) observe(ctx context.Context, v *session.Session, q *catalog.Qu
 	}
 	now := s.now()
 	if got, ok := s.seen.get(key, now); ok {
-		return got
+		return got, true
 	}
 	out := observed{at: now}
 
@@ -273,5 +275,37 @@ func (s *Service) observe(ctx context.Context, v *session.Session, q *catalog.Qu
 	if ctx.Err() == nil {
 		s.seen.put(key, out)
 	}
-	return out
+	return out, false
+}
+
+// gather collects what the model is told about the task with this message:
+// what kubedojo knows without asking, and what it reads from the sandbox.
+// It is the span assistant.context; the commands that run in the sandbox
+// are the spans below it. The span describes the context by its size and
+// by what went into it, never by its text.
+func (t *Turn) gather(ctx context.Context, stage func(string)) ai.PromptContext {
+	s, began := t.s, time.Now()
+	ctx, sp := span.Start(ctx, "assistant.context", t.attrs()...)
+	pc := s.promptContext(t.v, t.q, t.qs)
+	seen, cached := s.observe(ctx, t.v, t.q, t.qs, stage)
+	pc.Snapshot, pc.Diagnostics = seen.snapshot, seen.diagnostics
+	failed := 0
+	if t.qs.Last != nil {
+		for _, c := range t.qs.Last.Checks {
+			if !c.Passed {
+				failed++
+			}
+		}
+	}
+	sp.Set(span.Int("kubedojo.assistant.context.bytes", len(ai.RenderContext(pc))),
+		span.Int("kubedojo.assistant.context.failing_checks", failed),
+		span.Int("kubedojo.assistant.context.hints_used", len(pc.Hints)),
+		span.Bool("kubedojo.assistant.context.solution_viewed", pc.SolutionViewed),
+		span.Bool("kubedojo.assistant.context.cached", cached))
+	// Inside the span, so the sample carries its trace.
+	if s.cfg.Hooks.Context != nil {
+		s.cfg.Hooks.Context(ctx, t.v.Track, cached, time.Since(began))
+	}
+	sp.End(nil)
+	return pc
 }
