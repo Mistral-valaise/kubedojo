@@ -146,10 +146,11 @@ describe("SettingsPage", () => {
     expect(screen.getByText("The assistant cannot answer yet.")).toBeTruthy();
     expect(screen.getByText("Choose a model.")).toBeTruthy();
     cleanup();
-    server.settings = fixture({ enabled: { value: false, source: "default", locked: false }, configured: false, problem: "" });
+    // Switched off, that is what is missing: said plainly, not as a warning.
+    server.settings = fixture({ enabled: { value: false, source: "default", locked: false }, configured: false, problem: "The assistant is switched off." });
     await open();
+    expect(screen.getByText("The assistant is switched off.")).toBeTruthy();
     expect(screen.queryByText("The assistant cannot answer yet.")).toBeNull();
-    expect(screen.queryByText("Not ready to switch on.")).toBeNull();
   });
 
   it("shows a field that a flag or the environment sets as locked, with what sets it", async () => {

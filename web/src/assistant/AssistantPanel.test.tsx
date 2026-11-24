@@ -560,16 +560,14 @@ describe("AssistantPanel when there is no answer", () => {
     await waitFor(() => expect(fakeStream.calls).toHaveLength(1));
     await act(async () => { fakeStream.last.fail(new AssistantError("rate_limited", "The assistant is busy with other answers. Try again in a few seconds.", 429, 7)); });
     const note = await screen.findByRole("alert");
+    // The sentence is the server's; the button counts the seconds of Retry-After down.
     expect(within(note).getByText("The assistant is busy with other answers. Try again in a few seconds.")).toBeTruthy();
-    expect(within(note).getByText("Try again in 7 seconds.")).toBeTruthy();
-    const retry = within(note).getByRole("button", { name: "Retry" }) as HTMLButtonElement;
-    expect(retry.disabled).toBe(true);
+    const retry = within(note).getByRole("button", { name: /^Retry/ }) as HTMLButtonElement;
+    expect([retry.textContent, retry.disabled]).toEqual(["Retry in 7 s", true]);
     act(() => { vi.advanceTimersByTime(6000); });
-    expect(within(note).getByText("Try again in 1 second.")).toBeTruthy();
-    expect(retry.disabled).toBe(true);
+    expect([retry.textContent, retry.disabled]).toEqual(["Retry in 1 s", true]);
     act(() => { vi.advanceTimersByTime(1100); });
-    expect(within(note).queryByText(/^Try again in/)).toBeNull();
-    expect(retry.disabled).toBe(false);
+    expect([retry.textContent, retry.disabled]).toEqual(["Retry", false]);
   });
 
   it("names the limit for a message the server found too long", async () => {

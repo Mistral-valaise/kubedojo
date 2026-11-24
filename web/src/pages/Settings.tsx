@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Check, CircleAlert, Lock, PlugZap, TriangleAlert } from "lucide-react";
+import { Check, CircleAlert, Info, Lock, PlugZap, TriangleAlert } from "lucide-react";
 import { api, ApiError, type ProviderInfo, type Settings, type SettingsPatch } from "../api";
 import { refreshConfig } from "../config";
 import { useLoad } from "../hooks";
@@ -158,12 +158,17 @@ function AssistantForm({ settings, saved, onEdit, onSaved }: {
           </div>
 
           <div className="flex flex-col gap-6 px-5 py-6 sm:px-6">
-            {!a.configured && a.problem && (
+            {/* What the server says is missing. Switched on it is a warning; switched off it is a plain statement. */}
+            {!a.configured && a.problem && (a.enabled.value ? (
               <p className="flex items-start gap-2.5 rounded-xl border border-warn/40 bg-warn-soft px-4 py-3 text-sm">
                 <CircleAlert className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden />
-                <span><span className="font-medium">{a.enabled.value ? t("The assistant cannot answer yet.") : t("Not ready to switch on.")}</span> {a.problem}</span>
+                <span><span className="font-medium">{t("The assistant cannot answer yet.")}</span> {a.problem}</span>
               </p>
-            )}
+            ) : (
+              <p className="flex items-start gap-2.5 rounded-xl border bg-panel2 px-4 py-3 text-sm text-muted">
+                <Info className="mt-0.5 size-4 shrink-0" aria-hidden />{a.problem}
+              </p>
+            ))}
 
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">

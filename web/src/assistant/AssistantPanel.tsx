@@ -289,7 +289,7 @@ function Answer({ message: m, w, onRetry }: { message: ChatMessage; w: Words; on
 
 function FailureNote({ failure, chat, status }: { failure: Failure; chat: Assistant; status: AssistantStatus | undefined }) {
   const shown = describe(failure, status, chat.limits.messageChars);
-  // A refusal with Retry-After: the button waits as long as the server asked for.
+  // A refusal with Retry-After: the button counts down as long as the server asked for.
   const until = failure.at + (failure.retryAfter ?? 0) * 1000;
   const [wait, setWait] = useState(() => Math.max(0, Math.ceil((until - Date.now()) / 1000)));
   useEffect(() => {
@@ -307,10 +307,13 @@ function FailureNote({ failure, chat, status }: { failure: Failure; chat: Assist
         <div className="min-w-0 flex-1">
           <p className="leading-relaxed break-words">{shown.text}</p>
           {shown.settings && !status?.writable && <p className="mt-1 text-label text-muted">{t("The assistant is configured by the administrator of this kubedojo.")}</p>}
-          {wait > 0 && <p className="mt-1 text-label tabular-nums text-muted">{plural(wait, "Try again in {n} second.", "Try again in {n} seconds.")}</p>}
           {(shown.retry || shown.reload || settings) && (
             <div className="mt-2.5 flex flex-wrap gap-2">
-              {shown.retry && <Button size="sm" disabled={wait > 0} icon={<RotateCw className="size-3.5" aria-hidden />} onClick={() => void chat.retry()}>{t("Retry")}</Button>}
+              {shown.retry && (
+                <Button size="sm" disabled={wait > 0} className="tabular-nums" icon={<RotateCw className="size-3.5" aria-hidden />} onClick={() => void chat.retry()}>
+                  {wait > 0 ? t("Retry in {n} s", { n: wait }) : t("Retry")}
+                </Button>
+              )}
               {shown.reload && <Button size="sm" icon={<RotateCw className="size-3.5" aria-hidden />} onClick={() => void chat.reload()}>{t("Load again")}</Button>}
               {settings && <ButtonLink to="/settings" size="sm" icon={<Settings className="size-3.5" aria-hidden />}>{t("Open settings")}</ButtonLink>}
             </div>
