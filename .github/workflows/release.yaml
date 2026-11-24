@@ -40,6 +40,10 @@ jobs:
         with: {version: "~> v2", args: release --clean}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The tag this run is for. Without it goreleaser takes the highest
+          # tag on the commit, and git sorts v0.5.0-rc.1 above v0.5.0: the
+          # release of v0.5.0 built and uploaded v0.5.0-rc.1 again.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
   # Image names must be lowercase, so the owner is spelled out here.
   images:
