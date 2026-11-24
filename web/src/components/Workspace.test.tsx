@@ -64,14 +64,14 @@ describe("Workspace with two panes", () => {
     // The whole of it, so that a change of the two-pane markup is a decision.
     expect(split).toBe(
       '<div class="flex min-h-0 flex-1 flex-col">'
-      + '<div role="tablist" aria-label="Panes" class="flex shrink-0 border-b bg-bg md:hidden">'
-      + '<button role="tab" id="split-tab-left" aria-selected="true" aria-controls="split-pane-left" tabindex="0" class="relative h-10 flex-1 px-3 text-sm font-medium transition-colors text-text">Task<span aria-hidden="true" class="absolute inset-x-0 -bottom-px h-0.5 bg-accent"></span></button>'
-      + '<button role="tab" id="split-tab-right" aria-selected="false" aria-controls="split-pane-right" tabindex="-1" class="relative h-10 flex-1 px-3 text-sm font-medium transition-colors text-muted hover:text-text">Terminal</button>'
+      + '<div role="tablist" aria-label="Panes" class="flex shrink-0 border-b bg-panel md:hidden">'
+      + '<button role="tab" id="split-tab-left" aria-selected="true" aria-controls="split-pane-left" tabindex="0" class="relative h-11 flex-1 px-3 text-sm font-medium transition-colors text-text">Task<span aria-hidden="true" class="absolute inset-x-0 -bottom-px h-0.5 bg-accent"></span></button>'
+      + '<button role="tab" id="split-tab-right" aria-selected="false" aria-controls="split-pane-right" tabindex="-1" class="relative h-11 flex-1 px-3 text-sm font-medium transition-colors text-muted hover:text-text">Terminal</button>'
       + "</div>"
       + '<div class="relative flex min-h-0 flex-1" style="--split: 40%;">'
-      + '<div id="split-pane-left" class="absolute inset-0 min-w-0 overflow-hidden md:static md:w-(--split) md:shrink-0"><div>task</div></div>'
-      + '<div role="separator" aria-orientation="vertical" tabindex="0" class="group relative hidden w-1.5 shrink-0 cursor-col-resize border-x bg-panel2 transition-colors hover:bg-accent/40 md:block"><span class="absolute left-1/2 top-1/2 h-8 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-muted/50 group-hover:bg-accent"></span></div>'
-      + '<div id="split-pane-right" class="absolute inset-0 min-w-0 overflow-hidden md:static max-md:invisible md:flex-1"><div>shell</div></div>'
+      + '<div id="split-pane-left" role="tabpanel" aria-labelledby="split-tab-left" class="absolute inset-0 min-w-0 overflow-hidden md:static md:w-(--split) md:shrink-0"><div>task</div></div>'
+      + '<div role="separator" aria-orientation="vertical" tabindex="0" aria-valuenow="40" aria-valuemin="22" aria-valuemax="70" aria-label="Resize the columns" class="group relative hidden w-1.5 shrink-0 cursor-col-resize border-x bg-panel2 transition-colors hover:bg-accent/40 md:block"><span class="absolute left-1/2 top-1/2 h-8 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-muted/50 group-hover:bg-accent"></span></div>'
+      + '<div id="split-pane-right" role="tabpanel" aria-labelledby="split-tab-right" class="absolute inset-0 min-w-0 overflow-hidden md:static max-md:invisible md:flex-1"><div>shell</div></div>'
       + "</div></div>",
     );
   });
