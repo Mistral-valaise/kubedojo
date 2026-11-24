@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { ArrowLeft, ChevronLeft, ChevronRight, Clock, PlayCircle, RotateCcw, Server } from "lucide-react";
-import { api, type Config, type QuestionView, type Result, type Session, type Track } from "../api";
+import { ArrowLeft, ChevronRight, Clock, PlayCircle, RotateCcw, Server } from "lucide-react";
+import { api, type QuestionView, type Result, type Session, type Track } from "../api";
+import { useConfig } from "../config";
 import { useElapsed, useInterval, useLoad } from "../hooks";
 import { t } from "../i18n";
 import { practicable, words } from "../track";
@@ -12,7 +13,8 @@ import { Rating } from "../components/Rating";
 import { Results } from "../components/Results";
 import { Split } from "../components/Split";
 import { TerminalTabs } from "../components/TerminalTabs";
-import { Badge, Brand, Button, Difficulty, ErrorNote, Modal, Page, Spinner, ThemeToggle, cx } from "../components/ui";
+import { HeaderPager, WorkspaceHeader } from "../components/WorkspaceHeader";
+import { Badge, Button, Difficulty, ErrorNote, Modal, Page, Spinner, cx } from "../components/ui";
 import { QuizPractice } from "./QuizPractice";
 
 /** After this many seconds a running check gets a note that says why it takes long. */
@@ -31,7 +33,7 @@ export function PracticePage() {
 function TaskPractice({ track, qid }: { track: Track; qid: string }) {
   const trackId = track.id;
   const nav = useNavigate();
-  const [config, setConfig] = useState<Config | null>(null);
+  const config = useConfig();
   const [session, setSession] = useState<Session | null>(null);
   const [view, setView] = useState<QuestionView | null>(null);
   const [result, setResult] = useState<Result | null>(null);
@@ -45,10 +47,6 @@ function TaskPractice({ track, qid }: { track: Track; qid: string }) {
 
   const state = session?.questions?.find((x) => x.id === qid);
   const status = state?.status ?? "pending";
-
-  useEffect(() => {
-    api.config().then(setConfig).catch(() => undefined);
-  }, []);
 
   // Open (or reuse) the practice session and prepare this question.
   useEffect(() => {
@@ -167,20 +165,18 @@ function TaskPractice({ track, qid }: { track: Track; qid: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-bg px-4">
-        {/* On a phone the header has room for the way back and the navigation only. */}
-        <span className="hidden items-center gap-3 sm:flex"><Brand /><span className="text-line">/</span></span>
-        <Link to={`/t/${trackId}`} className="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted hover:text-text">
-          <ArrowLeft className="size-3.5 shrink-0" /><span className="truncate">{track.short} · {t("Practice")}</span>
-        </Link>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <Button size="sm" variant="ghost" disabled={!prev} onClick={() => prev && nav(`/t/${trackId}/q/${prev.id}`)} aria-label={w.previous}><ChevronLeft className="size-4" /></Button>
-          <span className="px-1 text-xs whitespace-nowrap tabular-nums text-muted">{pos >= 0 ? `${pos + 1} / ${sameDomain.length}` : ""}</span>
-          <Button size="sm" variant="ghost" disabled={!next} onClick={() => next && nav(`/t/${trackId}/q/${next.id}`)} aria-label={w.next}><ChevronRight className="size-4" /></Button>
-          {w.docs && <a href={w.docs.url} target="_blank" rel="noreferrer" title={w.docs.title} className="hidden px-2 text-sm text-muted hover:text-text sm:block">{t("Docs")}</a>}
-          <ThemeToggle />
-        </div>
-      </header>
+      <WorkspaceHeader
+        back={(
+          <Link to={`/t/${trackId}`} className="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted hover:text-text">
+            <ArrowLeft className="size-3.5 shrink-0" /><span className="truncate">{track.short} · {t("Practice")}</span>
+          </Link>
+        )}
+        nav={(
+          <HeaderPager position={pos >= 0 ? `${pos + 1} / ${sameDomain.length}` : ""} previousLabel={w.previous} nextLabel={w.next}
+            onPrevious={prev && (() => nav(`/t/${trackId}/q/${prev.id}`))} onNext={next && (() => nav(`/t/${trackId}/q/${next.id}`))} />
+        )}
+        docs={w.docs}
+      />
       <Split left={left} right={right} labels={{ left: w.item, right: t("Terminal") }} />
       {confirmReset && (
         <Modal title={w.resetTitle} onClose={() => setConfirmReset(false)}
