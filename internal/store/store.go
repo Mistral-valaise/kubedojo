@@ -36,7 +36,17 @@ CREATE TABLE IF NOT EXISTS exams (
   percent REAL NOT NULL, passed INTEGER NOT NULL, finished_at TEXT NOT NULL, domains TEXT NOT NULL, owner TEXT NOT NULL DEFAULT '');
 `
 
+// Open opens the database file at path and creates it if it does not exist.
+//
+// The file holds what its owner learned, the keys of the sessions' sandboxes
+// and, in hosted mode, the names of the users: only its owner may read it.
+// SQLite would create it readable for everyone, so it is created here; the
+// -wal and -shm files next to it get the mode of the database file.
 func Open(path string) (*Store, error) {
+	if f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600); err == nil {
+		f.Close()
+		_ = os.Chmod(path, 0o600) // a database of an older release
+	}
 	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		return nil, err
