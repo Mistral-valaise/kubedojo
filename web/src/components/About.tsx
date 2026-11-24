@@ -1,4 +1,5 @@
-import { ExternalLink, Info } from "lucide-react";
+import { Link } from "react-router";
+import { ExternalLink, Info, Settings } from "lucide-react";
 import { useConfig } from "../config";
 import { t } from "../i18n";
 import { project, versionLabel } from "../project";
@@ -27,6 +28,9 @@ function AboutItems() {
   return (
     <div className="flex flex-col">
       <p className="px-2 pt-1 pb-2 font-semibold">{versionLabel(config?.version)}</p>
+      <Link to="/settings" className={cx(link, "text-muted hover:text-text")}>
+        <Settings className="size-3.5" aria-hidden />{t("Settings")}
+      </Link>
       <a href={project.repository} target="_blank" rel="noopener noreferrer" className={cx(link, "text-muted hover:text-text")}>
         {t("Open source on GitHub")}
       </a>

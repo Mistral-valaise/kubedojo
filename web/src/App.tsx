@@ -5,6 +5,7 @@ import { Home } from "./pages/Home";
 import { LessonPage } from "./pages/Lesson";
 import { NotFound } from "./pages/NotFound";
 import { PracticePage } from "./pages/Practice";
+import { SettingsPage } from "./pages/Settings";
 import { TrackPage } from "./pages/Track";
 
 /**
@@ -21,6 +22,7 @@ export function App() {
         <Route path="/t/:track/lesson/:domain" element={<LessonPage />} />
         <Route path="/t/:track/q/:question" element={<PracticePage />} />
         <Route path="/exam/:session" element={<ExamPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </ErrorBoundary>
