@@ -19,6 +19,14 @@ export interface WorkspaceProps {
   storageKey?: string;
   /** localStorage key of the width of the third column, in pixels. */
   asideStorageKey?: string;
+  /**
+   * The id of the pane to show where not all of them are in view: the tab
+   * that is selected and, unless it is the second pane, what the left column
+   * shows. Leave it out and the workspace keeps the selection itself. With
+   * it, `onActiveChange` must store what the learner selects.
+   */
+  active?: string;
+  onActiveChange?: (id: string) => void;
 }
 
 /** With three panes: below this width of the workspace the panes are tabs. */
@@ -29,6 +37,13 @@ export const THREE_COLUMNS_FROM = 1100;
 export const ASIDE_WIDTH = { min: 320, max: 560, initial: 380, step: 16 };
 /** Share of the first column in percent. */
 const SPLIT = { min: 22, max: 70, initial: 40, step: 2 };
+/**
+ * With three columns: the least width of the first two, in pixels. Just above
+ * the width where the third column appears there is no room for everything,
+ * and the third column gives way first, down to its own least width. Together
+ * with the dividers the three fit into THREE_COLUMNS_FROM.
+ */
+const MAIN_MIN = { first: 300, second: 460 };
 
 type Divider = "main" | "aside";
 /** "css": two panes, switched by the `md` breakpoint as Split always did. The others are measured. */
@@ -86,7 +101,7 @@ function useWidth(ref: RefObject<HTMLElement | null>, enabled: boolean): number 
  * not `display: none`, so a terminal in it keeps its connection, its
  * scrollback and its size. To show and hide the third pane, change its `open`.
  */
-export function Workspace({ panes, storageKey = "kubedojo.split", asideStorageKey = "kubedojo.split.aside" }: WorkspaceProps) {
+export function Workspace({ panes, storageKey = "kubedojo.split", asideStorageKey = "kubedojo.split.aside", active: selected, onActiveChange }: WorkspaceProps) {
   const [first, second] = panes;
   const third: Pane | undefined = panes[2];
   const measured = panes.length > 2;
@@ -96,8 +111,15 @@ export function Workspace({ panes, storageKey = "kubedojo.split", asideStorageKe
   const [pct, setPct] = useState(() => stored(storageKey) || SPLIT.initial);
   const [aside, setAside] = useState(() => clamp(stored(asideStorageKey) || ASIDE_WIDTH.initial, ASIDE_WIDTH));
   // What the tabs show, and what the left column shows when it holds two panes.
-  const [tab, setTab] = useState(first.id);
-  const [side, setSide] = useState(first.id);
+  const [ownTab, setOwnTab] = useState(first.id);
+  const tab = selected ?? ownTab;
+  const [side, setSide] = useState(tab === second.id ? first.id : tab);
+  // A selection from outside moves the left column along, in the same render.
+  const [seen, setSeen] = useState(tab);
+  if (seen !== tab) {
+    setSeen(tab);
+    if (tab !== second.id) setSide(tab);
+  }
   const root = useRef<HTMLDivElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const asideDivider = useRef<HTMLDivElement>(null);
@@ -131,7 +153,7 @@ export function Workspace({ panes, storageKey = "kubedojo.split", asideStorageKe
   useEffect(() => { store(storageKey, pct); }, [pct, storageKey]);
   useEffect(() => { if (measured) store(asideStorageKey, aside); }, [measured, aside, asideStorageKey]);
 
-  const select = (id: string) => { setTab(id); if (id !== second.id) setSide(id); };
+  const select = (id: string) => { setOwnTab(id); if (id !== second.id) setSide(id); onActiveChange?.(id); };
   const onTabKey = (e: React.KeyboardEvent, among: Pane[], current: string) => {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
     e.preventDefault();
@@ -207,8 +229,12 @@ export function Workspace({ panes, storageKey = "kubedojo.split", asideStorageKe
   };
 
   const share = clamp(pct, SPLIT);
+  // Next to a third column the first two keep a least width: the terminal is
+  // the pane that suffers first. The third column has the width it was given
+  // where there is room for it, and less, down to its least width, where not.
   const columns = layout === "tabs" ? "minmax(0, 1fr)"
-    : `minmax(0, ${share}fr) auto minmax(0, ${100 - share}fr)${layout === "three" ? ` auto ${aside}px` : ""}`;
+    : layout === "three" ? `minmax(${MAIN_MIN.first}px, ${share}fr) auto minmax(${MAIN_MIN.second}px, ${100 - share}fr) auto minmax(${ASIDE_WIDTH.min}px, ${aside}px)`
+      : `minmax(0, ${share}fr) auto minmax(0, ${100 - share}fr)`;
 
   return (
     <div ref={root} data-layout={measured ? layout : undefined} className="flex min-h-0 flex-1 flex-col">

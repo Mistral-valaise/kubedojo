@@ -43,6 +43,21 @@ export function useElapsed(active: boolean): number {
   return seconds;
 }
 
+/** Whether a media query matches, kept current. False where there is no matchMedia. */
+export function useMediaQuery(query: string): boolean {
+  const supported = typeof window !== "undefined" && typeof window.matchMedia === "function";
+  const [matches, setMatches] = useState(() => supported && window.matchMedia(query).matches);
+  useEffect(() => {
+    if (!supported) return;
+    const list = window.matchMedia(query);
+    const update = () => setMatches(list.matches);
+    update();
+    list.addEventListener("change", update);
+    return () => list.removeEventListener("change", update);
+  }, [query, supported]);
+  return matches;
+}
+
 export function useTheme(): [string, () => void] {
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || "dark");
   const toggle = () => {

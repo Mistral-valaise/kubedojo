@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { StrictMode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { Button, Modal } from "../ui";
@@ -114,5 +114,63 @@ describe("Modal", () => {
     fireEvent.keyDown(document.activeElement!, { key: "Enter" });
     fireEvent.keyDown(document.activeElement!, { key: "2" });
     expect(screen.getByRole("dialog")).toBe(dialog);
+  });
+});
+
+describe("Modal as a sheet", () => {
+  function Sheet() {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button onClick={() => setOpen(true)}>Reset question</button>
+        {open && (
+          <Modal sheet title="Assistant" onClose={() => setOpen(false)}>
+            <a href="/settings">model</a>
+            <button onClick={() => setOpen(false)}>Close the assistant</button>
+            <textarea data-autofocus aria-label="Ask the assistant" />
+          </Modal>
+        )}
+      </>
+    );
+  }
+
+  it("is named by its title without showing it, and leaves header and close button to its content", () => {
+    render(<Sheet />);
+    const dialog = openIt();
+    expect(screen.getByRole("dialog", { name: "Assistant" })).toBe(dialog);
+    expect(dialog.getAttribute("aria-labelledby")).toBeNull();
+    expect(within(dialog).queryByRole("heading")).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: "Close" })).toBeNull();
+    // Escape and the backdrop still close it.
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(opener());
+  });
+
+  it("starts the focus on the element that asks for it, not on the first control", () => {
+    render(<Sheet />);
+    const dialog = openIt();
+    expect(document.activeElement).toBe(within(dialog).getByRole("textbox", { name: "Ask the assistant" }));
+  });
+});
+
+describe("Modal in React's strict mode", () => {
+  it("stays open: the close of the first run of its effect does not end the second", async () => {
+    // A real dialog reports close() one task later, when the effect has run again and opened it anew.
+    const close = vi.spyOn(HTMLDialogElement.prototype, "close").mockImplementation(function close(this: HTMLDialogElement) {
+      if (!this.hasAttribute("open")) return;
+      this.removeAttribute("open");
+      setTimeout(() => this.dispatchEvent(new Event("close")), 0);
+    });
+    render(<StrictMode><Example /></StrictMode>);
+    openIt();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(screen.getByRole("dialog").hasAttribute("open")).toBe(true);
+    // A close that is one (the browser closed the dialog) is still asked about.
+    const dialog = screen.getByRole("dialog") as HTMLDialogElement;
+    dialog.removeAttribute("open");
+    fireEvent(dialog, new Event("close"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    close.mockRestore();
   });
 });
