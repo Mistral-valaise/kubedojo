@@ -70,6 +70,19 @@ func Current(ctx context.Context) Span {
 	return From(ctx).Current(ctx)
 }
 
+// TraceID returns the id of the trace ctx is in, when the tracer of the
+// context can tell and the trace is being recorded; otherwise it is empty.
+// The API hands it to the client next to a result, so that a person can look
+// the trace up.
+func TraceID(ctx context.Context) string {
+	if t, ok := From(ctx).(interface {
+		TraceID(context.Context) string
+	}); ok {
+		return t.TraceID(ctx)
+	}
+	return ""
+}
+
 type noopTracer struct{}
 
 func (noopTracer) Start(ctx context.Context, _ string, _ ...Attr) (context.Context, Span) {
