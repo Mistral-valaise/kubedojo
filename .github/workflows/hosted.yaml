@@ -3,7 +3,10 @@ name: hosted
 # a sandbox with a cluster, a learner's sessions through the ingress, the
 # observability stack, backup, upgrade, rollback, uninstall and reinstall.
 # See test/e2e/run.sh. It is slow and heavy, so it runs when what it proves
-# changes, every night, and on request.
+# changes, every night, and on request. A change to the session code is part
+# of that: the names of sandbox Pods and the life of a sandbox come from it.
+# Not part of it: tests of that code, dashboards (the build job lints them)
+# and documentation.
 on:
   pull_request:
     paths:
@@ -14,6 +17,10 @@ on:
       - test/e2e/**
       - Dockerfile
       - .github/workflows/hosted.yaml
+      - "!internal/session/**/*_test.go"
+      - "!internal/k8shost/**/*_test.go"
+      - "!deploy/helm/kubedojo/dashboards/**"
+      - "!deploy/**/*.md"
   schedule:
     - cron: "47 3 * * *"
   workflow_dispatch:

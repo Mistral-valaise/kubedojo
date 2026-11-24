@@ -162,7 +162,7 @@ warnings into errors; CI uses it.
 |---|---|---|
 | `build` | every push and pull request | unit tests, typecheck, browser tests of the terminal keyboard, `content lint --strict`, `content test` and `content test --exam` for every theory track, `helm lint` |
 | `cross-compile` | every push and pull request | the binary builds for macOS, Linux and Windows |
-| `content` | pull requests and pushes to `main` that change questions, the grader, the session code, the sandbox or the images | `content test --quick` for what changed, report uploaded as an artifact |
+| `content` | pull requests and pushes to `main` that change questions, the grader, the session code, the sandbox or the images | `content test --quick` for what the change can break (see below), report uploaded as an artifact |
 | `content-nightly` | every night and on demand | every track: `content test --repeat 2`, then `content test --exam` |
 | `content-next` | on demand | the same proof against another Kubernetes version |
 
@@ -171,9 +171,15 @@ warnings into errors; CI uses it.
 
 - A change under `content/<track>/questions/<id>/` proves those questions only.
 - A change to `track.yaml` proves that track.
-- A change to the grader, the session code, the sandbox, the images or the pipeline proves every
-  track. So does the pull request label `content`.
-- Lessons and anything else prove nothing.
+- A change to the grader (`internal/checker`), the catalog or the images proves every question of
+  every track: the grade of any question may change. So does the pull request label `content`.
+- A change to the session code, the sandbox driver or the pipeline proves a **sample**: two
+  questions of every environment of every track. That shows that sandboxes come up and that
+  questions are set up, solved and graded; a question that only breaks in combination with such a
+  change is found by the nightly job. Put the label `content` on the pull request to prove
+  everything at once.
+- A push to `main` proves a sample at most: the pull request has proven everything already.
+- Tests (`*_test.go`), lessons and anything else prove nothing.
 - Theory tracks are never part of this job: the script leaves out every track with `kind: theory`,
   and the `build` job proves them on every run.
 

@@ -1,3 +1,7 @@
 /* Overrides of the xterm.js stylesheet, which styles.css imports before this file. */
 .xterm { padding: 10px 4px 6px 12px; height: 100%; }
 .xterm .xterm-viewport { background: transparent !important; }
+
+/* Terminal surfaces are dark in both themes (see tokens.css), so the focus
+   ring on them is the accent made for that dark surface. */
+.term-surface :focus-visible { outline-color: var(--term-accent); }
