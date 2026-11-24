@@ -4,7 +4,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 const config = vi.fn();
 vi.mock("./api", () => ({ api: { config: () => config() } }));
 
-import { loadConfig, resetConfigCache, useConfig } from "./config";
+import { loadConfig, refreshConfig, resetConfigCache, useConfig } from "./config";
 
 const server = (maxTerminals: number) => ({ version: "test", tutor: true, user: "", maxTerminals });
 
@@ -60,6 +60,43 @@ describe("useConfig", () => {
     render(<Show name="b" />);
     expect(text("b")).toBe("loading");
     await settle();
+    expect(text("b")).toBe("max 2");
+  });
+});
+
+describe("refreshConfig", () => {
+  it("fetches the configuration again and hands it to everything that shows it", async () => {
+    render(<><Show name="a" /><Show name="b" /></>);
+    await settle();
+    expect([text("a"), text("b")]).toEqual(["max 4", "max 4"]);
+    config.mockResolvedValue(server(2));
+    await act(async () => { await refreshConfig(); });
+    expect([text("a"), text("b")]).toEqual(["max 2", "max 2"]);
+    expect(config).toHaveBeenCalledTimes(2);
+    // What is mounted afterwards has the new one at once.
+    render(<Show name="c" />);
+    expect(text("c")).toBe("max 2");
+    expect(config).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the configuration it had when the fetch fails", async () => {
+    render(<Show name="a" />);
+    await settle();
+    config.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => { await refreshConfig().catch(() => undefined); });
+    expect(text("a")).toBe("max 4");
+    expect(await loadConfig()).toEqual(server(4));
+    expect(config).toHaveBeenCalledTimes(2);
+  });
+
+  it("tells nobody who has gone", async () => {
+    const view = render(<Show name="a" />);
+    await settle();
+    view.unmount();
+    config.mockResolvedValue(server(2));
+    // No warning about a state update on an unmounted component, and no error.
+    await act(async () => { await refreshConfig(); });
+    render(<Show name="b" />);
     expect(text("b")).toBe("max 2");
   });
 });

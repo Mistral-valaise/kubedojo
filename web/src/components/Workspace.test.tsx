@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { Split } from "./Split";
@@ -306,5 +306,103 @@ describe("Workspace with three panes", () => {
     act(() => { window.dispatchEvent(new Event("resize")); });
     expect(layout()).toBe("three");
     expect(life).toEqual({ task: once, shell: once, chat: once });
+  });
+});
+
+describe("Workspace with a pane selected from outside", () => {
+  /** A page that keeps the selection, as the practice page does to bring the assistant into view. */
+  function Page({ life, changes }: { life: ReturnType<typeof lives>; changes: string[] }) {
+    const [active, setActive] = useState("task");
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button onClick={() => { setOpen(true); setActive("assistant"); }}>open assistant</button>
+        <button onClick={() => { setOpen(false); setActive("task"); }}>close assistant</button>
+        <Workspace panes={three(life, open)} active={active} onActiveChange={(id) => { changes.push(id); setActive(id); }} />
+      </>
+    );
+  }
+  const openIt = () => fireEvent.click(screen.getByRole("button", { name: "open assistant" }));
+
+  it("shows the selected pane behind the tabs of a narrow workspace", () => {
+    observed.width = 600;
+    const changes: string[] = [];
+    render(<Page life={lives()} changes={changes} />);
+    expect(inView()).toEqual(["task"]);
+    openIt();
+    expect(inView()).toEqual(["chat"]);
+    expect(screen.getByRole("tab", { name: "Assistant" }).getAttribute("aria-selected")).toBe("true");
+    // The learner still switches with the tabs, and the page hears of it.
+    fireEvent.click(screen.getByRole("tab", { name: "Terminal" }));
+    expect(inView()).toEqual(["shell"]);
+    expect(changes).toEqual(["terminal"]);
+    fireEvent.click(screen.getByRole("button", { name: "close assistant" }));
+    expect(inView()).toEqual(["task"]);
+    expect(tabNames(screen.getByRole("tablist", { name: "Panes" }))).toEqual(["Task", "Terminal"]);
+  });
+
+  it("shows the selected pane in the left of two columns, next to the terminal", () => {
+    observed.width = 900;
+    const changes: string[] = [];
+    render(<Page life={lives()} changes={changes} />);
+    expect(inView()).toEqual(["task", "shell"]);
+    openIt();
+    expect(layout()).toBe("two");
+    expect(inView()).toEqual(["shell", "chat"]);
+    expect(screen.getByRole("tab", { name: "Assistant" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("tab", { name: "Task" }));
+    expect(inView()).toEqual(["task", "shell"]);
+    expect(changes).toEqual(["task"]);
+  });
+
+  it("remembers what the left column showed while the terminal is the selected tab", () => {
+    observed.width = 600;
+    const changes: string[] = [];
+    render(<Page life={lives()} changes={changes} />);
+    openIt();
+    fireEvent.click(screen.getByRole("tab", { name: "Terminal" }));
+    resize(900);
+    // The terminal has its own column now; the left one shows what was selected before it.
+    expect(inView()).toEqual(["shell", "chat"]);
+  });
+
+  it("has all three in view where there are three columns, whatever is selected", () => {
+    const life = lives();
+    render(<Page life={life} changes={[]} />);
+    openIt();
+    expect(layout()).toBe("three");
+    expect(inView()).toEqual(["task", "shell", "chat"]);
+    expect(life).toEqual({ task: once, shell: once, chat: once });
+  });
+
+  it("selects among two panes as well", () => {
+    function Two() {
+      const [active, setActive] = useState("right");
+      return <Workspace active={active} onActiveChange={setActive} panes={[{ id: "left", label: "Task", content: <div>task</div> }, { id: "right", label: "Terminal", content: <div>shell</div> }]} />;
+    }
+    render(<Two />);
+    expect(screen.getByRole("tab", { name: "Terminal" }).getAttribute("aria-selected")).toBe("true");
+    expect(classes(paneOf("task"))).toContain("max-md:invisible");
+    fireEvent.click(screen.getByRole("tab", { name: "Task" }));
+    expect(screen.getByRole("tab", { name: "Task" }).getAttribute("aria-selected")).toBe("true");
+    expect(classes(paneOf("shell"))).toContain("max-md:invisible");
+  });
+});
+
+describe("Workspace with three columns and little room", () => {
+  it("keeps a least width for the task and the terminal, and lets the third column give way down to its own", () => {
+    observed.width = 1100;
+    render(<Workspace panes={three()} />);
+    const columns = paneOf("chat").parentElement?.style.gridTemplateColumns ?? "";
+    // Task, divider, terminal, divider, assistant: the first two with a floor, the third between its least width and the one it was given.
+    expect(columns).toBe("minmax(300px, 40fr) auto minmax(460px, 60fr) auto minmax(320px, 380px)");
+    // The floors and the two dividers (6 px each with their borders) fit into the width where three columns begin.
+    expect(300 + 460 + 320 + 2 * 6).toBeLessThanOrEqual(1100);
+  });
+
+  it("has no floors in two columns, where the terminal has the room of the third", () => {
+    observed.width = 900;
+    render(<Workspace panes={three()} />);
+    expect(paneOf("chat").parentElement?.style.gridTemplateColumns).toBe("minmax(0px, 40fr) auto minmax(0px, 60fr)");
   });
 });

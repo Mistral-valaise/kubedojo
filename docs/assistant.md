@@ -11,6 +11,44 @@ reads the environment for it with commands kubedojo chose ([what is sent](#what-
 
 The assistant is not available during a running exam. It is after the exam, on the report.
 
+## In the UI
+
+![The assistant next to task and terminal, explaining a failed check](images/assistant-workspace.png)
+
+**Where it is.** The practice view of a task has a button **Assistant** in its header. It opens the
+assistant as a third column next to the task and the terminal, and remembers whether it was open.
+Below 1100 px there is no room for three columns: the terminal stays on the right and the left column
+switches between the task and the assistant. On a phone the assistant is a third tab. A
+multiple-choice question has the assistant as a column beside it. On the report of an exam every
+question has **Ask the assistant**; a running exam has no assistant at all.
+
+**Asking.** A check that failed has **Explain what went wrong**: it opens the assistant and asks the
+default question about the result as it stands. The review of a wrong answer to a multiple-choice
+question has **Explain**. Anything else is typed: Enter sends, Shift+Enter makes a new line. Below the
+conversation the assistant suggests a question that fits the state of the task.
+
+**Answers.** An answer appears while the model writes it. Above it the assistant says what kubedojo
+looked at for it: the task and the check results, and the snapshot and the failing checks when those
+were read. A command in an answer has the same **Copy** and **Run** buttons as one in a task text;
+**Run** types it into the terminal. No image an answer names is loaded. **Stop** ends an answer that
+is on its way; what arrived stays and is marked as interrupted. The last answer can be asked for again,
+and **New conversation** deletes the conversation of the question.
+
+**When there is no answer** the assistant says why, in a sentence, and offers what helps: to try
+again (a model that could not be reached, a time-out, the rate limit, with the seconds to wait), or
+the way to the settings (a rejected key, an unknown model). The codes behind these sentences are
+listed under [Troubleshooting](#troubleshooting).
+
+**Settings.** The page **Settings** (in the header of every page, and behind the info button of the
+practice view) has the switch, the provider, the base URL with a preset for Ollama, LM Studio, OpenAI
+and OpenRouter, the model and the API key. **Test connection** tries the form as it stands without
+saving it. **Save** sends what changed. The key is typed into an empty field and never shown again:
+the page says that one is set and how it ends. A value that a flag or an environment variable sets is
+shown locked, with the name of what sets it. On a [hosted server](#hosted-servers) the page is
+read-only.
+
+![The settings of the assistant: provider, base URL, a locked model, the key and the connection test](images/settings.png)
+
 ## Providers
 
 | Provider | For | Needs a key |
@@ -50,8 +88,9 @@ For OpenAI itself the base URL can be left out (`https://api.openai.com/v1` is t
 
 ### Without a restart
 
-On a local server the same can be set while it runs, through the settings API
-([below](#get-apisettings)). A change is in force for the next message.
+On a local server the same can be set while it runs: on the page **Settings** of the UI
+([above](#in-the-ui)), which uses the settings API ([below](#get-apisettings)). A change is in force
+for the next message.
 
 ## Configuration
 

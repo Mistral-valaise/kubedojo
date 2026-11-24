@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
+import { Settings } from "lucide-react";
 import type { Link as DocsLink } from "../../api";
 import { t } from "../../i18n";
 import { Footer } from "../Footer";
@@ -44,6 +45,11 @@ export function Page({ children, crumbs, docs = { title: t("Kubernetes docs"), u
                 {docs.title}
               </a>
             )}
+            {/* On a phone the icon alone: its name is the label. */}
+            <Link to="/settings" aria-label={t("Settings")} title={t("Settings")}
+              className="inline-flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-lg px-2.5 text-sm text-muted transition hover:bg-panel2 hover:text-text">
+              <Settings className="size-4.5" aria-hidden /><span className="hidden sm:inline">{t("Settings")}</span>
+            </Link>
             <ThemeToggle size="lg" />
           </div>
         </div>

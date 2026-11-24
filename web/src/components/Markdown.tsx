@@ -34,7 +34,8 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-function useCopied(): [boolean, (text: string) => void] {
+/** Copies a text on demand and says for a moment that it did: `[copied, copy]`. */
+export function useCopied(): [boolean, (text: string) => void] {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -96,12 +97,23 @@ function Pre({ children }: { children?: ReactNode }) {
   );
 }
 
+/** In place of an image that must not be loaded: its description, or nothing. */
+function ImageText({ alt }: { alt?: string }) {
+  return alt ? <span>{alt}</span> : null;
+}
+
 /**
  * `plain` renders inline code without the click-to-copy control, for markdown
  * that sits inside another control (an answer option), where a nested button
  * would be a second tab stop and would take the click.
+ *
+ * `untrusted` is for text that kubedojo did not write, the answer of a model:
+ * no image is loaded from it, because the address of an image can carry data
+ * out of the page. Its alternative text is shown in its place.
  */
-export const Markdown = memo(function Markdown({ children, className, plain }: { children: string; className?: string; plain?: boolean }) {
+export const Markdown = memo(function Markdown({ children, className, plain, untrusted }: {
+  children: string; className?: string; plain?: boolean; untrusted?: boolean;
+}) {
   return (
     <div className={"md " + (className ?? "")}>
       <ReactMarkdown
@@ -110,6 +122,7 @@ export const Markdown = memo(function Markdown({ children, className, plain }: {
           pre: Pre,
           code: plain ? "code" : InlineCode,
           a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+          ...(untrusted ? { img: ImageText } : {}),
         }}
       >
         {children}

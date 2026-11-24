@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { CheckResult, Result } from "../api";
 import { Results } from "./Results";
@@ -9,11 +9,9 @@ const check = (over: Partial<CheckResult>): CheckResult => ({
   id: "c", title: "The file is saved", points: 2, passed: false, expected: 'equals "yes"', observed: "no",
   explain: "Plain words.", command: "cat file", ...over,
 });
-const show = (...checks: CheckResult[]) => {
-  const max = checks.reduce((n, c) => n + c.points, 0);
-  const result: Result = { questionId: "q", score: 0, max, passed: checks.every((c) => c.passed), checks, at: "now" };
-  return render(<Results result={result} />);
-};
+const resultOf = (checks: CheckResult[]): Result =>
+  ({ questionId: "q", score: 0, max: checks.reduce((n, c) => n + c.points, 0), passed: checks.every((c) => c.passed), checks, at: "now" });
+const show = (...checks: CheckResult[]) => render(<Results result={resultOf(checks)} />);
 
 describe("Results", () => {
   it("renders the explanation of a check as Markdown, without click-to-copy controls", () => {
@@ -49,5 +47,35 @@ describe("Results", () => {
     fireEvent.click(screen.getByRole("button", { name: /Passed one/ }));
     expect(screen.getByText("Hidden until opened.")).toBeTruthy();
     expect(screen.getByText("0 of 4 points · 0%", { exact: false })).toBeTruthy();
+  });
+});
+
+describe("Results with the assistant", () => {
+  const explain = () => screen.queryAllByRole("button", { name: "Explain what went wrong" });
+
+  it("offers to explain a result that did not pass, once, on the first failed check", () => {
+    const onExplain = vi.fn();
+    render(<Results onExplain={onExplain} result={resultOf([
+      check({ id: "a", title: "Passed one", passed: true }), check({ id: "b", title: "Failed one" }), check({ id: "c", title: "Failed two" }),
+    ])} />);
+    expect(explain()).toHaveLength(1);
+    // It sits in the failed check, below what was expected and what was found.
+    const row = screen.getByRole("button", { name: /Failed one/ }).closest("li") as HTMLElement;
+    expect(row.contains(explain()[0])).toBe(true);
+    fireEvent.click(explain()[0]);
+    expect(onExplain).toHaveBeenCalledTimes(1);
+    // The click explains; it does not close the check it sits in.
+    expect(screen.getByRole("button", { name: /Failed one/ }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("offers nothing without an assistant to ask", () => {
+    show(check({}));
+    expect(explain()).toEqual([]);
+  });
+
+  it("offers nothing for a result that passed", () => {
+    render(<Results onExplain={() => undefined} result={resultOf([check({ passed: true })])} />);
+    fireEvent.click(screen.getByRole("button", { name: /The file is saved/ }));
+    expect(explain()).toEqual([]);
   });
 });

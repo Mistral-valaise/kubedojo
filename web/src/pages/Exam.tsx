@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
-  AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Flag, Flame, Server,
+  AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Flag, Flame, Server, Sparkles,
   SquareTerminal, Trash2, XCircle,
 } from "lucide-react";
 import { api, type QuestionView, type Session, type Track } from "../api";
-import { useConfig } from "../config";
-import { fmtDuration, useInterval } from "../hooks";
+import { AssistantPanel } from "../assistant/AssistantPanel";
+import { type Ask, ExplainButton, newAsk, useAssistantDock } from "../assistant/dock";
+import { fmtDuration, useInterval, useMediaQuery } from "../hooks";
 import { plural, t } from "../i18n";
 import { isFullAssessment, words } from "../track";
 import { Choice } from "../components/Choice";
-import { Help, TutorBox } from "../components/Help";
+import { Help } from "../components/Help";
 import { Markdown } from "../components/Markdown";
 import { Provisioning } from "../components/Provisioning";
 import { Rating } from "../components/Rating";
@@ -28,7 +29,6 @@ export function ExamPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [track, setTrack] = useState<Track | null>(null);
   const [trackError, setTrackError] = useState<string | null>(null);
-  const config = useConfig();
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -71,7 +71,7 @@ export function ExamPage() {
     case "grading":
       return <Stage><Provisioning session={session} title={w.gradingTitle} note={w.gradingNote} /></Stage>;
     case "finished":
-      return <ReportView session={session} track={track} tutor={!!config?.tutor} />;
+      return <ReportView session={session} track={track} />;
     default:
       return <ExamWorkspace session={session} track={track} onSession={setSession} refresh={refresh} />;
   }
@@ -397,9 +397,36 @@ function ExamWorkspace({ session, track, onSession, refresh }: {
   );
 }
 
-function ReportView({ session, track, tutor }: { session: Session; track: Track; tutor: boolean }) {
+/** From this width of the window the assistant of a report is a column beside it; below, a sheet over it. */
+const DOCK_FROM = "(min-width: 1100px)";
+
+/** What a question of the report needs to hand itself to the assistant. */
+interface ReportAssistant {
+  /** The assistant can be shown, and it can answer: see Dock. */
+  available: boolean; usable: boolean;
+  /** The question the open assistant is about. */
+  qid: string | null;
+  /** Opens the assistant for a question, with a message to send if there is one. */
+  open: (qid: string, ask?: Ask) => void;
+}
+
+function ReportView({ session, track }: { session: Session; track: Track }) {
   const r = session.report!;
   const [term, setTerm] = useState(false);
+  // The exam is over, so the assistant is there again: one question at a time.
+  const dock = useAssistantDock();
+  const [about, setAbout] = useState<{ qid: string; ask: Ask | null } | null>(null);
+  const docked = useMediaQuery(DOCK_FROM);
+  const assistant: ReportAssistant = {
+    available: dock.available, usable: dock.usable, qid: about?.qid ?? null,
+    open: (qid, ask) => setAbout((now) => ({ qid, ask: ask ?? (now?.qid === qid ? now.ask : null) })),
+  };
+  const aboutResult = about ? session.questions?.find((q) => q.id === about.qid)?.last : undefined;
+  const panel = about && dock.available && (
+    <AssistantPanel sid={session.id} qid={about.qid} track={track} ask={about.ask} subject={session.meta[about.qid]?.title}
+      situation={track.questions?.find((q) => q.id === about.qid)?.type === "choice" ? "reviewed" : !aboutResult ? "none" : aboutResult.passed ? "passed" : "failed"}
+      onClose={() => setAbout(null)} />
+  );
   const qs = session.questions ?? [];
   const solved = qs.filter((q) => q.last?.passed).length;
   const w = words(track);
@@ -411,78 +438,83 @@ function ReportView({ session, track, tutor }: { session: Session; track: Track;
       : plural(short, "{n} percentage point short of the pass mark.", "{n} percentage points short of the pass mark.");
   return (
     <div className="flex h-full flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <Page docs={w.docs} crumbs={[{ label: track.short, to: `/t/${track.id}` }, { label: w.assessmentReport }]}>
-          <Card className={cx("mb-6 flex flex-wrap items-center gap-x-7 gap-y-5 p-5 sm:p-7", r.passed ? "border-ok/40" : "border-bad/40")}>
-            <Ring value={r.percent} size={140} stroke={12} tone={r.passed ? "ok" : "bad"}>
-              <span className="text-3xl font-bold tabular-nums">{r.percent}%</span>
-              <span className="text-xs text-muted">{t("{a} / {b} pts", { a: r.score, b: r.max })}</span>
-            </Ring>
-            {/* The basis lets the text wrap below the ring on a narrow screen. */}
-            <div className="min-w-0 flex-1 basis-64">
-              <div className={cx("mb-1 inline-flex items-center gap-1.5 text-sm font-semibold", r.passed ? "text-ok" : "text-bad")}>
-                {r.passed ? <CheckCircle2 className="size-4" aria-hidden /> : <XCircle className="size-4" aria-hidden />}
-                {r.passed ? t("Passed") : t("Not passed")}
+      <div className="flex min-h-0 flex-1">
+        {/* A container: the columns of the report follow its width, which a docked assistant makes narrower than the window. */}
+        <div className="@container min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <Page docs={w.docs} crumbs={[{ label: track.short, to: `/t/${track.id}` }, { label: w.assessmentReport }]}>
+            <Card className={cx("mb-6 flex flex-wrap items-center gap-x-7 gap-y-5 p-5 sm:p-7", r.passed ? "border-ok/40" : "border-bad/40")}>
+              <Ring value={r.percent} size={140} stroke={12} tone={r.passed ? "ok" : "bad"}>
+                <span className="text-3xl font-bold tabular-nums">{r.percent}%</span>
+                <span className="text-xs text-muted">{t("{a} / {b} pts", { a: r.score, b: r.max })}</span>
+              </Ring>
+              {/* The basis lets the text wrap below the ring on a narrow screen. */}
+              <div className="min-w-0 flex-1 basis-64">
+                <div className={cx("mb-1 inline-flex items-center gap-1.5 text-sm font-semibold", r.passed ? "text-ok" : "text-bad")}>
+                  {r.passed ? <CheckCircle2 className="size-4" aria-hidden /> : <XCircle className="size-4" aria-hidden />}
+                  {r.passed ? t("Passed") : t("Not passed")}
+                </div>
+                <h1 className="text-2xl font-bold tracking-tight">{headline}</h1>
+                <p className="mt-1.5 text-muted">
+                  {w.reportSummary(r.passPercent, solved, qs.length, fmtDuration(r.usedSeconds))}
+                </p>
+                {quick && <p className="mt-1.5 text-sm text-muted">{w.quickRoundNote}</p>}
+                {/* With a sandbox the way back is its "Remove sandbox" button. */}
+                {!w.sandbox && (
+                  <ButtonLink to={`/t/${track.id}`} className="mt-4" icon={<ArrowLeft className="size-4" aria-hidden />}>{t("Back to {track}", { track: track.short })}</ButtonLink>
+                )}
               </div>
-              <h1 className="text-2xl font-bold tracking-tight">{headline}</h1>
-              <p className="mt-1.5 text-muted">
-                {w.reportSummary(r.passPercent, solved, qs.length, fmtDuration(r.usedSeconds))}
-              </p>
-              {quick && <p className="mt-1.5 text-sm text-muted">{w.quickRoundNote}</p>}
-              {/* With a sandbox the way back is its "Remove sandbox" button. */}
-              {!w.sandbox && (
-                <ButtonLink to={`/t/${track.id}`} className="mt-4" icon={<ArrowLeft className="size-4" aria-hidden />}>{t("Back to {track}", { track: track.short })}</ButtonLink>
-              )}
-            </div>
-          </Card>
+            </Card>
 
-          <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-            <div className="space-y-6">
-              <Card padded>
-                <SectionLabel as="h2" className="mb-4">{t("Score by domain")}</SectionLabel>
-                <ul className="space-y-4">
-                  {r.domains.map((d) => {
-                    const pct = d.max ? Math.round((d.score / d.max) * 100) : 0;
-                    return (
-                      <li key={d.id}>
-                        <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
-                          {/* Long titles wrap: cut off, two domains can read the same. */}
-                          <Link to={`/t/${track.id}/lesson/${d.id}`} className="min-w-0 break-words hover:text-accent hover:underline">{d.title}</Link>
-                          <span className="shrink-0 tabular-nums text-muted">{d.score}/{d.max}</span>
-                        </div>
-                        <Bar value={pct} tone={pct >= r.passPercent ? "ok" : pct >= 40 ? "warn" : "bad"} />
-                      </li>
-                    );
-                  })}
-                </ul>
-              </Card>
-              {w.sandbox && (
-                <Card padded className="space-y-3 text-sm">
-                  <SectionLabel as="h2">{t("Sandbox")}</SectionLabel>
-                  <p className="leading-relaxed text-muted">{w.reportSandbox}</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" aria-expanded={term} icon={<SquareTerminal className="size-3.5" aria-hidden />} onClick={() => setTerm(!term)}>{term ? t("Hide terminal") : t("Open terminal")}</Button>
-                    <EndButton sid={session.id} to={`/t/${track.id}`} label={t("Remove sandbox")} />
-                  </div>
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-6 @5xl:grid-cols-[320px_minmax(0,1fr)]">
+              <div className="space-y-6">
+                <Card padded>
+                  <SectionLabel as="h2" className="mb-4">{t("Score by domain")}</SectionLabel>
+                  <ul className="space-y-4">
+                    {r.domains.map((d) => {
+                      const pct = d.max ? Math.round((d.score / d.max) * 100) : 0;
+                      return (
+                        <li key={d.id}>
+                          <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
+                            {/* Long titles wrap: cut off, two domains can read the same. */}
+                            <Link to={`/t/${track.id}/lesson/${d.id}`} className="min-w-0 break-words hover:text-accent hover:underline">{d.title}</Link>
+                            <span className="shrink-0 tabular-nums text-muted">{d.score}/{d.max}</span>
+                          </div>
+                          <Bar value={pct} tone={pct >= r.passPercent ? "ok" : pct >= 40 ? "warn" : "bad"} />
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </Card>
-              )}
-            </div>
-            <div>
-              <SectionLabel as="h2" className="mb-3">{w.reportList}</SectionLabel>
-              <div className="space-y-3">
-                {qs.map((q, i) => <ReportQuestion key={q.id} n={i + 1} session={session} track={track} qid={q.id} tutor={tutor} />)}
+                {w.sandbox && (
+                  <Card padded className="space-y-3 text-sm">
+                    <SectionLabel as="h2">{t("Sandbox")}</SectionLabel>
+                    <p className="leading-relaxed text-muted">{w.reportSandbox}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" aria-expanded={term} icon={<SquareTerminal className="size-3.5" aria-hidden />} onClick={() => setTerm(!term)}>{term ? t("Hide terminal") : t("Open terminal")}</Button>
+                      <EndButton sid={session.id} to={`/t/${track.id}`} label={t("Remove sandbox")} />
+                    </div>
+                  </Card>
+                )}
+              </div>
+              <div>
+                <SectionLabel as="h2" className="mb-3">{w.reportList}</SectionLabel>
+                <div className="space-y-3">
+                  {qs.map((q, i) => <ReportQuestion key={q.id} n={i + 1} session={session} track={track} qid={q.id} assistant={assistant} />)}
+                </div>
               </div>
             </div>
-          </div>
-        </Page>
+          </Page>
+        </div>
+        {panel && docked && <aside className="w-[clamp(20rem,30vw,26rem)] shrink-0 border-l">{panel}</aside>}
       </div>
+      {panel && !docked && <Modal sheet title={t("Assistant")} onClose={() => setAbout(null)}>{panel}</Modal>}
       {/* A share of the window, within limits: usable on a phone in landscape, and not half of a tall screen. */}
       {term && <div className="h-[clamp(12rem,40dvh,28rem)] shrink-0 border-t border-term-line"><Terminal sessionId={session.id} /></div>}
     </div>
   );
 }
 
-function ReportQuestion({ n, session, track, qid, tutor }: { n: number; session: Session; track: Track; qid: string; tutor: boolean }) {
+function ReportQuestion({ n, session, track, qid, assistant }: { n: number; session: Session; track: Track; qid: string; assistant: ReportAssistant }) {
   const state = session.questions!.find((q) => q.id === qid)!;
   const meta = session.meta[qid];
   const res = state.last;
@@ -532,9 +564,18 @@ function ReportQuestion({ n, session, track, qid, tutor }: { n: number; session:
               <pre className="rounded-lg border bg-code px-3 py-2 font-mono text-xs whitespace-pre-wrap">{state.note}</pre>
             </div>
           )}
-          {res && !choice && <Results result={res} />}
-          {full && !choice && <Help sid={session.id} q={full} result={res} tutor={tutor} track={track} confirmSolution={false} />}
-          {choice && tutor && <TutorBox sid={session.id} qid={qid} result={res} w={words(track)} />}
+          {res && !choice && <Results result={res} onExplain={assistant.usable ? () => assistant.open(qid, newAsk()) : undefined} />}
+          {full && !choice && <Help sid={session.id} q={full} result={res} confirmSolution={false} />}
+          {assistant.available && (
+            <div className="flex flex-wrap gap-2">
+              {choice && assistant.usable && res && !res.passed && (
+                <ExplainButton onClick={() => assistant.open(qid, newAsk(t("Why is that the right answer?")))}>{t("Explain")}</ExplainButton>
+              )}
+              <Button size="sm" aria-pressed={assistant.qid === qid} className={assistant.qid === qid ? "border-accent" : undefined} icon={<Sparkles className="size-4 text-accent" aria-hidden />} onClick={() => assistant.open(qid)}>
+                {t("Ask the assistant")}
+              </Button>
+            </div>
+          )}
           <Rating track={track.id} question={qid} />
         </div>
       )}

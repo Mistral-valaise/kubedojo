@@ -37,7 +37,7 @@ export function Home() {
     { icon: BookOpen, title: t("Learn"), text: t("One short lesson per domain: the 20% of knowledge that solves 80% of the tasks.") },
     { icon: TerminalIcon, title: t("Practise"), text: t("Solve single questions in a live sandbox. Checks tell you what is wrong and why, hints and solutions are one click away.") },
     // Only where the server has an assistant to offer.
-    ...(config?.tutor ? [{ icon: Sparkles, title: t("Ask"), text: t("Stuck on a failed check? The assistant explains it from your task and your cluster, with the model you choose.") }] : []),
+    ...(config?.assistant?.enabled ? [{ icon: Sparkles, title: t("Ask"), text: t("Stuck on a failed check? The assistant explains it from your task and your cluster, with the model you choose.") }] : []),
     { icon: Timer, title: t("Simulate"), text: t("Timed and weighted like the real exam, no hints. Get a score per domain and see exactly where points were lost.") },
   ];
 

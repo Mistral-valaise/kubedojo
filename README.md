@@ -118,9 +118,10 @@ kubedojo version
 
 Useful flags for `up`: `--observability` (local Grafana with dashboards; ports and retention are in
 [docs/observability.md](docs/observability.md#the-local-stack)), `--addr`, `--no-open`,
-`--kubernetes-version`, `--registry-cache=false`. The optional AI assistant runs on Claude (set
-`ANTHROPIC_API_KEY`) or on any OpenAI-compatible server such as a local Ollama (`--ai --ai-provider openai
---ai-base-url http://localhost:11434/v1 --ai-model llama3.2`): see [docs/assistant.md](docs/assistant.md).
+`--kubernetes-version`, `--registry-cache=false`. The optional AI assistant is set up on the Settings
+page of the UI, or with flags: Claude with `ANTHROPIC_API_KEY`, any OpenAI-compatible server such as a
+local Ollama with `--ai --ai-provider openai --ai-base-url http://localhost:11434/v1 --ai-model llama3.2`.
+See [docs/assistant.md](docs/assistant.md).
 </details>
 
 macOS is the primary platform. Linux works the same way; `kubedojo doctor` tells you if the inotify limits
@@ -150,6 +151,14 @@ The task on the left, `candidate@terminal` on the right. Connect to the cluster 
 task, press **Check**. Each check tells you what it expected, what it found and why that matters.
 Stuck? Three hints, from a nudge to nearly the command, then the worked solution. Commands in hints and
 solutions have a **Run** button that types them into your terminal.
+
+Do not see why a check fails? With the optional **assistant** switched on, **Explain what went wrong**
+opens it next to the task and the terminal. It answers from your task, the check results and a read-only
+look at your sandbox, and runs nothing itself. The model is yours to choose, in **Settings**: Claude, or any
+OpenAI-compatible server such as a local Ollama, where nothing leaves your machine. It is not there
+during an exam. More in [docs/assistant.md](docs/assistant.md).
+
+![The assistant explains a failed check next to the task and the terminal](docs/images/assistant-workspace.png)
 
 Need a second shell? The **+** next to the terminal tabs opens another one in the same sandbox — keep
 `watch kubectl get pods` running in one tab while you work in the other. Each tab is its own shell with
