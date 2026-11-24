@@ -288,7 +288,10 @@ func TestExemplarsAreRequestedWhereTheyArePromised(t *testing.T) {
 		for _, p := range d.Panels {
 			for _, tg := range p.Targets {
 				histogram := strings.Contains(tg.Expr, "http_server_request_duration_seconds_bucket") ||
-					strings.Contains(tg.Expr, "kubedojo_sandbox_provision_duration_seconds_bucket")
+					strings.Contains(tg.Expr, "kubedojo_sandbox_provision_duration_seconds_bucket") ||
+					strings.Contains(tg.Expr, "gen_ai_client_inference_duration_seconds_bucket") ||
+					strings.Contains(tg.Expr, "gen_ai_client_inference_time_to_first_chunk_seconds_bucket") ||
+					strings.Contains(tg.Expr, "kubedojo_assistant_context_duration_seconds_bucket")
 				if p.Type == "timeseries" && histogram && !strings.Contains(tg.Expr, "topk") && !tg.Exemplar {
 					t.Errorf("%s, panel %s: a latency series without exemplars; set \"exemplar\": true", d.file, p.Title)
 				}

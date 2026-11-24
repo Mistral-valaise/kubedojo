@@ -371,7 +371,7 @@ func TestNameAndServer(t *testing.T) {
 		"http://gpu.lan:11434/v1":           "ollama",
 		"https://openrouter.ai/api/v1":      "openrouter",
 		"https://api.groq.com/openai/v1":    "groq",
-		"https://api.mistral.ai/v1":         "mistral_ai",
+		"https://api.mistral.ai/v1":         "mistral",
 		"https://api.deepseek.com":          "deepseek",
 		"https://api.x.ai/v1":               "x_ai",
 		"http://localhost:1234/v1":          "openai_compatible",

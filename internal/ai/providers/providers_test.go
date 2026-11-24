@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Mistral-valaise/kubedojo/internal/ai"
@@ -74,6 +77,58 @@ func TestBuild(t *testing.T) {
 	p, err := f.Build(eff("openai", "llama3.2", "http://localhost:11434/v1", ""))
 	if _, ok := p.(wrapped); err != nil || !ok {
 		t.Errorf("the provider was not wrapped: %T %v", p, err)
+	}
+}
+
+// rebinding resolves a name to a local address when the URL is checked and
+// to the cloud metadata address afterwards.
+type rebinding struct {
+	mu    sync.Mutex
+	asked int
+}
+
+func (r *rebinding) LookupIPAddr(context.Context, string) ([]net.IPAddr, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.asked++; r.asked == 1 {
+		return []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}, nil
+	}
+	return []net.IPAddr{{IP: net.ParseIP("169.254.169.254")}}, nil
+}
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// The transport of every provider goes through Transport (telemetry), and
+// what is wrapped is the guarded transport: the address a connection is made
+// to is still judged, for both providers.
+func TestTransportWrapsTheGuardedTransport(t *testing.T) {
+	for _, e := range []settings.Effective{
+		eff("openai", "m", "http://model.test:8080/v1", ""),
+		eff("anthropic", "claude-opus-5-5", "http://model.test:8080", "key-0000000000000001"),
+	} {
+		t.Run(e.Provider.Value, func(t *testing.T) {
+			var seen atomic.Int32
+			f := Factory{Guard: netguard.Policy{Resolver: &rebinding{}}}
+			f.Transport = func(guarded http.RoundTripper) http.RoundTripper {
+				return roundTrip(func(r *http.Request) (*http.Response, error) {
+					seen.Add(1)
+					return guarded.RoundTrip(r)
+				})
+			}
+			p, err := f.Build(e)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = p.Chat(context.Background(), ai.Request{Messages: []ai.Message{{Role: "user", Content: "x"}}}, func(string) error { return nil })
+			if ai.AsError(err).Kind != ai.ErrBlockedURL {
+				t.Errorf("a name that now resolves to the metadata address: %v, want %s", err, ai.ErrBlockedURL)
+			}
+			if seen.Load() == 0 {
+				t.Error("the request did not go through Transport")
+			}
+		})
 	}
 }
 

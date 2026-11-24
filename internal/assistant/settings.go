@@ -150,7 +150,8 @@ func (s *Service) TestSettings(ctx context.Context, owner string, p settings.Pat
 		System:          "This is a connection test. Reply with the single word: ok",
 		Messages:        []ai.Message{{Role: "user", Content: "ping"}},
 		MaxOutputTokens: 16,
-		ConversationID:  "settings-test",
+		// No ConversationID: a connection test is no conversation, and its
+		// span should not look like one.
 	}, func(string) error { return nil })
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {

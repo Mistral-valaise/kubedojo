@@ -100,7 +100,7 @@ func NameFor(base *url.URL) string {
 	case is("api.groq.com"):
 		return "groq"
 	case is("api.mistral.ai"):
-		return "mistral_ai"
+		return "mistral"
 	case is("api.deepseek.com"):
 		return "deepseek"
 	case is("api.x.ai"):
@@ -123,6 +123,15 @@ func (p *Provider) Server() (string, int) {
 		}
 	}
 	return p.cfg.BaseURL.Hostname(), port
+}
+
+// MaxOutputTokens is the output limit a request asks the server for.
+// Telemetry records it.
+func (p *Provider) MaxOutputTokens(req ai.Request) int {
+	if req.MaxOutputTokens > 0 {
+		return req.MaxOutputTokens
+	}
+	return p.cfg.MaxTokens
 }
 
 type wireMessage struct {
@@ -203,10 +212,7 @@ func (p *Provider) Chat(ctx context.Context, req ai.Request, onDelta func(string
 		return ai.FromTransport(caller, err, p.cfg.BaseURL)
 	}
 
-	body := wireRequest{Model: p.cfg.Model, Stream: true, StreamOptions: map[string]any{"include_usage": true}, MaxTokens: p.cfg.MaxTokens}
-	if req.MaxOutputTokens > 0 {
-		body.MaxTokens = req.MaxOutputTokens
-	}
+	body := wireRequest{Model: p.cfg.Model, Stream: true, StreamOptions: map[string]any{"include_usage": true}, MaxTokens: p.MaxOutputTokens(req)}
 	if strings.TrimSpace(req.System) != "" {
 		body.Messages = append(body.Messages, wireMessage{Role: "system", Content: req.System})
 	}

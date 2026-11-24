@@ -36,8 +36,13 @@ const scope = "github.com/Mistral-valaise/kubedojo"
 
 // Telemetry holds the instruments kubedojo records to.
 type Telemetry struct {
-	Enabled  bool
-	Logger   *slog.Logger
+	Enabled bool
+	Logger  *slog.Logger
+	// Redact removes credentials from a prompt or an answer before it is
+	// recorded on a span; the server sets it to the redaction of check
+	// output. Without it no such text is recorded, whatever was asked for:
+	// content never reaches a trace unredacted.
+	Redact   func(string) string
 	shutdown []func(context.Context) error
 
 	// The providers the instruments come from. The HTTP instrumentation
@@ -57,6 +62,14 @@ type Telemetry struct {
 	storeTime metric.Float64Histogram
 	terminals atomic.Int64
 	meter     metric.Meter
+
+	// The assistant: the client metrics of the GenAI conventions
+	// (genaiconv.go) and kubedojo's own.
+	genDuration, genFirstChunk                       metric.Float64Histogram
+	genInput, genOutput, genCacheRead, genCacheWrite metric.Int64Counter
+	genOpInput, genOpOutput                          metric.Int64Histogram
+	assistantRequests                                metric.Int64Counter
+	assistantContext                                 metric.Float64Histogram
 }
 
 // Endpoint returns the configured OTLP endpoint: the general one, or the
@@ -160,6 +173,12 @@ func (t *Telemetry) instruments(tp trace.TracerProvider, mp metric.MeterProvider
 	t.ratings, _ = t.meter.Int64Histogram("kubedojo.question.rating",
 		metric.WithDescription("Learner ratings per question (1-5 stars)."),
 		metric.WithExplicitBucketBoundaries(1, 2, 3, 4, 5))
+	t.assistantRequests, _ = t.meter.Int64Counter("kubedojo.assistant.requests",
+		metric.WithDescription("Messages to the assistant by result: answered, failed, or refused before an answer started."))
+	t.assistantContext, _ = t.meter.Float64Histogram("kubedojo.assistant.context.duration", metric.WithUnit("s"),
+		metric.WithDescription("Time to gather the context of one message to the assistant: check results, snapshot, diagnostics."),
+		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20))
+	t.genaiInstruments()
 	_, _ = t.meter.Int64ObservableGauge("kubedojo.terminal.connections",
 		metric.WithDescription("Open browser terminals."),
 		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
@@ -307,6 +326,25 @@ func (t *Telemetry) StoreOperation(operation string, d time.Duration) {
 // from the request: it becomes a metric label.
 func (t *Telemetry) Rejected(reason string) {
 	t.rejected.Add(context.Background(), 1, metric.WithAttributes(attribute.String("reason", reason)))
+}
+
+// AssistantRequest counts one message to the assistant. provider is the name
+// of the provider in use, or "none". phase says how far the message got:
+// "admission" for one kubedojo refused before an answer started, with the
+// code of the refusal as result; "answer" for one the model was asked, with
+// "ok" or the kind of failure (ai.ErrorKind) as result. All labels are small
+// fixed sets. Counted inside the span of the answer, the sample carries its
+// trace.
+func (t *Telemetry) AssistantRequest(ctx context.Context, provider, phase, result, track, mode string) {
+	t.assistantRequests.Add(ctx, 1, metric.WithAttributes(attribute.String("provider", provider), attribute.String("phase", phase),
+		attribute.String("result", result), attribute.String("track", track), attribute.String("mode", mode)))
+}
+
+// AssistantContext records how long gathering the context of one message
+// took. cached says the sandbox was not asked again: what was read for the
+// previous message was still fresh.
+func (t *Telemetry) AssistantContext(ctx context.Context, track string, cached bool, d time.Duration) {
+	t.assistantContext.Record(ctx, d.Seconds(), metric.WithAttributes(attribute.String("track", track), attribute.Bool("cached", cached)))
 }
 
 // HTTP wraps the API handler with request spans and metrics. The terminal

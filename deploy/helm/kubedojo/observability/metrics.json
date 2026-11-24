@@ -43,6 +43,128 @@
   ],
   "kubedojo": [
     {
+      "name": "gen_ai_client_inference_duration_seconds",
+      "type": "histogram",
+      "labels": [
+        "error_type",
+        "gen_ai_operation_name",
+        "gen_ai_provider_name",
+        "gen_ai_request_model",
+        "gen_ai_response_model",
+        "server_address",
+        "server_port"
+      ]
+    },
+    {
+      "name": "gen_ai_client_inference_operation_input_tokens",
+      "type": "histogram",
+      "labels": [
+        "error_type",
+        "gen_ai_operation_name",
+        "gen_ai_provider_name",
+        "gen_ai_request_model",
+        "gen_ai_response_model",
+        "server_address",
+        "server_port"
+      ]
+    },
+    {
+      "name": "gen_ai_client_inference_operation_output_tokens",
+      "type": "histogram",
+      "labels": [
+        "error_type",
+        "gen_ai_operation_name",
+        "gen_ai_provider_name",
+        "gen_ai_request_model",
+        "gen_ai_response_model",
+        "server_address",
+        "server_port"
+      ]
+    },
+    {
+      "name": "gen_ai_client_inference_time_to_first_chunk_seconds",
+      "type": "histogram",
+      "labels": [
+        "gen_ai_operation_name",
+        "gen_ai_provider_name",
+        "gen_ai_request_model",
+        "gen_ai_response_model",
+        "server_address",
+        "server_port"
+      ]
+    },
+    {
+      "name": "gen_ai_client_inference_usage_cache_read_input_tokens_total",
+      "type": "counter",
+      "labels": [
+        "gen_ai_operation_name",
+        "gen_ai_provider_name",
+        "gen_ai_request_model",
+        "gen_ai_response_model",
+        "gen_ai_token_modality",
+        "server_address",
+        "server_port"
+      ]
+    },
+    {
+      "name": "gen_ai_client_inference_usage_cache_write_input_tokens_total",
+      "type": "counter",
+      "labels": [
+        "gen_ai_operation_name",
+        "gen_ai_provider_name",
+        "gen_ai_request_model",
+        "gen_ai_response_model",
+        "gen_ai_token_modality",
+        "server_address",
+        "server_port"
+      ]
+    },
+    {
+      "name": "gen_ai_client_inference_usage_input_tokens_total",
+      "type": "counter",
+      "labels": [
+        "gen_ai_operation_name",
+        "gen_ai_provider_name",
+        "gen_ai_request_model",
+        "gen_ai_response_model",
+        "gen_ai_token_modality",
+        "server_address",
+        "server_port"
+      ]
+    },
+    {
+      "name": "gen_ai_client_inference_usage_output_tokens_total",
+      "type": "counter",
+      "labels": [
+        "gen_ai_operation_name",
+        "gen_ai_provider_name",
+        "gen_ai_request_model",
+        "gen_ai_response_model",
+        "gen_ai_token_modality",
+        "server_address",
+        "server_port"
+      ]
+    },
+    {
+      "name": "kubedojo_assistant_context_duration_seconds",
+      "type": "histogram",
+      "labels": [
+        "cached",
+        "track"
+      ]
+    },
+    {
+      "name": "kubedojo_assistant_requests_total",
+      "type": "counter",
+      "labels": [
+        "mode",
+        "phase",
+        "provider",
+        "result",
+        "track"
+      ]
+    },
+    {
       "name": "kubedojo_check_runs_total",
       "type": "counter",
       "labels": [

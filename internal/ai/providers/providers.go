@@ -5,6 +5,7 @@ package providers
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/url"
 
 	"github.com/Mistral-valaise/kubedojo/internal/ai"
@@ -22,17 +23,19 @@ type Preset struct {
 
 // Info describes a provider to the settings UI.
 type Info struct {
-	ID           string   `json:"id"`
-	Label        string   `json:"label"`
-	NeedsKey     bool     `json:"needsKey"`
-	DefaultModel string   `json:"defaultModel,omitempty"`
-	Presets      []Preset `json:"presets,omitempty"`
+	ID           string `json:"id"`
+	Label        string `json:"label"`
+	NeedsKey     bool   `json:"needsKey"`
+	DefaultModel string `json:"defaultModel,omitempty"`
+	// DefaultBaseURL is where requests go when no base URL is set.
+	DefaultBaseURL string   `json:"defaultBaseURL,omitempty"`
+	Presets        []Preset `json:"presets,omitempty"`
 }
 
 // List returns the providers kubedojo has.
 func List() []Info {
 	return []Info{
-		{ID: settings.ProviderAnthropic, Label: "Anthropic", NeedsKey: true, DefaultModel: settings.DefaultAnthropicModel},
+		{ID: settings.ProviderAnthropic, Label: "Anthropic", NeedsKey: true, DefaultModel: settings.DefaultAnthropicModel, DefaultBaseURL: "https://api.anthropic.com"},
 		{ID: settings.ProviderOpenAI, Label: "OpenAI-compatible", Presets: []Preset{
 			{Label: "Ollama", BaseURL: "http://localhost:11434/v1"},
 			{Label: "LM Studio", BaseURL: "http://localhost:1234/v1"},
@@ -49,6 +52,21 @@ type Factory struct {
 	// Wrap is put around every provider that is built (telemetry). nil
 	// leaves it as it is.
 	Wrap func(ai.Provider) ai.Provider
+	// Transport is put around the HTTP transport of every provider that is
+	// built (telemetry). It wraps the guarded transport and must call it:
+	// the base URL policy stays in force for every connection. nil leaves
+	// the transport as it is.
+	Transport func(http.RoundTripper) http.RoundTripper
+}
+
+// client returns the guarded HTTP client of a base URL, with the factory's
+// transport wrapper around its transport.
+func (f Factory) client(base *url.URL) *http.Client {
+	c := f.Guard.Client(base, netguard.ClientOptions{})
+	if f.Transport != nil {
+		c.Transport = f.Transport(c.Transport)
+	}
+	return c
 }
 
 // CheckURL judges a base URL that somebody entered: strictly, a name that
@@ -96,7 +114,7 @@ func (f Factory) Build(eff settings.Effective) (ai.Provider, error) {
 			return nil, berr
 		}
 		p, err = anthropic.New(anthropic.Config{APIKey: eff.APIKey.Value.Reveal(), AuthToken: eff.AuthToken, BaseURL: base,
-			Model: eff.Model.Value, HTTPClient: f.Guard.Client(base, netguard.ClientOptions{})})
+			Model: eff.Model.Value, HTTPClient: f.client(base)})
 	case settings.ProviderOpenAI:
 		if eff.Model.Value == "" {
 			return nil, ai.Errorf(ai.ErrNotConfigured, "Choose a model.")
@@ -106,7 +124,7 @@ func (f Factory) Build(eff settings.Effective) (ai.Provider, error) {
 			return nil, berr
 		}
 		p, err = openaicompat.New(openaicompat.Config{APIKey: eff.APIKey.Value.Reveal(), BaseURL: base,
-			Model: eff.Model.Value, HTTPClient: f.Guard.Client(base, netguard.ClientOptions{})})
+			Model: eff.Model.Value, HTTPClient: f.client(base)})
 	default:
 		return nil, ai.Errorf(ai.ErrNotConfigured, "Unknown provider %q; use anthropic or openai.", eff.Provider.Value)
 	}

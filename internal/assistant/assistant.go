@@ -26,6 +26,7 @@ import (
 	"github.com/Mistral-valaise/kubedojo/internal/ratelimit"
 	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
 	"github.com/Mistral-valaise/kubedojo/internal/session"
+	"github.com/Mistral-valaise/kubedojo/internal/span"
 	"github.com/Mistral-valaise/kubedojo/internal/store"
 )
 
@@ -91,6 +92,40 @@ type Config struct {
 	LocalStack bool
 	// PingInterval overrides DefaultPingInterval.
 	PingInterval time.Duration
+	// Hooks connect the assistant to the metrics of the server.
+	Hooks Hooks
+}
+
+// What the request counter is told about a message.
+const (
+	// PhaseAdmission is before an answer starts: kubedojo may refuse.
+	PhaseAdmission = "admission"
+	// PhaseAnswer is the call to the model.
+	PhaseAnswer = "answer"
+	// ResultOK is the result of a message that was answered.
+	ResultOK = "ok"
+)
+
+// Hooks are called for what the assistant does, so that it can be counted.
+// A hook that is nil is not called. Every argument is one of a small fixed
+// set of words (or the name of the configured provider): the hooks label
+// metrics with them. Nothing a learner wrote is ever passed.
+type Hooks struct {
+	// Request is called once for every message. phase says how far it got:
+	// with PhaseAdmission it was refused before an answer started and
+	// result is the code of the refusal (CodeRateLimited, CodeBusy, ...);
+	// with PhaseAnswer the model was asked and result is ResultOK or the
+	// ai.ErrorKind of the failure. provider is "none" while there is none.
+	Request func(ctx context.Context, provider, phase, result, track, mode string)
+	// Context is called when the context of a message was gathered. cached
+	// says the sandbox was not asked again.
+	Context func(ctx context.Context, track string, cached bool, d time.Duration)
+}
+
+func (s *Service) count(ctx context.Context, provider, phase, result string, v *session.Session) {
+	if s.cfg.Hooks.Request != nil {
+		s.cfg.Hooks.Request(ctx, provider, phase, result, v.Track, v.Mode)
+	}
 }
 
 // Service is the assistant.
@@ -177,6 +212,9 @@ type Meta struct {
 	Conversation string
 	Provider     string
 	Model        string
+	// TraceID names the trace of this answer when it is being recorded, so
+	// that the UI can show it next to an error. Empty otherwise.
+	TraceID string
 	// Turn counts the learner's messages of this conversation, from 1.
 	Turn int
 	// UserMessageID is the stored message that is being answered.
@@ -270,6 +308,21 @@ func (s *Service) allow(owner string) *Refusal {
 // Start admits a request: it checks everything that can refuse it, reserves
 // a stream and stores the learner's message. The error is a *Refusal.
 func (s *Service) Start(owner string, v *session.Session, q *catalog.Question, qs *session.QState, in Input) (*Turn, error) {
+	t, err := s.admit(owner, v, q, qs, in)
+	// A refusal is counted here; a message that is admitted is counted
+	// when its answer ends.
+	var ref *Refusal
+	if errors.As(err, &ref) {
+		name := "none"
+		if p, _ := s.cfg.Holder.Current(); p != nil {
+			name = p.Name()
+		}
+		s.count(context.Background(), name, PhaseAdmission, ref.Code, v)
+	}
+	return t, err
+}
+
+func (s *Service) admit(owner string, v *session.Session, q *catalog.Question, qs *session.QState, in Input) (*Turn, error) {
 	message := strings.TrimSpace(in.Message)
 	if utf8.RuneCountInString(message) > MaxMessageChars {
 		return nil, &Refusal{Status: 400, Code: CodeTooLong, Message: fmt.Sprintf("The message is too long (at most %d characters).", MaxMessageChars)}
@@ -392,11 +445,52 @@ func buildMessages(prior []store.AssistantMessage, message string, maxTurns int,
 	return append(msgs, ai.Message{Role: "user", Content: final(message)})
 }
 
+// attrs are the attributes of a span of this turn: what every span of
+// session work says, the question, and more.
+func (t *Turn) attrs(more ...span.Attr) []span.Attr {
+	return append([]span.Attr{span.String("kubedojo.session.id", t.v.ID), span.String("kubedojo.track", t.v.Track),
+		span.String("kubedojo.mode", t.v.Mode), span.String("kubedojo.question", t.q.ID)}, more...)
+}
+
 // Run answers the turn: it gathers the context, sends the conversation to
 // the model, passes the answer on as events and stores it. It always ends
 // with a Done or an Error event, unless the sink itself failed.
+//
+// The answer is the span assistant.chat, with the gathering of the context
+// and the call to the model below it. It names the conversation and counts
+// what went into it; what was said is not on it.
 func (t *Turn) Run(ctx context.Context, sink Sink) {
 	defer t.release()
+	ctx, sp := span.Start(ctx, "assistant.chat", t.attrs(
+		span.String("gen_ai.conversation.id", conversation(t.v, t.q)),
+		span.Int("kubedojo.assistant.turn", t.turn))...)
+	failed := t.answer(ctx, sink)
+	result := ResultOK
+	if failed != nil {
+		result = string(failed.Kind)
+	}
+	sp.Set(span.String("kubedojo.assistant.result", result))
+	// Counted inside the span, so the sample carries its trace.
+	t.s.count(ctx, t.provider.Name(), PhaseAnswer, result, t.v)
+	switch {
+	case failed == nil, failed.Kind == ai.ErrRefused:
+		// A model that declines has answered: no fault of the server.
+		sp.End(nil)
+	case failed.Kind == ai.ErrCanceled:
+		// The learner left. As everywhere, that is a refusal, not an error.
+		sp.Set(span.String("kubedojo.refused", "cancelled"))
+		sp.End(nil)
+	default:
+		sp.Set(span.String("error.type", string(failed.Kind)))
+		// The kind, the upstream status and the message the learner sees.
+		// The cause stays in the log: it can name things of the upstream.
+		sp.End(&ai.Error{Kind: failed.Kind, Status: failed.Status, Message: failed.Message})
+	}
+}
+
+// answer does the work of Run. It returns the failure of the answer, or nil
+// when the answer is complete.
+func (t *Turn) answer(ctx context.Context, sink Sink) *ai.Error {
 	s, start := t.s, time.Now()
 	name, model := t.provider.Name(), t.provider.Model()
 	gone := false
@@ -405,15 +499,15 @@ func (t *Turn) Run(ctx context.Context, sink Sink) {
 			gone = true
 		}
 	}
-	send(Meta{Conversation: conversation(t.v, t.q), Provider: name, Model: model, Turn: t.turn, UserMessageID: t.userID})
+	send(Meta{Conversation: conversation(t.v, t.q), Provider: name, Model: model, TraceID: span.TraceID(ctx), Turn: t.turn, UserMessageID: t.userID})
 
 	send(Context{Stage: StageChecks})
-	pc := s.promptContext(t.v, t.q, t.qs)
-	seen := s.observe(ctx, t.v, t.q, t.qs, func(stage string) { send(Context{Stage: stage}) })
-	pc.Snapshot, pc.Diagnostics = seen.snapshot, seen.diagnostics
+	pc := t.gather(ctx, func(stage string) { send(Context{Stage: stage}) })
 
 	req := ai.Request{System: ai.System, ConversationID: conversation(t.v, t.q),
 		Messages: buildMessages(t.prior, t.message, MaxTurns, func(m string) string { return ai.UserTurn(pc, m) })}
+	// How much of the conversation goes along with the new message.
+	span.Current(ctx).Set(span.Int("kubedojo.assistant.history.messages", len(req.Messages)-1))
 	var text strings.Builder
 	var res ai.Result
 	var err error
@@ -455,7 +549,7 @@ func (t *Turn) Run(ctx context.Context, sink Sink) {
 		s.cfg.Log.Log(ctx, level, "assistant: no answer", "session", t.v.ID, "question", t.q.ID, "provider", name, "model", model,
 			"kind", string(aerr.Kind), "status", aerr.Status, "err", aerr.Err, "partial", out.MessageID != 0)
 		send(out)
-		return
+		return aerr
 	}
 	id, serr := add(false)
 	if serr != nil {
@@ -468,6 +562,7 @@ func (t *Turn) Run(ctx context.Context, sink Sink) {
 		res.FinishReason = "stop"
 	}
 	send(Done{MessageID: id, FinishReason: res.FinishReason, Model: res.Model, Usage: res.Usage, Duration: time.Since(start)})
+	return nil
 }
 
 // Chat is Start and Run in one call, for a caller that has nothing to do in
@@ -492,6 +587,15 @@ func (s *Service) History(v *session.Session, q *catalog.Question) ([]store.Assi
 
 // Clear removes the conversation of a question.
 func (s *Service) Clear(v *session.Session, q *catalog.Question) error {
+	// Not while an answer of this conversation is arriving: it would be stored
+	// after the clearing, without the question it answers.
+	release, err := s.gate.Acquire(conversation(v, q))
+	switch {
+	case errors.Is(err, ratelimit.ErrBusy):
+		return &Refusal{Status: 409, Code: CodeBusy, Message: "An answer is still arriving. Stop it, then start a new conversation."}
+	case err == nil:
+		defer release()
+	}
 	s.seen.drop(conversation(v, q) + "/")
 	return s.cfg.Store.ClearAssistantMessages(v.ID, q.ID)
 }
