@@ -95,6 +95,46 @@ describe("parseSSE", () => {
   });
 });
 
+describe("parseSSE with a last event", () => {
+  const isDone = (msg: SSEMessage) => msg.event === "done";
+
+  it("reads nothing after it, and lets the server close the stream itself", async () => {
+    let cancelled = false;
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes("event: delta\ndata: x\n\nevent: done\ndata: {}\n\nevent: delta\ndata: late\n\n"));
+        // As the server does: the stream ends a moment after its last event.
+        setTimeout(() => controller.close(), 20);
+      },
+      cancel() { cancelled = true; },
+    });
+    const started = Date.now();
+    expect(await all(parseSSE(source, isDone))).toEqual([{ event: "delta", data: "x" }, { event: "done", data: "{}" }]);
+    // Ended by the server, not given up by the reader, and without waiting out the limit.
+    expect(cancelled).toBe(false);
+    expect(Date.now() - started).toBeLessThan(200);
+  });
+
+  it("does not wait for long for a server that keeps the stream open", async () => {
+    let cancelled = false;
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(bytes("event: done\ndata: {}\n\n")); },
+      cancel() { cancelled = true; },
+    });
+    const started = Date.now();
+    expect(await all(parseSSE(source, isDone))).toEqual([{ event: "done", data: "{}" }]);
+    expect(Date.now() - started).toBeLessThan(1000);
+    await Promise.resolve();
+    expect(cancelled).toBe(true);
+  });
+
+  it("ends at once when the stream ended with its last event", async () => {
+    const started = Date.now();
+    expect(await all(parseSSE(body(["event: done\ndata: {}\n\n"]), isDone))).toEqual([{ event: "done", data: "{}" }]);
+    expect(Date.now() - started).toBeLessThan(100);
+  });
+});
+
 const sse = (...events: [string, unknown][]) => events.map(([name, data]) => `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`).join("");
 const stream = (chunks: (string | Uint8Array)[], error?: unknown) =>
   new Response(body(chunks, error), { status: 200, headers: { "Content-Type": "text/event-stream" } });

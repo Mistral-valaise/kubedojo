@@ -29,14 +29,22 @@ export class AssistantError extends Error {
 
 export interface SSEMessage { event: string; data: string }
 
+/** How long the reader waits for the server to close a stream that has said its last word. */
+const CLOSE_WAIT_MS = 250;
+
 /**
  * Reads server-sent events from a byte stream. An event may arrive in any
  * number of chunks and a chunk may hold any number of events; lines end with
  * LF, CRLF or CR; a line that starts with a colon is a comment; several
  * `data:` lines are one value with line breaks. An event that the end of the
  * stream cuts off is dropped, as the specification says.
+ *
+ * `last` names the event after which nothing more is read. The server closes
+ * the stream right after it: the reader waits a moment for that, so that the
+ * request ends as a completed one and not as one the client gave up (which a
+ * proxy would log as an error for every answer).
  */
-export async function* parseSSE(body: ReadableStream<Uint8Array>): AsyncGenerator<SSEMessage> {
+export async function* parseSSE(body: ReadableStream<Uint8Array>, last?: (msg: SSEMessage) => boolean): AsyncGenerator<SSEMessage> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "", event = "", data: string[] = [];
@@ -52,8 +60,14 @@ export async function* parseSSE(body: ReadableStream<Uint8Array>): AsyncGenerato
         const line = buffer.slice(0, at);
         buffer = buffer.slice(at + (buffer[at] === "\r" && buffer[at + 1] === "\n" ? 2 : 1));
         if (line === "") {
-          if (data.length > 0) yield { event: event || "message", data: data.join("\n") };
+          const msg = data.length > 0 ? { event: event || "message", data: data.join("\n") } : null;
           event = ""; data = [];
+          if (!msg) continue;
+          yield msg;
+          if (last?.(msg)) {
+            if (!done) await Promise.race([reader.read().catch(() => undefined), new Promise((resolve) => setTimeout(resolve, CLOSE_WAIT_MS))]);
+            return;
+          }
           continue;
         }
         if (line.startsWith(":")) continue;
@@ -74,6 +88,16 @@ export async function* parseSSE(body: ReadableStream<Uint8Array>): AsyncGenerato
 
 const isAbort = (e: unknown) => e instanceof Error && e.name === "AbortError";
 const NAMES = new Set(["meta", "context", "delta", "done", "error"]);
+
+/** The data of an event as an object, or null when it is not the JSON object every event of the API carries. */
+function payloadOf(msg: SSEMessage): Record<string, unknown> | null {
+  try {
+    const payload: unknown = JSON.parse(msg.data);
+    return payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
 
 /** The code of a refusal that names none, from its status. */
 function codeOf(status: number): string {
@@ -121,20 +145,22 @@ export async function* streamAssistant(
     // Something in between answered in place of kubedojo.
     throw new AssistantError("server", "", res.status);
   }
+  // The event that ends an answer, if it can be read: see `payloadOf`.
+  const ends = (msg: SSEMessage) => (msg.event === "done" || msg.event === "error") && payloadOf(msg) !== null;
+  let ended = false;
   try {
-    for await (const msg of parseSSE(res.body)) {
-      if (!NAMES.has(msg.event)) continue;
-      let payload: Record<string, unknown>;
-      try { payload = JSON.parse(msg.data) as Record<string, unknown>; } catch { continue; }
-      if (!payload || typeof payload !== "object") continue;
+    for await (const msg of parseSSE(res.body, ends)) {
+      const payload = NAMES.has(msg.event) ? payloadOf(msg) : null;
+      if (!payload) continue;
       const ev = { ...payload, type: msg.event } as AssistantEvent;
+      ended = ev.type === "done" || ev.type === "error";
       yield ev;
-      if (ev.type === "done" || ev.type === "error") return;
     }
   } catch (e) {
     if (isAbort(e) || signal?.aborted) throw e;
     // The connection broke in the middle of the answer.
   }
+  if (ended) return;
   if (signal?.aborted) throw new DOMException("The request was aborted.", "AbortError");
   yield { type: "interrupted" };
 }
