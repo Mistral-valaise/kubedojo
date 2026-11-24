@@ -9,12 +9,44 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db       *sql.DB
+	observer atomic.Pointer[func(operation string, d time.Duration)]
+}
+
+// Operations are the names Observe reports: one per method that reads or
+// writes the database. The set is fixed, so a name can be a metric label.
+var Operations = []string{"ping", "save_session", "load_sessions", "add_attempt", "attempts",
+	"add_exam", "exams", "mark_all_destroyed", "add_rating", "ratings", "backup"}
+
+// Observe makes the store report every operation to fn: its name, one of
+// Operations, and how long it took. fn runs on the goroutine of the caller
+// and must be quick. A nil fn stops the reports.
+func (s *Store) Observe(fn func(operation string, d time.Duration)) {
+	if fn == nil {
+		s.observer.Store(nil)
+		return
+	}
+	s.observer.Store(&fn)
+}
+
+// timed starts the clock of an operation. The returned function reports it:
+//
+//	defer s.timed("save_session")()
+func (s *Store) timed(operation string) func() {
+	fn := s.observer.Load()
+	if fn == nil {
+		return func() {}
+	}
+	start := time.Now()
+	return func() { (*fn)(operation, time.Since(start)) }
+}
 
 // ErrLocked is returned by Lock when a server uses the data directory.
 var ErrLocked = errors.New("a kubedojo server is using this data directory")
@@ -99,11 +131,13 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // Ping reports whether the database answers.
 func (s *Store) Ping(ctx context.Context) error {
+	defer s.timed("ping")()
 	var one int
 	return s.db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
 }
 
 func (s *Store) SaveSession(id, mode, track, status string, created time.Time, v any) error {
+	defer s.timed("save_session")()
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -116,6 +150,7 @@ func (s *Store) SaveSession(id, mode, track, status string, created time.Time, v
 
 // LoadSessions returns the raw JSON of every session that is not destroyed.
 func (s *Store) LoadSessions() ([][]byte, error) {
+	defer s.timed("load_sessions")()
 	rows, err := s.db.Query(`SELECT data FROM sessions WHERE status != 'destroyed' ORDER BY created_at`)
 	if err != nil {
 		return nil, err
@@ -145,12 +180,14 @@ type Attempt struct {
 }
 
 func (s *Store) AddAttempt(a Attempt) error {
+	defer s.timed("add_attempt")()
 	_, err := s.db.Exec(`INSERT INTO attempts(session_id,mode,track,domain,question_id,score,max,at,owner) VALUES(?,?,?,?,?,?,?,?,?)`,
 		a.SessionID, a.Mode, a.Track, a.Domain, a.QuestionID, a.Score, a.Max, a.At.UTC().Format(time.RFC3339), a.Owner)
 	return err
 }
 
 func (s *Store) Attempts(track, owner string) ([]Attempt, error) {
+	defer s.timed("attempts")()
 	rows, err := s.db.Query(`SELECT session_id,mode,track,domain,question_id,score,max,at FROM attempts WHERE track=? AND owner=? ORDER BY id`, track, owner)
 	if err != nil {
 		return nil, err
@@ -186,12 +223,14 @@ type Exam struct {
 }
 
 func (s *Store) AddExam(e Exam) error {
+	defer s.timed("add_exam")()
 	_, err := s.db.Exec(`INSERT OR REPLACE INTO exams(session_id,track,score,max,percent,passed,finished_at,domains,owner,questions,minutes) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
 		e.SessionID, e.Track, e.Score, e.Max, e.Percent, e.Passed, e.FinishedAt.UTC().Format(time.RFC3339), string(e.Domains), e.Owner, e.Questions, e.Minutes)
 	return err
 }
 
 func (s *Store) Exams(track, owner string) ([]Exam, error) {
+	defer s.timed("exams")()
 	rows, err := s.db.Query(`SELECT session_id,track,score,max,percent,passed,finished_at,domains,questions,minutes FROM exams WHERE track=? AND owner=? ORDER BY finished_at`, track, owner)
 	if err != nil {
 		return nil, err
@@ -213,6 +252,7 @@ func (s *Store) Exams(track, owner string) ([]Exam, error) {
 
 // MarkAllDestroyed flags every session as destroyed (after `kubedojo down`).
 func (s *Store) MarkAllDestroyed() error {
+	defer s.timed("mark_all_destroyed")()
 	_, err := s.db.Exec(`UPDATE sessions SET status='destroyed', data=json_set(data,'$.status','destroyed')`)
 	return err
 }
@@ -228,6 +268,7 @@ type Rating struct {
 }
 
 func (s *Store) AddRating(r Rating) error {
+	defer s.timed("add_rating")()
 	_, err := s.db.Exec(`INSERT INTO ratings(track,question_id,owner,stars,comment,at) VALUES(?,?,?,?,?,?)`,
 		r.Track, r.QuestionID, r.Owner, r.Stars, r.Comment, r.At.UTC().Format(time.RFC3339))
 	return err
@@ -235,6 +276,7 @@ func (s *Store) AddRating(r Rating) error {
 
 // Ratings returns all ratings, newest first; track may be empty for all tracks.
 func (s *Store) Ratings(track string) ([]Rating, error) {
+	defer s.timed("ratings")()
 	rows, err := s.db.Query(`SELECT track,question_id,owner,stars,comment,at FROM ratings WHERE (?='' OR track=?) ORDER BY id DESC`, track, track)
 	if err != nil {
 		return nil, err
@@ -259,6 +301,7 @@ func (s *Store) Ratings(track string) ([]Rating, error) {
 // of it. Copying the database file instead is not safe: in WAL mode the
 // latest writes are in a second file.
 func (s *Store) Backup(ctx context.Context, path string) error {
+	defer s.timed("backup")()
 	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("%s exists already", path)
 	}

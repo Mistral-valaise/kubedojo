@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"sort"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Mistral-valaise/kubedojo/internal/dockerhost"
+	"github.com/Mistral-valaise/kubedojo/internal/span"
 	"github.com/moby/moby/client"
 )
 
@@ -133,9 +135,36 @@ func lastLines(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
+// imageVersion is the Kubernetes version a node image is tagged with
+// (kubedojo/node:v1.37.0), or "" if the tag is not a version.
+func imageVersion(image string) string {
+	i := strings.LastIndex(image, ":")
+	if i < 0 || !strings.HasPrefix(image[i+1:], "v") || strings.Contains(image[i+1:], "/") {
+		return ""
+	}
+	return image[i+1:]
+}
+
+// redactURL is a URL without the password it may carry.
+func redactURL(raw string) string {
+	if u, err := url.Parse(raw); err == nil {
+		return u.Redacted()
+	}
+	return raw
+}
+
+// CreateEnv creates a cluster or a Linux host. In a trace it is one span per
+// phase below the caller's span, not one per docker call: creating the
+// cluster, preparing its nodes, pointing them at the image cache, waiting
+// until they are Ready.
 func (k *Kind) CreateEnv(ctx context.Context, h dockerhost.Host, sessionID, alias string, spec EnvSpec, keys KeyPair, logf func(string, ...any)) error {
 	if spec.Type == EnvContainer {
 		return k.createLab(ctx, h, sessionID, alias, keys, logf)
+	}
+	env := span.Current(ctx)
+	env.Set(span.String("container.image.name", k.NodeImage))
+	if v := imageVersion(k.NodeImage); v != "" {
+		env.Set(span.String("kubedojo.kubernetes.version", v))
 	}
 	cfg := spec.KindConfig
 	if cfg == "" {
@@ -163,39 +192,73 @@ func (k *Kind) CreateEnv(ctx context.Context, h dockerhost.Host, sessionID, alia
 	defer os.Remove(kc.Name())
 
 	logf("Creating cluster %s (1 control plane, %d worker) ...", alias, spec.Workers)
-	if _, err := run(h.Command(ctx, k.kind(), "create", "cluster", "--name", alias,
-		"--image", k.NodeImage, "--config", f.Name(), "--kubeconfig", kc.Name(), "--wait", "120s"), ""); err != nil {
+	err = phase(ctx, "kind.create_cluster", func(ctx context.Context, _ span.Span) error {
+		_, err := run(h.Command(ctx, k.kind(), "create", "cluster", "--name", alias,
+			"--image", k.NodeImage, "--config", f.Name(), "--kubeconfig", kc.Name(), "--wait", "120s"), "")
 		return err
-	}
-	nodes, err := k.nodes(ctx, h, alias)
+	}, span.String("kubedojo.environment.alias", alias), span.String("container.image.name", k.NodeImage))
 	if err != nil {
 		return err
 	}
-	logf("Preparing %d node(s) of %s (ssh, candidate user, kubeconfig) ...", len(nodes), alias)
-	for _, n := range nodes {
-		if _, err := run(h.Command(ctx, "docker", "exec", "-i", "-e", "KD_PUBKEY="+keys.Public, n, "bash", "-c",
-			`kubedojo-node-init "$KD_PUBKEY" && cat > /root/.ssh/id_ed25519 && chmod 600 /root/.ssh/id_ed25519 && printf 'Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\n' > /root/.ssh/config`),
-			keys.Private); err != nil {
-			return fmt.Errorf("init node %s: %w", n, err)
+	var nodes []string
+	err = phase(ctx, "sandbox.nodes.init", func(ctx context.Context, sp span.Span) error {
+		var err error
+		if nodes, err = k.nodes(ctx, h, alias); err != nil {
+			return err
 		}
-	}
-	if m := k.mirror(ctx, h, logf); m != "" {
-		// containerd reads hosts.toml on every pull, so no restart is needed.
-		// If the mirror is down it falls back to Docker Hub itself.
-		hosts := fmt.Sprintf("server = \"https://registry-1.docker.io\"\n\n[host.%q]\n  capabilities = [\"pull\", \"resolve\"]\n", m)
+		// A custom kind config decides the number of nodes; this is the real one.
+		env.Set(span.Int("kubedojo.environment.nodes", len(nodes)))
+		sp.Set(span.Int("kubedojo.environment.nodes", len(nodes)))
+		logf("Preparing %d node(s) of %s (ssh, candidate user, kubeconfig) ...", len(nodes), alias)
 		for _, n := range nodes {
-			if _, err := run(h.Command(ctx, "docker", "exec", "-i", n, "bash", "-c",
-				"mkdir -p /etc/containerd/certs.d/docker.io && cat > /etc/containerd/certs.d/docker.io/hosts.toml"), hosts); err != nil {
-				return fmt.Errorf("configure image cache on %s: %w", n, err)
+			if _, err := run(h.Command(ctx, "docker", "exec", "-i", "-e", "KD_PUBKEY="+keys.Public, n, "bash", "-c",
+				`kubedojo-node-init "$KD_PUBKEY" && cat > /root/.ssh/id_ed25519 && chmod 600 /root/.ssh/id_ed25519 && printf 'Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\n' > /root/.ssh/config`),
+				keys.Private); err != nil {
+				return fmt.Errorf("init node %s: %w", n, err)
 			}
+			sp.Event("node.initialized", span.String("node", n))
+		}
+		return nil
+	}, span.String("kubedojo.environment.alias", alias))
+	if err != nil {
+		return err
+	}
+	if k.RegistryMirror != "" || k.RegistryCache {
+		err = phase(ctx, "sandbox.registry.configure", func(ctx context.Context, sp span.Span) error {
+			m := k.mirror(ctx, h, logf)
+			sp.Set(span.String("kubedojo.registry.mirror", redactURL(m)))
+			if m == "" {
+				return nil // the cache could not be started; nodes pull directly
+			}
+			// containerd reads hosts.toml on every pull, so no restart is needed.
+			// If the mirror is down it falls back to Docker Hub itself.
+			hosts := fmt.Sprintf("server = \"https://registry-1.docker.io\"\n\n[host.%q]\n  capabilities = [\"pull\", \"resolve\"]\n", m)
+			for _, n := range nodes {
+				if _, err := run(h.Command(ctx, "docker", "exec", "-i", n, "bash", "-c",
+					"mkdir -p /etc/containerd/certs.d/docker.io && cat > /etc/containerd/certs.d/docker.io/hosts.toml"), hosts); err != nil {
+					return fmt.Errorf("configure image cache on %s: %w", n, err)
+				}
+			}
+			return nil
+		}, span.String("kubedojo.environment.alias", alias))
+		if err != nil {
+			return err
 		}
 	}
 	logf("Waiting for all nodes of %s to become Ready ...", alias)
-	if _, err := run(h.Command(ctx, "docker", "exec", alias+"-control-plane", "kubectl", "--kubeconfig", "/etc/kubernetes/admin.conf",
-		"wait", "--for=condition=Ready", "nodes", "--all", "--timeout=180s"), ""); err != nil {
+	return phase(ctx, "sandbox.nodes.wait_ready", func(ctx context.Context, _ span.Span) error {
+		_, err := run(h.Command(ctx, "docker", "exec", alias+"-control-plane", "kubectl", "--kubeconfig", "/etc/kubernetes/admin.conf",
+			"wait", "--for=condition=Ready", "nodes", "--all", "--timeout=180s"), "")
 		return err
-	}
-	return nil
+	}, span.String("kubedojo.environment.alias", alias), span.Int("kubedojo.environment.nodes", len(nodes)))
+}
+
+// phase runs one step of creating an environment as a span of its own.
+func phase(ctx context.Context, name string, do func(ctx context.Context, sp span.Span) error, attrs ...span.Attr) error {
+	ctx, sp := span.Start(ctx, name, attrs...)
+	err := do(ctx, sp)
+	sp.End(err)
+	return err
 }
 
 func (k *Kind) nodes(ctx context.Context, h dockerhost.Host, alias string) ([]string, error) {
@@ -362,8 +425,9 @@ func (k *Kind) Attach(ctx context.Context, h dockerhost.Host, sessionID string, 
 		},
 		closer: func() {
 			defer cli.Close()
-			// Not the request context: it is usually cancelled by now.
-			kctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			// The request that attached is usually over by now. Its context
+			// is kept for what it carries (its trace), not for its lifetime.
+			kctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 			defer cancel()
 			hangUp(kctx, cli, name, marker)
 		},

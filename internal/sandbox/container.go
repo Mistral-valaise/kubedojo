@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Mistral-valaise/kubedojo/internal/dockerhost"
+	"github.com/Mistral-valaise/kubedojo/internal/span"
 )
 
 // A container environment is one Linux container, the "lab": the host the
@@ -72,27 +73,40 @@ func ensureNetwork(ctx context.Context, h dockerhost.Host, sessionID string) err
 	return err
 }
 
+// createLab starts the Linux host of a container environment. In a trace it
+// is two spans below the caller's: starting the container, and waiting for
+// its sshd. The wait is one span however often it has to look.
 func (k *Kind) createLab(ctx context.Context, h dockerhost.Host, sessionID, alias string, keys KeyPair, logf func(string, ...any)) error {
+	span.Current(ctx).Set(span.String("container.image.name", k.LinuxImage))
 	logf("Starting host %s ...", alias)
-	if err := ensureNetwork(ctx, h, sessionID); err != nil {
+	err := phase(ctx, "sandbox.container.start", func(ctx context.Context, _ span.Span) error {
+		if err := ensureNetwork(ctx, h, sessionID); err != nil {
+			return err
+		}
+		_, err := run(h.Command(ctx, "docker", labRunArgs(sessionID, alias, k.LinuxImage, keys.Public)...), "")
 		return err
-	}
-	if _, err := run(h.Command(ctx, "docker", labRunArgs(sessionID, alias, k.LinuxImage, keys.Public)...), ""); err != nil {
+	}, span.String("kubedojo.environment.alias", alias), span.String("container.image.name", k.LinuxImage))
+	if err != nil {
 		return err
 	}
 	// The learner's first command is `ssh <alias>`: wait for sshd's banner.
-	deadline := time.Now().Add(60 * time.Second)
-	for {
-		_, err := run(h.Command(ctx, "docker", "exec", alias, "bash", "-c",
-			`exec 3<>/dev/tcp/127.0.0.1/22 && read -r -t 2 banner <&3 && [[ $banner == SSH-* ]]`), "")
-		if err == nil {
-			return nil
+	return phase(ctx, "sandbox.container.wait_ssh", func(ctx context.Context, sp span.Span) error {
+		polls := 0
+		defer func() { sp.Set(span.Int("polls", polls)) }()
+		deadline := time.Now().Add(60 * time.Second)
+		for {
+			polls++
+			_, err := run(h.Command(ctx, "docker", "exec", alias, "bash", "-c",
+				`exec 3<>/dev/tcp/127.0.0.1/22 && read -r -t 2 banner <&3 && [[ $banner == SSH-* ]]`), "")
+			if err == nil {
+				return nil
+			}
+			if time.Now().After(deadline) || ctx.Err() != nil {
+				return fmt.Errorf("host %s does not accept ssh: %w", alias, err)
+			}
+			time.Sleep(200 * time.Millisecond)
 		}
-		if time.Now().After(deadline) || ctx.Err() != nil {
-			return fmt.Errorf("host %s does not accept ssh: %w", alias, err)
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
+	}, span.String("kubedojo.environment.alias", alias))
 }
 
 // removeLabelled removes every container of the session that is not a kind

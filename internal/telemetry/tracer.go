@@ -36,7 +36,8 @@ func (o otelSpan) Event(name string, attrs ...span.Attr) {
 	o.s.AddEvent(name, trace.WithAttributes(keyValues(attrs)...))
 }
 
-// End behaves like the function Telemetry.Span returns.
+// End ends the span. An error is recorded as an exception event and sets the
+// error status; without one the status stays unset.
 func (o otelSpan) End(err error) {
 	if err != nil {
 		o.s.RecordError(err)

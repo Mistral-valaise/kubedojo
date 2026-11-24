@@ -19,7 +19,11 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/metric/noop"
+
 	"github.com/Mistral-valaise/kubedojo/internal/dockerhost"
+	"github.com/Mistral-valaise/kubedojo/internal/span"
 )
 
 const saDir = "/var/run/secrets/kubernetes.io/serviceaccount"
@@ -111,7 +115,7 @@ func New(cfg Config) (*Provider, error) {
 		cfg.Namespace = strings.TrimSpace(string(ns))
 	}
 	return newProvider(cfg, "https://"+net.JoinHostPort(host, port),
-		&http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}},
+		&http.Client{Timeout: 30 * time.Second, Transport: traced(&http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}})},
 		func() (string, error) {
 			b, err := os.ReadFile(saDir + "/token") // re-read: projected tokens rotate
 			return strings.TrimSpace(string(b)), err
@@ -290,21 +294,66 @@ func (p *Provider) Acquire(ctx context.Context, sessionID string, logf func(stri
 	if code == 200 && ready(st) {
 		return p.endpoint(st), nil
 	}
+	pod := []span.Attr{span.String("k8s.pod.name", name), span.String("k8s.namespace.name", p.cfg.Namespace)}
 	if code == 404 {
 		logf("Starting the sandbox host ...")
-		c, body, err := p.do(ctx, "POST", "/api/v1/namespaces/"+p.cfg.Namespace+"/pods", p.manifest(name, sessionID))
-		if err != nil {
+		if err := p.create(ctx, name, sessionID, pod); err != nil {
 			return dockerhost.Host{}, err
-		}
-		if c != 201 && c != 409 {
-			return dockerhost.Host{}, fmt.Errorf("create sandbox pod: HTTP %d: %s", c, apiMessage(body))
 		}
 	} else if code != 200 {
 		return dockerhost.Host{}, fmt.Errorf("get sandbox pod: HTTP %d", code)
 	}
+	// Waiting is one span, however often the Pod is looked at: the number of
+	// looks is an attribute, and each change of what the Pod waits for is an
+	// event.
+	ctx, sp := span.Start(ctx, "sandbox.pod.wait", pod...)
+	polls := 0
+	host, err := p.wait(ctx, name, logf, sp, &polls)
+	sp.Set(span.Int("polls", polls))
+	sp.End(err)
+	return host, err
+}
+
+// create creates the sandbox Pod of a session. A Pod that exists already
+// (another request was faster) is as good.
+func (p *Provider) create(ctx context.Context, name, sessionID string, pod []span.Attr) (err error) {
+	ctx, sp := span.Start(ctx, "sandbox.pod.create", append(pod, span.String("container.image.name", p.cfg.Image))...)
+	defer func() { sp.End(err) }()
+	c, body, err := p.do(ctx, "POST", "/api/v1/namespaces/"+p.cfg.Namespace+"/pods", p.manifest(name, sessionID))
+	if err != nil {
+		return err
+	}
+	sp.Set(span.Int("http.response.status_code", c))
+	if c != 201 && c != 409 {
+		return fmt.Errorf("create sandbox pod: HTTP %d: %s", c, apiMessage(body))
+	}
+	return nil
+}
+
+// state says in a word or two where a Pod that is not ready stands: what it
+// waits for (Unschedulable, ContainerCreating, ImagePullBackOff, ...), or
+// else its phase.
+func state(st *podStatus) string {
+	for _, c := range st.Status.Conditions {
+		if c.Type == "PodScheduled" && c.Status == "False" && c.Reason != "" {
+			return c.Reason
+		}
+	}
+	for _, cs := range st.Status.ContainerStatuses {
+		if w := cs.State.Waiting; w != nil && w.Reason != "" {
+			return w.Reason
+		}
+	}
+	return firstOf(st.Status.Phase, "Unknown")
+}
+
+// wait polls the sandbox Pod until it is ready, tells logf why it is not, and
+// gives up early on states that do not resolve on their own.
+func (p *Provider) wait(ctx context.Context, name string, logf func(string, ...any), sp span.Span, polls *int) (dockerhost.Host, error) {
 	start := time.Now()
-	said, stuck, since := "", "", time.Time{}
+	said, stuck, since, was := "", "", time.Time{}, ""
 	for {
+		*polls++
 		st, code, err := p.get(ctx, name)
 		if err != nil {
 			return dockerhost.Host{}, err
@@ -316,6 +365,10 @@ func (p *Provider) Acquire(ctx context.Context, sessionID string, logf func(stri
 			if ready(st) {
 				logf("Sandbox host is ready.")
 				return p.endpoint(st), nil
+			}
+			if now := state(st); now != was {
+				sp.Event("pod.state", span.String("reason", now), span.String("k8s.pod.phase", st.Status.Phase))
+				was = now
 			}
 			if ph := st.Status.Phase; ph == "Failed" || ph == "Succeeded" {
 				return dockerhost.Host{}, fmt.Errorf("sandbox pod %s ended (%s): %s", name, firstOf(st.Status.Reason, ph), firstOf(st.Status.Message, "see kubectl describe pod "+name))
@@ -502,4 +555,32 @@ func (p *Provider) manifest(name, sessionID string) map[string]any {
 		}}
 	}
 	return map[string]any{"apiVersion": "v1", "kind": "Pod", "metadata": meta, "spec": spec}
+}
+
+// traced wraps the transport of the Kubernetes API client so that requests
+// which change something (create or delete a sandbox Pod) are client spans in
+// the trace of their context. A GET is not traced: the Pod is looked up for
+// every command that runs in a sandbox and polled while it starts, which
+// would bury every trace. Client metrics are not recorded.
+func traced(base http.RoundTripper, opts ...otelhttp.Option) http.RoundTripper {
+	return otelhttp.NewTransport(base, append([]otelhttp.Option{
+		otelhttp.WithFilter(func(r *http.Request) bool { return r.Method != http.MethodGet }),
+		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string { return r.Method + " " + route(r.URL.Path) }),
+		otelhttp.WithMeterProvider(noop.NewMeterProvider()),
+	}, opts...)...)
+}
+
+// route is the path of a Kubernetes API request without the names in it:
+// /api/v1/namespaces/{namespace}/pods/{name}. A span is named after it.
+func route(path string) string {
+	seg := strings.Split(path, "/")
+	for i := 1; i < len(seg); i++ {
+		switch seg[i-1] {
+		case "namespaces":
+			seg[i] = "{namespace}"
+		case "pods", "deployments":
+			seg[i] = "{name}"
+		}
+	}
+	return strings.Join(seg, "/")
 }

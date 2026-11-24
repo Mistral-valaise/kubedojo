@@ -73,6 +73,13 @@
       ]
     },
     {
+      "name": "kubedojo_http_requests_rejected_total",
+      "type": "counter",
+      "labels": [
+        "reason"
+      ]
+    },
+    {
       "name": "kubedojo_question_rating",
       "type": "histogram",
       "labels": [
@@ -136,8 +143,20 @@
       ]
     },
     {
+      "name": "kubedojo_store_operation_duration_seconds",
+      "type": "histogram",
+      "labels": [
+        "operation"
+      ]
+    },
+    {
       "name": "kubedojo_terminal_connections",
       "type": "gauge",
+      "labels": []
+    },
+    {
+      "name": "kubedojo_terminal_session_duration_seconds",
+      "type": "histogram",
       "labels": []
     }
   ],

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -17,7 +18,6 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -28,6 +28,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/Mistral-valaise/kubedojo/internal/span"
 )
 
 const scope = "github.com/Mistral-valaise/kubedojo"
@@ -38,6 +40,11 @@ type Telemetry struct {
 	Logger   *slog.Logger
 	shutdown []func(context.Context) error
 
+	// The providers the instruments come from. The HTTP instrumentation
+	// records to the same ones.
+	tp trace.TracerProvider
+	mp metric.MeterProvider
+
 	tracer    trace.Tracer
 	provision metric.Float64Histogram
 	checks    metric.Int64Counter
@@ -45,6 +52,9 @@ type Telemetry struct {
 	exams     metric.Int64Counter
 	examScore metric.Float64Histogram
 	ratings   metric.Int64Histogram
+	rejected  metric.Int64Counter
+	termTime  metric.Float64Histogram
+	storeTime metric.Float64Histogram
 	terminals atomic.Int64
 	meter     metric.Meter
 }
@@ -64,8 +74,11 @@ func endpointConfigured() bool { return Endpoint() != "" }
 
 // Setup configures the global providers. base is the logger that keeps
 // writing to stderr; the returned Telemetry.Logger additionally ships logs.
+// A line written inside a span names it on stderr too (trace_id, span_id).
+// Without telemetry no context has a span, and nothing is added.
 func Setup(ctx context.Context, version string, base *slog.Logger) (*Telemetry, error) {
-	t := &Telemetry{Logger: base}
+	stderr := traceHandler{base.Handler()}
+	t := &Telemetry{Logger: slog.New(stderr)}
 	if !endpointConfigured() {
 		// The global providers do nothing until an SDK is installed.
 		t.instruments(otel.GetTracerProvider(), otel.GetMeterProvider())
@@ -104,23 +117,33 @@ func Setup(ctx context.Context, version string, base *slog.Logger) (*Telemetry, 
 
 	t.Enabled = true
 	t.shutdown = []func(context.Context) error{tp.Shutdown, mp.Shutdown, lp.Shutdown}
-	t.Logger = slog.New(fanout{base.Handler(), otelslog.NewHandler(scope, otelslog.WithLoggerProvider(lp))})
+	t.Logger = slog.New(fanout{stderr, otelslog.NewHandler(scope, otelslog.WithLoggerProvider(lp))})
 	t.instruments(tp, mp)
 	return t, nil
 }
 
 // New returns a Telemetry that records to the given providers and logs to
 // logger. Setup is what the server uses; this is for tests and for embedding
-// kubedojo into a process that owns its OpenTelemetry SDK.
+// kubedojo into a process that owns its OpenTelemetry SDK. As with Setup, a
+// line of Telemetry.Logger written inside a span carries trace_id and span_id.
 func New(tp trace.TracerProvider, mp metric.MeterProvider, logger *slog.Logger) *Telemetry {
-	t := &Telemetry{Enabled: true, Logger: logger}
+	t := &Telemetry{Enabled: true, Logger: slog.New(traceHandler{logger.Handler()})}
 	t.instruments(tp, mp)
 	return t
 }
 
 func (t *Telemetry) instruments(tp trace.TracerProvider, mp metric.MeterProvider) {
+	t.tp, t.mp = tp, mp
 	t.tracer = tp.Tracer(scope)
 	t.meter = mp.Meter(scope)
+	t.rejected, _ = t.meter.Int64Counter("kubedojo.http.requests.rejected",
+		metric.WithDescription("Requests refused before they reached the API, by reason."))
+	t.termTime, _ = t.meter.Float64Histogram("kubedojo.terminal.session.duration", metric.WithUnit("s"),
+		metric.WithDescription("How long a browser terminal stayed open."),
+		metric.WithExplicitBucketBoundaries(1, 5, 15, 60, 300, 900, 1800, 3600, 7200, 14400))
+	t.storeTime, _ = t.meter.Float64Histogram("kubedojo.store.operation.duration", metric.WithUnit("s"),
+		metric.WithDescription("Time of one operation on the progress database, by operation."),
+		metric.WithExplicitBucketBoundaries(0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5))
 	t.provision, _ = t.meter.Float64Histogram("kubedojo.sandbox.provision.duration", metric.WithUnit("s"),
 		metric.WithDescription("Time to create a sandbox cluster (practice) or a whole exam environment."),
 		metric.WithExplicitBucketBoundaries(5, 10, 20, 30, 45, 60, 90, 120, 180, 300, 600))
@@ -217,28 +240,13 @@ func result(err error) string {
 	return "ok"
 }
 
-// Span starts a span for a piece of session work. attrs are pairs of key and
-// value. The returned function ends the span and records the error, if any.
-func (t *Telemetry) Span(ctx context.Context, name string, attrs ...string) (context.Context, func(error)) {
-	kv := make([]attribute.KeyValue, 0, len(attrs)/2)
-	for i := 0; i+1 < len(attrs); i += 2 {
-		kv = append(kv, attribute.String(attrs[i], attrs[i+1]))
-	}
-	ctx, span := t.tracer.Start(ctx, name, trace.WithAttributes(kv...))
-	return ctx, func(err error) {
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-		}
-		span.End()
-	}
-}
-
 // Detach returns a context for work that outlives a request: it lives as long
 // as base, and spans started in it belong to the trace of request. Creating a
 // cluster takes a minute; the request that asked for it is answered at once.
+// The tracer of the request travels along, so span.Start keeps working there.
 func Detach(base, request context.Context) context.Context {
-	return trace.ContextWithSpanContext(base, trace.SpanContextFromContext(request))
+	ctx := trace.ContextWithSpanContext(base, trace.SpanContextFromContext(request))
+	return span.With(ctx, span.From(request))
 }
 
 // Provisioned records one sandbox provisioning. Recorded inside the span of
@@ -281,16 +289,66 @@ func (t *Telemetry) Rated(ctx context.Context, track, question string, stars int
 // Terminal tracks open terminal connections.
 func (t *Telemetry) Terminal(delta int) { t.terminals.Add(int64(delta)) }
 
+// TerminalClosed records how long one browser terminal was open. Recorded in
+// the context of its terminal.attach span, the sample carries that trace.
+func (t *Telemetry) TerminalClosed(ctx context.Context, d time.Duration) {
+	t.termTime.Record(ctx, d.Seconds())
+}
+
+// StoreOperation records one operation on the progress database. operation
+// is one of the fixed names the store reports (store.Operations).
+func (t *Telemetry) StoreOperation(operation string, d time.Duration) {
+	t.storeTime.Record(context.Background(), d.Seconds(), metric.WithAttributes(attribute.String("operation", operation)))
+}
+
+// Rejected counts a request that was refused before it reached the API: a
+// Host or an Origin that is not allowed, a body that is too large. reason is
+// one of a small fixed set of words the caller chooses, never text taken
+// from the request: it becomes a metric label.
+func (t *Telemetry) Rejected(reason string) {
+	t.rejected.Add(context.Background(), 1, metric.WithAttributes(attribute.String("reason", reason)))
+}
+
 // HTTP wraps the API handler with request spans and metrics. The terminal
 // WebSocket and static assets are excluded to keep cardinality and noise low.
+//
+// The context of every request carries the tracer: a handler reaches the
+// request span with span.Current and starts spans below it with span.Start.
+// A traced request is answered with a Server-Timing header that names its
+// trace in the traceparent format, so the UI can quote the trace of a
+// request that failed.
 func (t *Telemetry) HTTP(h http.Handler) http.Handler {
 	if !t.Enabled {
 		return h
 	}
-	return otelhttp.NewHandler(h, "http",
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s := trace.SpanFromContext(r.Context()); s.IsRecording() {
+			sc := s.SpanContext()
+			w.Header().Add("Server-Timing", `traceparent;desc="00-`+sc.TraceID().String()+"-"+sc.SpanID().String()+"-"+sc.TraceFlags().String()+`"`)
+		}
+		req := r.WithContext(span.With(r.Context(), t))
+		// The mux writes the route it matched to the request it is given.
+		// otelhttp names the span and the metric after the route of its own
+		// request, so the route goes back there, also when a handler panics.
+		// otelhttp does not put the route on the span as an attribute when
+		// it learns it this late; Grafana's link from a trace to the metrics
+		// of its route reads http.route, so it is set here.
+		defer func() {
+			r.Pattern = req.Pattern
+			if req.MultipartForm != nil {
+				r.MultipartForm = req.MultipartForm
+			}
+			if i := strings.IndexByte(req.Pattern, '/'); i >= 0 {
+				trace.SpanFromContext(r.Context()).SetAttributes(attribute.String("http.route", req.Pattern[i:]))
+			}
+		}()
+		h.ServeHTTP(w, req)
+	})
+	return otelhttp.NewHandler(inner, "http",
+		otelhttp.WithTracerProvider(t.tp), otelhttp.WithMeterProvider(t.mp),
 		otelhttp.WithFilter(func(r *http.Request) bool {
 			p := r.URL.Path
-			return len(p) >= 5 && p[:5] == "/api/" && p != "/api/health" && p != "/api/ready" && r.Header.Get("Upgrade") == ""
+			return strings.HasPrefix(p, "/api/") && p != "/api/health" && p != "/api/ready" && r.Header.Get("Upgrade") == ""
 		}),
 		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 			if r.Pattern != "" {
@@ -349,4 +407,26 @@ func (f fanout) WithGroup(name string) slog.Handler {
 		out[i] = h.WithGroup(name)
 	}
 	return out
+}
+
+// traceHandler adds the trace and the span of a record's context to the
+// record, under the names Loki and Grafana know (trace_id, span_id). The
+// OpenTelemetry log bridge reads them from the context itself; a handler
+// that writes to stderr does not.
+type traceHandler struct{ slog.Handler }
+
+func (h traceHandler) Handle(ctx context.Context, r slog.Record) error {
+	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+		r = r.Clone()
+		r.AddAttrs(slog.String("trace_id", sc.TraceID().String()), slog.String("span_id", sc.SpanID().String()))
+	}
+	return h.Handler.Handle(ctx, r)
+}
+
+func (h traceHandler) WithAttrs(a []slog.Attr) slog.Handler {
+	return traceHandler{h.Handler.WithAttrs(a)}
+}
+
+func (h traceHandler) WithGroup(name string) slog.Handler {
+	return traceHandler{h.Handler.WithGroup(name)}
 }
