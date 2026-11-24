@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -21,7 +20,6 @@ import (
 	"time"
 
 	"github.com/Mistral-valaise/kubedojo/content"
-	"github.com/Mistral-valaise/kubedojo/internal/api"
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/export"
 	"github.com/Mistral-valaise/kubedojo/internal/observability"
@@ -29,7 +27,6 @@ import (
 	"github.com/Mistral-valaise/kubedojo/internal/session"
 	"github.com/Mistral-valaise/kubedojo/internal/store"
 	"github.com/Mistral-valaise/kubedojo/internal/telemetry"
-	"github.com/Mistral-valaise/kubedojo/internal/webui"
 )
 
 var version = "dev"
@@ -199,6 +196,8 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 	grace := fl.Duration("shutdown-grace", envDuration("KUBEDOJO_SHUTDOWN_GRACE", 25*time.Second), "on shutdown, wait this long for running operations (grading, provisioning) before cancelling them")
 	var obs obsFlags
 	obs.register(fl, true)
+	aiFl := registerAIFlags(fl)
+	sec := registerSecFlags(fl)
 	devOrigin := fl.String("dev-origin", env("KUBEDOJO_DEV_ORIGIN", ""), "extra allowed WebSocket origin (UI dev server)")
 	if err := fl.Parse(args); err != nil {
 		return err
@@ -295,12 +294,11 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 		tel.ObserveSandboxes(sampleSandboxes(ctx, drv, log))
 	}
 
-	srv := &api.Server{Catalog: cat, Sessions: mgr, Store: st, UI: webui.FS(), Log: log, Version: version,
-		UserHeader: *userHeader, OnTerminal: tel.Terminal, OnRating: tel.Rated, Tutor: newTutor(log)}
-	if *devOrigin != "" {
-		srv.AllowedOrigins = []string{*devOrigin}
-	}
-	hs := &http.Server{Handler: tel.HTTP(srv.Handler()), ReadHeaderTimeout: 10 * time.Second}
+	parts := serverParts{catalog: cat, sessions: mgr, store: st, telemetry: tel, log: log,
+		userHeader: *userHeader, devOrigin: *devOrigin, ai: aiFl,
+		local: local, dataDir: c.dataDir, addr: ln.Addr().String(), sandboxHost: *hosts, localStack: stack != nil}
+	srv := newAPIServer(parts)
+	hs := newHTTPServer(ln.Addr().String(), sec.wrap(tel.HTTP(srv.Handler()), parts))
 	url := "http://" + ln.Addr().String()
 	log.Info("kubedojo is running", "url", url, "version", version)
 	if local {

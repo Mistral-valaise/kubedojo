@@ -18,6 +18,7 @@ import (
 	"github.com/Mistral-valaise/kubedojo/internal/checker"
 	"github.com/Mistral-valaise/kubedojo/internal/dockerhost"
 	"github.com/Mistral-valaise/kubedojo/internal/sandbox"
+	"github.com/Mistral-valaise/kubedojo/internal/span"
 	"github.com/Mistral-valaise/kubedojo/internal/store"
 )
 
@@ -187,6 +188,9 @@ type Hooks struct {
 	// Span starts a span for a piece of work; attrs are pairs of key and
 	// value. The returned function ends it.
 	Span func(ctx context.Context, name string, attrs ...string) (context.Context, func(error))
+	// Tracer is the typed span API: attributes with their type, events, and
+	// the span of a context. nil means no tracing.
+	Tracer span.Tracer
 	// Detach returns a context that lives as long as base and continues the
 	// trace of request. Background work runs on it: it outlives the request
 	// that started it and still shows up in that request's trace.
@@ -527,15 +531,6 @@ func (m *Manager) get(id string) (*Session, error) {
 	}
 	s.TouchedAt = time.Now().UTC()
 	return s, nil
-}
-
-func newID() string {
-	const abc = "abcdefghjkmnpqrstuvwxyz23456789"
-	b := make([]byte, 8)
-	for i := range b {
-		b[i] = abc[rand.IntN(len(abc))]
-	}
-	return string(b)
 }
 
 func (m *Manager) newAlias(track string) string {
