@@ -57,8 +57,9 @@ const (
 	// Set if, and only if, the call ended in an error.
 	errorType = "error.type"
 
-	// Content: opt-in, and recorded as structured values (AnyValue), not as
-	// JSON text.
+	// Content: opt-in, and recorded as JSON text, which the conventions allow
+	// where a backend cannot search structured values (Tempo cannot): see
+	// contentJSON.
 	//
 	//	gen_ai.system_instructions  [{type: "text", content}]
 	//	gen_ai.input.messages       [{role, parts: [{type: "text", content}]}]

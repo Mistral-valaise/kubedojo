@@ -1,0 +1,60 @@
+# Tempo's configuration in the grafana/otel-lgtm container, mounted over the
+# image's own /otel-lgtm/tempo-config.yaml by `kubedojo up --observability`
+# and by the chart's lgtm.enabled.
+#
+# It is the file of the pinned image (internal/observability.Image), with one
+# addition, marked below. When the image changes, compare it with the new
+# image's file: docker run --rm --entrypoint cat <image> /otel-lgtm/tempo-config.yaml
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9096
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "127.0.0.1:4417"
+        http:
+          endpoint: "127.0.0.1:4418"
+  # kubedojo: the addition. Tempo cuts every attribute value at 2 KiB by
+  # default, and the content of a model call (gen_ai.input.messages and the
+  # others) is a JSON text of up to 32 KiB of text: a cut one loses the
+  # learner's question, which comes last. 256 KiB holds that text even where
+  # JSON escapes every character (internal/telemetry.ContentCap; a test keeps
+  # the two in step).
+  max_attribute_bytes: 262144
+
+memberlist:
+  bind_addr: [127.0.0.1]
+  bind_port: 7947
+
+querier:
+  frontend_worker:
+    frontend_address: 127.0.0.1:9096
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /data/tempo/wal
+    local:
+      path: /data/tempo/blocks
+
+metrics_generator:
+  processor:
+    span_metrics:
+      dimensions:
+        - service_name
+        - operation
+        - status_code
+  storage:
+    path: /data/tempo/generator/wal
+    remote_write:
+      - url: http://127.0.0.1:9090/api/v1/write
+        send_exemplars: true
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics]

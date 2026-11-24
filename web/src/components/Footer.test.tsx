@@ -52,6 +52,20 @@ describe("Footer", () => {
   });
 });
 
+describe("the compact Footer of the workspace views", () => {
+  it("is one row with the same version, source and author, and leaves the source out on a phone", async () => {
+    render(<Footer compact />);
+    expect(await footer().findByText("kubedojo v0.5.0")).toBeTruthy();
+    const source = footer().getByRole("link", { name: "Open source on GitHub" });
+    const author = footer().getByRole("link", { name: "Created by Mistral N" });
+    expect(author.getAttribute("href")).toBe("https://mistraln.de");
+    for (const a of [source, author]) expect(a.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(source.className).toContain("max-sm:hidden");
+    // A fixed height that never grows: the terminal above it keeps the rest.
+    expect(screen.getByRole("contentinfo").className).toMatch(/\bh-8\b.*\bshrink-0\b/);
+  });
+});
+
 describe("versionLabel", () => {
   it("writes a release number with one v, and anything else as it is", () => {
     expect(versionLabel("0.5.0")).toBe("kubedojo v0.5.0");

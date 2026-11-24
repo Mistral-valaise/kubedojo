@@ -940,6 +940,13 @@ func TestPartialAnswerOnError(t *testing.T) {
 	if rows, _ = f.st.AssistantMessages("s3", "q"); len(rows) != 1 {
 		t.Errorf("an empty answer was stored: %+v", rows)
 	}
+
+	// A model that thought until its limit and wrote nothing says so.
+	f.provider.FinishReason = "length"
+	events, _ = f.collect(context.Background(), practice("s4", "k"), q, qs, Input{Message: "why?"})
+	if e, ok := events[len(events)-1].(Error); !ok || e.Code != ai.ErrUpstream || !e.Retryable || !strings.Contains(e.Message, "output limit") {
+		t.Errorf("empty answer at the limit: %+v", events[len(events)-1])
+	}
 }
 
 // The learner leaves: the call to the model is cancelled and what arrived is

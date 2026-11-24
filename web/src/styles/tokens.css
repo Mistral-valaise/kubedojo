@@ -5,7 +5,12 @@
    Every text colour reaches 4.5:1 on the surfaces it is used on, in both
    themes: text and muted on bg, panel, panel-2, code and the soft surfaces;
    accent, ok, bad and warn on bg, panel, panel-2 and their own soft surface;
-   each on-* colour on its fill. */
+   each on-* colour on its fill; code-inline-text on code-inline. tokens.test.ts
+   measures the pairs.
+
+   Inline code (a name, a path, a command to copy) is a chip of its own colour,
+   so that it stands out of a paragraph in both themes; a code block is a
+   quieter surface with the text colour. */
 
 :root {
   --bg: #f4f6fb;
@@ -25,7 +30,10 @@
   --on-bad: #ffffff;
   --warn: #8a5a00;
   --warn-soft: #fdf3dc;
-  --code: #eef1f8;
+  --code: #f2f4f9;
+  --code-inline: #e7eefc;
+  --code-inline-text: #173c87;
+  --code-inline-line: #bfcdeb;
   --scrim: rgb(18 26 43 / 0.45);
   --shadow: 0 1px 2px rgb(16 24 40 / 0.06), 0 8px 24px rgb(16 24 40 / 0.06);
 
@@ -58,12 +66,14 @@
   --term-bright-white: #ffffff;
 }
 :root[data-theme="dark"] {
-  --bg: #090d15;
-  --panel: #101623;
-  --panel-2: #161e2f;
-  --line: #222c42;
-  --text: #e7ecf6;
-  --muted: #93a0bb;
+  /* Not black and not white: text a little below white on a surface a little
+     above black reads without glare. */
+  --bg: #0b1019;
+  --panel: #111827;
+  --panel-2: #182032;
+  --line: #273149;
+  --text: #dde4f0;
+  --muted: #9aa6bf;
   --accent: #5b9dff;
   --accent-soft: #14233f;
   --on-accent: #06122b;
@@ -75,7 +85,10 @@
   --on-bad: #2b060b;
   --warn: #f5b942;
   --warn-soft: #30250e;
-  --code: #0b101b;
+  --code: #0d1320;
+  --code-inline: #1e2943;
+  --code-inline-text: #cfdcff;
+  --code-inline-line: #34446c;
   --scrim: rgb(0 0 0 / 0.6);
   --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px rgb(0 0 0 / 0.35);
 }
@@ -99,6 +112,9 @@
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
   --color-code: var(--code);
+  --color-code-inline: var(--code-inline);
+  --color-code-inline-text: var(--code-inline-text);
+  --color-code-inline-line: var(--code-inline-line);
   --color-scrim: var(--scrim);
   --color-term: var(--term);
   --color-term-line: var(--term-line);

@@ -59,3 +59,44 @@ describe("the stylesheets", () => {
     expect(Math.min(...sizes)).toBe(12);
   });
 });
+
+/** The colours of one theme: the name of each token and its #rrggbb value. */
+function palette(theme: "light" | "dark"): Record<string, string> {
+  const at = tokens.indexOf(':root[data-theme="dark"]');
+  const block = theme === "light" ? tokens.slice(tokens.indexOf(":root {"), at) : tokens.slice(at, tokens.indexOf("@theme"));
+  return Object.fromEntries([...block.matchAll(/^\s*--([a-z0-9-]+):\s*(#[0-9a-fA-F]{6});/gm)].map((m) => [m[1], m[2]]));
+}
+
+/** The contrast ratio of two colours, as WCAG 2 defines it. */
+function contrast(a: string, b: string): number {
+  const luminance = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+describe.each(["light", "dark"] as const)("the %s theme", (theme) => {
+  const c = palette(theme);
+
+  it.each([
+    ...["bg", "panel", "panel-2", "code", "code-inline", "accent-soft", "ok-soft", "bad-soft", "warn-soft"].flatMap((s) => [["text", s], ["muted", s]]),
+    ...["accent", "ok", "bad", "warn"].flatMap((f) => ["bg", "panel", "panel-2", `${f}-soft`].map((s) => [f, s])),
+    ["on-accent", "accent"], ["on-ok", "ok"], ["on-bad", "bad"],
+    ["code-inline-text", "code-inline"], ["code-inline-text", "accent-soft"], ["code-inline-text", "ok-soft"],
+  ])("reads %s on %s at 4.5:1 or more", (fg, bg) => {
+    expect(c[fg], fg).toBeDefined();
+    expect(c[bg], bg).toBeDefined();
+    expect(contrast(c[fg], c[bg])).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // Inline code is told apart from the text around it by its colour, not
+  // only by its surface, which is close to the surfaces it sits on.
+  it("gives inline code a colour of its own", () => {
+    expect(c["code-inline-text"]).not.toBe(c.text);
+    expect(c["code-inline"]).not.toBe(c.code);
+    for (const s of ["panel", "panel-2", "bg"]) expect(c["code-inline"]).not.toBe(c[s]);
+  });
+});

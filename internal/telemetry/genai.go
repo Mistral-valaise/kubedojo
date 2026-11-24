@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -145,11 +146,11 @@ func (g *genaiProvider) Chat(ctx context.Context, req ai.Request, onDelta func(s
 		if strings.TrimSpace(req.System) != "" {
 			text, cut := contentText(redact, req.System, ContentCap)
 			truncated = truncated || cut
-			sp.SetAttributes(attribute.KeyValue{Key: genaiSystemInstructions, Value: attribute.SliceValue(textPart(text))})
+			sp.SetAttributes(attribute.String(genaiSystemInstructions, contentJSON([]contentPart{textPart(text)})))
 		}
 		msgs, cut := inputMessages(redact, req.Messages)
 		truncated = truncated || cut
-		sp.SetAttributes(attribute.KeyValue{Key: genaiInputMessages, Value: msgs})
+		sp.SetAttributes(attribute.String(genaiInputMessages, msgs))
 	}
 
 	var (
@@ -236,7 +237,7 @@ func (g *genaiProvider) Chat(ctx context.Context, req ai.Request, onDelta func(s
 				text, cut = strings.ToValidUTF8(text, "")+ContentTruncated, true
 			}
 			truncated = truncated || cut
-			sp.SetAttributes(attribute.KeyValue{Key: genaiOutputMessages, Value: attribute.SliceValue(message("assistant", text))})
+			sp.SetAttributes(attribute.String(genaiOutputMessages, contentJSON([]contentMessage{message("assistant", text)})))
 		}
 		if truncated {
 			sp.SetAttributes(attribute.Bool(contentTruncatedAttr, true))
@@ -286,22 +287,47 @@ func contentText(redact func(string) string, s string, room int) (text string, c
 	return s[:n] + ContentTruncated, true
 }
 
-// textPart is one part of a message: {type: "text", content}.
-func textPart(content string) attribute.Value {
-	return attribute.MapValue(attribute.String(genaiPartType, genaiPartTypeText), attribute.String(genaiPartContent, content))
+// contentPart and contentMessage are the shapes the conventions give the
+// content: a part is {type: "text", content}, a message {role, parts}.
+type contentPart struct {
+	Type    string `json:"type"`
+	Content string `json:"content"`
 }
 
-// message is one message: {role, parts: [text part]}.
-func message(role, content string) attribute.Value {
-	return attribute.MapValue(attribute.String(genaiMessageRole, role),
-		attribute.KeyValue{Key: genaiMessageParts, Value: attribute.SliceValue(textPart(content))})
+type contentMessage struct {
+	Role  string        `json:"role"`
+	Parts []contentPart `json:"parts"`
+}
+
+// textPart is one part of a message.
+func textPart(content string) contentPart {
+	return contentPart{Type: genaiPartTypeText, Content: content}
+}
+
+// message is one message with one text part.
+func message(role, content string) contentMessage {
+	return contentMessage{Role: role, Parts: []contentPart{textPart(content)}}
+}
+
+// contentJSON writes content as the JSON text the attribute holds. The
+// conventions prefer structured values, and allow JSON text where a backend
+// cannot use them: Tempo shows a structured value but cannot search it, so
+// that { span.gen_ai.input.messages =~ ".*kubectl.*" } would find nothing.
+// The angle brackets of the context block stay as they are.
+func contentJSON(v any) string {
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	// Strings, and slices and structs of them, always encode.
+	_ = enc.Encode(v)
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // inputMessages is the conversation as it was sent, in its order. All of it
 // together holds at most ContentCap bytes of text. The newest message is
 // what a reader looks for first, so the room is given out from the end:
 // when a conversation is too long, its oldest messages are the ones cut.
-func inputMessages(redact func(string) string, msgs []ai.Message) (value attribute.Value, cut bool) {
+func inputMessages(redact func(string) string, msgs []ai.Message) (value string, cut bool) {
 	texts := make([]string, len(msgs))
 	room := ContentCap
 	for i := len(msgs) - 1; i >= 0; i-- {
@@ -309,9 +335,9 @@ func inputMessages(redact func(string) string, msgs []ai.Message) (value attribu
 		texts[i], cut = text, cut || c
 		room -= min(room, len(text))
 	}
-	out := make([]attribute.Value, len(msgs))
+	out := make([]contentMessage, len(msgs))
 	for i, m := range msgs {
 		out[i] = message(m.Role, texts[i])
 	}
-	return attribute.SliceValue(out...), cut
+	return contentJSON(out), cut
 }

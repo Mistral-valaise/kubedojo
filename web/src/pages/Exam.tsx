@@ -19,6 +19,7 @@ import { Results } from "../components/Results";
 import { Split } from "../components/Split";
 import { Terminal } from "../components/Terminal";
 import { TerminalTabs } from "../components/TerminalTabs";
+import { Footer } from "../components/Footer";
 import { WorkspaceHeader } from "../components/WorkspaceHeader";
 import { Badge, Bar, Button, ButtonLink, Card, ErrorNote, Loading, MAIN_ID, Modal, Page, Ring, SectionLabel, Skeleton, cx } from "../components/ui";
 import { WorkspaceSkeleton } from "./Practice";
@@ -82,6 +83,7 @@ function Stage({ children }: { children: React.ReactNode }) {
     <div className="flex h-full flex-col">
       <WorkspaceHeader />
       <main id={MAIN_ID} className="min-h-0 flex-1">{children}</main>
+      <Footer compact />
     </div>
   );
 }
@@ -383,6 +385,7 @@ function ExamWorkspace({ session, track, onSession, refresh }: {
           ? <div className="min-h-0 flex-1">{leftPane}</div>
           : <Split left={leftPane} right={<TerminalTabs sessionId={session.id} />} storageKey="kubedojo.split.exam" labels={{ left: w.item, right: t("Terminal") }} />}
       </main>
+      <Footer compact />
       {confirm && (
         <Modal title={w.finishTitle} onClose={() => !busy && setConfirm(false)}
           footer={<><Button disabled={busy} onClick={() => setConfirm(false)}>{t("Keep working")}</Button><Button variant="primary" loading={busy} onClick={finish}>{t("Finish and grade")}</Button></>}>

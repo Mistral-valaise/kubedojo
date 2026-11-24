@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	provisioning "github.com/Mistral-valaise/kubedojo/deploy/helm/kubedojo/observability"
+	"github.com/Mistral-valaise/kubedojo/internal/telemetry"
 )
 
 // docker is a Docker with at most one container and one volume. It answers
@@ -149,6 +152,7 @@ func TestUpStartsAPinnedLoopbackStack(t *testing.T) {
 		":/otel-lgtm/grafana/conf/provisioning/dashboards/kubedojo.yaml:ro",
 		":/otel-lgtm/grafana/conf/provisioning/datasources/grafana-datasources.yaml:ro",
 		":/otel-lgtm/grafana/conf/provisioning/alerting/kubedojo.yaml:ro",
+		":/otel-lgtm/tempo-config.yaml:ro",
 	} {
 		if !strings.Contains(line, want) {
 			t.Errorf("docker run lacks %q:\n%s", want, line)
@@ -511,5 +515,44 @@ func TestChartStartsTheStackWithTheSameFlags(t *testing.T) {
 	}
 	if n != 3 {
 		t.Fatalf("%d of the three *_EXTRA_ARGS were compared", n)
+	}
+}
+
+// Tempo keeps the content of a model call whole. The content is a JSON text of
+// at most telemetry.ContentCap bytes of text per attribute; JSON writes a
+// control character as \u00XX, six bytes for one, and the input messages are
+// several texts with their own escapes. Eight times the cap holds the worst.
+func TestTempoKeepsTheContentOfAModelCall(t *testing.T) {
+	var cfg struct {
+		Distributor struct {
+			MaxAttributeBytes int `yaml:"max_attribute_bytes"`
+		} `yaml:"distributor"`
+	}
+	if err := yaml.Unmarshal(provisioning.Tempo, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := cfg.Distributor.MaxAttributeBytes, 8*telemetry.ContentCap; got < want {
+		t.Errorf("tempo.yaml sets max_attribute_bytes to %d, want at least %d", got, want)
+	}
+}
+
+// The chart mounts Tempo's configuration like `kubedojo up --observability`,
+// and a change to it restarts the Pod.
+func TestChartMountsTheTempoConfiguration(t *testing.T) {
+	raw, err := os.ReadFile("../../deploy/helm/kubedojo/templates/lgtm.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chart := string(raw)
+	for _, want := range []string{
+		"mountPath: " + provisioning.TempoPath + ", subPath: tempo.yaml",
+		`.Files.Glob "observability/{datasources,dashboards-provider,grafana-alerts,tempo}.yaml"`,
+	} {
+		if strings.Count(chart, want) < 1 {
+			t.Errorf("templates/lgtm.yaml lacks %s", want)
+		}
+	}
+	if n := strings.Count(chart, "grafana-alerts,tempo}.yaml"); n != 2 {
+		t.Errorf("the checksum and the ConfigMap name %d sets of files, want both the same", n)
 	}
 }

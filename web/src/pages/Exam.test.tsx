@@ -95,6 +95,8 @@ describe("mock exam of a theory track", () => {
     // Nothing is graded or explained while the exam runs.
     expect(screen.queryByRole("button", { name: "Check answer" })).toBeNull();
     expect(screen.queryByText("Correct answer")).toBeNull();
+    // The credit stays below a running exam too.
+    expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Created by Mistral N" })).toBeTruthy();
   });
 
   it("saves an answer with one request per change and counts it in the navigator", async () => {

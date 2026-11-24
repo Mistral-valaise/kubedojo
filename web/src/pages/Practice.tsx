@@ -14,6 +14,7 @@ import { Rating } from "../components/Rating";
 import { Results } from "../components/Results";
 import { TerminalTabs } from "../components/TerminalTabs";
 import { type Pane, Workspace } from "../components/Workspace";
+import { Footer } from "../components/Footer";
 import { HeaderPager, WorkspaceHeader } from "../components/WorkspaceHeader";
 import { Badge, Button, Difficulty, ErrorNote, Loading, MAIN_ID, Modal, Page, Skeleton, Spinner, cx } from "../components/ui";
 import { QuizPractice } from "./QuizPractice";
@@ -45,6 +46,7 @@ export function WorkspaceSkeleton() {
           <Skeleton className="h-11 w-44 rounded-lg" />
         </Loading>
       </main>
+      <Footer compact />
     </div>
   );
 }
@@ -221,6 +223,7 @@ function TaskPractice({ track, qid }: { track: Track; qid: string }) {
       <main id={MAIN_ID} className="flex min-h-0 flex-1 flex-col">
         <Workspace panes={panes} active={pane} onActiveChange={setPane} />
       </main>
+      <Footer compact />
       {confirmReset && (
         <Modal title={w.resetTitle} onClose={() => setConfirmReset(false)}
           footer={<><Button onClick={() => setConfirmReset(false)}>{t("Cancel")}</Button><Button variant="danger" onClick={reset}>{t("Reset")}</Button></>}>
