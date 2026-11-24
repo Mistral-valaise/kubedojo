@@ -302,8 +302,36 @@
         }
       }
     },
+    "assistant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["", "anthropic", "openai"]
+        },
+        "model": {
+          "type": "string"
+        },
+        "baseURL": {
+          "type": "string",
+          "pattern": "^$|^https?://"
+        },
+        "existingSecret": {
+          "type": "string"
+        },
+        "traceContent": {
+          "type": "string",
+          "enum": ["", "auto", "on", "off"]
+        }
+      }
+    },
     "tutor": {
       "type": "object",
+      "description": "Deprecated: use assistant.existingSecret and assistant.model.",
       "properties": {
         "existingSecret": {
           "type": "string"
