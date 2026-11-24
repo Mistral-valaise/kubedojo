@@ -521,7 +521,13 @@ func (t *Turn) answer(ctx context.Context, sink Sink) *ai.Error {
 	}
 	answer := text.String()
 	if err == nil && strings.TrimSpace(answer) == "" {
-		err = &ai.Error{Kind: ai.ErrUpstream, Message: "The model returned no text."}
+		msg := "The model returned no text."
+		if res.FinishReason == "length" {
+			// A reasoning model can spend the whole limit on thinking, which
+			// is not sent, and stop before the first word of its answer.
+			msg = "The model reached its output limit before it wrote an answer. A reasoning model may have spent it on thinking: ask again, or choose a model that does not reason."
+		}
+		err = &ai.Error{Kind: ai.ErrUpstream, Message: msg}
 	}
 	add := func(partial bool) (int64, error) {
 		return s.cfg.Store.AddAssistantMessage(store.AssistantMessage{SessionID: t.v.ID, QuestionID: t.q.ID, Role: "assistant", Content: answer, Partial: partial})

@@ -181,6 +181,7 @@ func (s *Stack) files() (dash []file, prov []file, err error) {
 		{rel: "kubedojo.yaml", target: provisioning.DashboardProviderPath, data: provisioning.DashboardProvider},
 		{rel: "datasources.yaml", target: provisioning.DatasourcesPath, data: provisioning.Datasources},
 		{rel: "alerts.yaml", target: provisioning.GrafanaAlertsPath, data: provisioning.GrafanaAlerts},
+		{rel: "tempo.yaml", target: provisioning.TempoPath, data: provisioning.Tempo},
 	}
 	return dash, prov, nil
 }
@@ -223,7 +224,7 @@ func (s *Stack) args(prov []file) (args []string, hash string) {
 	h := sha256.New()
 	for _, f := range prov {
 		args = append(args, "-v", filepath.Join(s.dir(), f.rel)+":"+f.target+":ro")
-		// Grafana reads provisioning files once, at start.
+		// Grafana and Tempo read these files once, at start.
 		h.Write(f.data)
 	}
 	if !o.Ephemeral {

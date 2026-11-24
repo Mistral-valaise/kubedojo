@@ -632,7 +632,7 @@ The `chat <model>` span can hold the conversation. Whether it does is decided by
 | `off` | never |
 
 `GET /api/settings` says which it is and why (`traceContent`). When content is recorded, the span
-has three more attributes, in the structure the conventions define (not JSON text):
+has three more attributes. Each holds JSON text in the structure the conventions define:
 
 | Attribute | Value |
 |---|---|
@@ -653,8 +653,21 @@ Two things are done to every text before it is recorded:
   are the ones cut: the newest message, with the context the model saw, stays whole as long as it
   fits. No message is dropped.
 
-The three are structured values, not strings: find a call by its other attributes and read the
-conversation on the span. The API key of the provider is never in a span, a metric or a log line.
+The conventions prefer structured values and allow JSON text where a backend cannot use them.
+Tempo is such a backend: it shows a structured value but cannot search it, so kubedojo records JSON
+text. A TraceQL query can then find a conversation by what was said in it:
+
+```traceql
+{ span.gen_ai.input.messages =~ ".*CrashLoopBackOff.*" }
+{ span.gen_ai.operation.name = "chat" && span.gen_ai.output.messages != nil }
+```
+
+Tempo cuts every attribute value at 2 KiB by default, which would cut off the learner's question at
+the end of a message. The bundled stack, and the chart's `lgtm.enabled`, start Tempo with
+`max_attribute_bytes` raised to 256 KiB (`deploy/helm/kubedojo/observability/tempo.yaml`). With
+content switched on for your own Tempo, raise the limit there too.
+
+The API key of the provider is never in a span, a metric or a log line.
 
 ### Nothing travels to the provider
 
@@ -738,6 +751,7 @@ model from Tempo and the log lines of the assistant from Loki.
 |---|---|
 | Every call to a model | `{ span.gen_ai.operation.name = "chat" }` |
 | One conversation | `{ span.gen_ai.conversation.id = "<session>/<question>" }` |
+| What a learner asked (content switched on) | `{ span.gen_ai.input.messages =~ ".*CrashLoopBackOff.*" }` |
 | Long answers | `{ span.gen_ai.operation.name = "chat" && span.gen_ai.usage.output_tokens > 500 }` |
 | Large prompts | `{ span.gen_ai.operation.name = "chat" && span.gen_ai.usage.input_tokens > 8000 }` |
 | A slow start of the answer | `{ span.gen_ai.response.time_to_first_chunk > 10 }` |
