@@ -1,30 +1,38 @@
 import { useState } from "react";
-import { CheckCircle2, ChevronDown, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, Sparkles, XCircle } from "lucide-react";
 import type { Result } from "../api";
 import { plural, t } from "../i18n";
 import { Markdown } from "./Markdown";
-import { cx } from "./ui";
+import { Button, cx } from "./ui";
 
-/** Per-check grading feedback: what was expected, what was found, and why it matters. */
-export function Results({ result, defaultOpen = true }: { result: Result; defaultOpen?: boolean }) {
+/**
+ * Per-check grading feedback: what was expected, what was found, and why it
+ * matters. With `onExplain` the first failed check offers to have the
+ * assistant explain the result; pass it only where the assistant can answer.
+ */
+export function Results({ result, defaultOpen = true, onExplain }: { result: Result; defaultOpen?: boolean; onExplain?: () => void }) {
   const pct = result.max ? Math.round((result.score / result.max) * 100) : 0;
+  const firstFailed = result.passed ? undefined : result.checks.find((c) => !c.passed);
   return (
     <div className={cx("overflow-hidden rounded-2xl border bg-panel", result.passed && "border-ok/40")}>
       <div className={cx("flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-3.5", result.passed && "bg-ok-soft")}>
         {result.passed ? <CheckCircle2 className="size-5 shrink-0 text-ok" aria-hidden /> : <XCircle className="size-5 shrink-0 text-bad" aria-hidden />}
-        <div className="min-w-0 flex-1 text-sm font-semibold">
+        {/* In a narrow column the points go below the headline, before the headline breaks into three lines. */}
+        <div className="min-w-36 flex-1 text-sm font-semibold">
           {result.passed ? t("All checks passed") : t("{n} of {m} checks passed", { n: result.checks.filter((c) => c.passed).length, m: result.checks.length })}
         </div>
         <div className="text-label tabular-nums text-muted">{plural(result.max, "{score} of {n} point", "{score} of {n} points", { score: result.score })} · {pct}%</div>
       </div>
       <ul className="divide-y">
-        {result.checks.map((c) => <CheckRow key={c.id + result.at} check={c} defaultOpen={defaultOpen && !c.passed} />)}
+        {result.checks.map((c) => (
+          <CheckRow key={c.id + result.at} check={c} defaultOpen={defaultOpen && !c.passed} onExplain={c === firstFailed ? onExplain : undefined} />
+        ))}
       </ul>
     </div>
   );
 }
 
-function CheckRow({ check, defaultOpen }: { check: Result["checks"][number]; defaultOpen: boolean }) {
+function CheckRow({ check, defaultOpen, onExplain }: { check: Result["checks"][number]; defaultOpen: boolean; onExplain?: () => void }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     // A failed check stands out by its surface, its icon and its bold title: not by colour alone.
@@ -50,6 +58,9 @@ function CheckRow({ check, defaultOpen }: { check: Result["checks"][number]; def
           )}
           {/* Explanations are Markdown: commands and file names in them are code. */}
           <Markdown plain className="md-sm text-muted">{check.explain}</Markdown>
+          {onExplain && (
+            <Button size="sm" icon={<Sparkles className="size-4 text-accent" aria-hidden />} onClick={onExplain}>{t("Explain what went wrong")}</Button>
+          )}
           <details className="text-xs text-muted">
             <summary className="cursor-pointer py-1 select-none hover:text-text">{t("How this was checked")}</summary>
             <pre className="mt-1.5 overflow-x-auto rounded-lg border bg-code px-3 py-2 font-mono text-xs whitespace-pre-wrap text-text">{check.command}</pre>

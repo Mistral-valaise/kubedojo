@@ -169,7 +169,6 @@ export const api = {
   solution: (sid: string, q: string) => call<{ markdown: string }>("GET", `/sessions/${sid}/questions/${q}/solution`),
   rate: (track: string, q: string, stars: number, comment: string) =>
     call<unknown>("POST", `/tracks/${track}/questions/${q}/rating`, { stars, comment }),
-  tutor: (sid: string, q: string, ask: string) => call<{ markdown: string }>("POST", `/sessions/${sid}/questions/${q}/tutor`, { ask }),
   // The answer of the assistant is a stream: see assistant/stream.ts.
   assistantHistory: (sid: string, q: string) => call<AssistantHistory>("GET", `/sessions/${sid}/questions/${q}/assistant`),
   assistantClear: (sid: string, q: string) => call<unknown>("DELETE", `/sessions/${sid}/questions/${q}/assistant`),

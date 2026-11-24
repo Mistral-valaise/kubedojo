@@ -10,7 +10,8 @@ const server = {
   path: path as Answer<typeof path | null>,
   sessions: [] as Answer<Session[]>,
   progress: ((id: string) => progress(id, id === "cka" ? 70 : 0)) as (id: string) => Progress | Error,
-  tutor: false,
+  // Whether the assistant of the server is switched on.
+  assistant: false,
   destroyed: [] as string[],
   destroy: null as null | Error,
   trackRequests: 0,
@@ -22,7 +23,10 @@ vi.mock("../api", () => ({
     path: () => answer(server.path),
     sessions: () => answer(server.sessions),
     progress: (id: string) => answer(server.progress(id)),
-    config: async () => ({ version: "0.5.0", tutor: server.tutor, user: "", maxTerminals: 4 }),
+    config: async () => ({
+      version: "0.5.0", tutor: server.assistant, user: "", maxTerminals: 4,
+      assistant: { enabled: server.assistant, configured: server.assistant, provider: "ollama", model: "llama3.2", writable: true },
+    }),
     destroy: async (id: string) => {
       if (server.destroy) throw server.destroy;
       server.destroyed.push(id);
@@ -48,7 +52,7 @@ const actions = () => {
 
 beforeEach(() => {
   Object.assign(server, {
-    tracks: [linux, kcna, cka], path, sessions: [], tutor: false, destroyed: [], destroy: null, trackRequests: 0,
+    tracks: [linux, kcna, cka], path, sessions: [], assistant: false, destroyed: [], destroy: null, trackRequests: 0,
     progress: (id: string) => progress(id, id === "cka" ? 70 : 0),
   });
   resetConfigCache();
@@ -275,7 +279,7 @@ describe("the tiles of Home", () => {
   });
 
   it("presents the assistant where the server offers one", async () => {
-    server.tutor = true;
+    server.assistant = true;
     show(<Home />);
     await waitFor(() => expect(tiles()).toEqual(["Learn", "Practise", "Ask", "Simulate"]));
     expect(screen.getByText(/^Stuck on a failed check\?/)).toBeTruthy();

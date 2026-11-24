@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ArrowLeft, ChevronRight, Clock, PlayCircle, RotateCcw, Server } from "lucide-react";
+import { AssistantPanel } from "../assistant/AssistantPanel";
+import { AssistantToggle, TOGGLE_ID, useAssistantDock } from "../assistant/dock";
 import { api, type QuestionView, type Result, type Session, type Track } from "../api";
-import { useConfig } from "../config";
 import { useElapsed, useInterval, useLoad } from "../hooks";
 import { t } from "../i18n";
 import { practicable, words } from "../track";
@@ -11,8 +12,8 @@ import { Markdown } from "../components/Markdown";
 import { Provisioning } from "../components/Provisioning";
 import { Rating } from "../components/Rating";
 import { Results } from "../components/Results";
-import { Split } from "../components/Split";
 import { TerminalTabs } from "../components/TerminalTabs";
+import { type Pane, Workspace } from "../components/Workspace";
 import { HeaderPager, WorkspaceHeader } from "../components/WorkspaceHeader";
 import { Badge, Button, Difficulty, ErrorNote, Loading, MAIN_ID, Modal, Page, Skeleton, Spinner, cx } from "../components/ui";
 import { QuizPractice } from "./QuizPractice";
@@ -51,7 +52,9 @@ export function WorkspaceSkeleton() {
 function TaskPractice({ track, qid }: { track: Track; qid: string }) {
   const trackId = track.id;
   const nav = useNavigate();
-  const config = useConfig();
+  const dock = useAssistantDock();
+  // The pane in view where not all of them are: behind tabs, and in the left of two columns.
+  const [pane, setPane] = useState("left");
   const [session, setSession] = useState<Session | null>(null);
   const [view, setView] = useState<QuestionView | null>(null);
   const [result, setResult] = useState<Result | null>(null);
@@ -120,6 +123,11 @@ function TaskPractice({ track, qid }: { track: Track; qid: string }) {
   const domain = track.domains.find((d) => d.id === meta?.domain);
   const w = words(track);
 
+  // Opening the assistant also brings it into view where it shares its place with the task.
+  const showAssistant = () => { dock.setOpen(true); setPane("assistant"); };
+  const hideAssistant = () => { dock.setOpen(false); setPane((p) => (p === "assistant" ? "left" : p)); };
+  const explain = () => { setPane("assistant"); dock.explain(); };
+
   const left = (
     <div ref={scroller} className="h-full overflow-y-auto bg-bg">
       <div className="space-y-5 px-4 py-5 sm:p-6">
@@ -161,9 +169,9 @@ function TaskPractice({ track, qid }: { track: Track; qid: string }) {
                 )}
               </p>
             </div>
-            {result && <Results result={result} />}
+            {result && <Results result={result} onExplain={dock.usable ? explain : undefined} />}
             {session && meta && (
-              <Help sid={session.id} q={meta} result={result} tutor={!!config?.tutor} track={track} initialHints={view.state.hintsUsed} />
+              <Help sid={session.id} q={meta} result={result} initialHints={view.state.hintsUsed} />
             )}
             {result && <Rating track={trackId} question={qid} />}
             {result?.passed && next && (
@@ -181,6 +189,20 @@ function TaskPractice({ track, qid }: { track: Track; qid: string }) {
     ? <TerminalTabs sessionId={session.id} />
     : <Provisioning session={session} title={t("Creating your sandbox")} note={w.provisioningNote} />;
 
+  // The assistant is the third pane. Where the server offers none there are two, as there always were.
+  const panes: Pane[] = [
+    { id: "left", label: w.item, content: left },
+    { id: "right", label: t("Terminal"), content: right },
+    ...(dock.available ? [{
+      id: "assistant", label: t("Assistant"), open: dock.open,
+      content: (
+        <AssistantPanel sid={session?.id} qid={qid} track={track} active={dock.open} ask={dock.ask}
+          situation={!result ? "none" : result.passed ? "passed" : "failed"}
+          onClose={() => { hideAssistant(); document.getElementById(TOGGLE_ID)?.focus(); }} />
+      ),
+    }] : []),
+  ];
+
   return (
     <div className="flex h-full flex-col">
       <WorkspaceHeader
@@ -194,9 +216,10 @@ function TaskPractice({ track, qid }: { track: Track; qid: string }) {
             onPrevious={prev && (() => nav(`/t/${trackId}/q/${prev.id}`))} onNext={next && (() => nav(`/t/${trackId}/q/${next.id}`))} />
         )}
         docs={w.docs}
+        actions={dock.available && <AssistantToggle pressed={dock.open} onClick={dock.open ? hideAssistant : showAssistant} />}
       />
       <main id={MAIN_ID} className="flex min-h-0 flex-1 flex-col">
-        <Split left={left} right={right} labels={{ left: w.item, right: t("Terminal") }} />
+        <Workspace panes={panes} active={pane} onActiveChange={setPane} />
       </main>
       {confirmReset && (
         <Modal title={w.resetTitle} onClose={() => setConfirmReset(false)}

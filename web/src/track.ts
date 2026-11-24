@@ -77,8 +77,6 @@ export interface Words {
   /** Text of the sandbox card in the report; empty without a sandbox. */
   reportSandbox: string;
   reportList: string;
-  tutorPlaceholder: string;
-  tutorNote: string;
   /** Placeholder of the assistant's input. */
   askPlaceholder: string;
   /** What the assistant is given, in one sentence. */
@@ -156,8 +154,6 @@ const wording: Record<Kind, () => Wording> = {
     reportSummary: (p, s, n, time) => t("Pass mark {p}% · {s} of {n} tasks fully solved · time used {time}", { p, s, n, time }),
     reportSandbox: t("The clusters are still running, so you can inspect what you built and retry tasks using the solutions."),
     reportList: t("Task by task"),
-    tutorPlaceholder: t("Ask about this task ..."),
-    tutorNote: t("The tutor sees the task, your check results and a summary of the cluster state."),
     askPlaceholder: t("Ask about this task"),
     assistantSees: t("The assistant sees the task, your check results and a read-only snapshot of the cluster."),
     lookedAt: (stage) => ({ checks: t("task, check results"), snapshot: t("cluster snapshot"), diagnostics: t("failing checks") }[stage] ?? ""),
@@ -218,8 +214,6 @@ const wording: Record<Kind, () => Wording> = {
     reportSummary: (p, s, n, time) => t("Pass mark {p}% · {s} of {n} exercises fully solved · time used {time}", { p, s, n, time }),
     reportSandbox: t("The sandbox is still running, so you can inspect what you built and retry exercises using the solutions."),
     reportList: t("Exercise by exercise"),
-    tutorPlaceholder: t("Ask about this exercise ..."),
-    tutorNote: t("The tutor sees the exercise and your check results."),
     askPlaceholder: t("Ask about this exercise"),
     assistantSees: t("The assistant sees the exercise, your check results and a read-only snapshot of the host."),
     lookedAt: (stage) => ({ checks: t("exercise, check results"), snapshot: t("host snapshot"), diagnostics: t("failing checks") }[stage] ?? ""),
@@ -280,8 +274,6 @@ const wording: Record<Kind, () => Wording> = {
     reportSummary: (p, s, n, time) => t("Pass mark {p}% · {s} of {n} questions answered correctly · time used {time}", { p, s, n, time }),
     reportSandbox: "",
     reportList: t("Question by question"),
-    tutorPlaceholder: t("Ask about this question ..."),
-    tutorNote: t("The tutor sees the question and your result."),
     askPlaceholder: t("Ask about this question"),
     assistantSees: t("The assistant sees the question, the options and your answer. The correct answer only once it has been shown to you."),
     lookedAt: (stage) => ({ checks: t("question, your answer") }[stage] ?? ""),
