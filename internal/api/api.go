@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Mistral-valaise/kubedojo/internal/assistant"
 	"github.com/Mistral-valaise/kubedojo/internal/catalog"
 	"github.com/Mistral-valaise/kubedojo/internal/session"
 	"github.com/Mistral-valaise/kubedojo/internal/span"
@@ -26,7 +27,9 @@ type Server struct {
 	UI       fs.FS
 	Log      *slog.Logger
 	Version  string
-	Tutor    Tutor
+	// Assistant is the AI assistant. nil means the server has none: its
+	// endpoints then answer that it is not configured.
+	Assistant *assistant.Service
 	// UserHeader names a trusted reverse-proxy header carrying the user
 	// identity (hosted mode behind an OIDC proxy). Empty = single local user.
 	UserHeader string
@@ -172,6 +175,11 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) *session.Sessio
 }
 
 func (s *Server) config(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"version": s.Version, "tutor": s.Tutor != nil, "user": s.owner(r),
-		"maxTerminals": s.Sessions.MaxTerminals()})
+	var st assistant.Status
+	if s.Assistant != nil {
+		st = s.Assistant.Status()
+	}
+	// "tutor" is what clients before 0.5 look at: whether asking is possible.
+	writeJSON(w, 200, map[string]any{"version": s.Version, "tutor": st.Enabled && st.Configured, "assistant": st,
+		"user": s.owner(r), "maxTerminals": s.Sessions.MaxTerminals()})
 }

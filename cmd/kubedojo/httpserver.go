@@ -36,7 +36,8 @@ type serverParts struct {
 // newAPIServer builds the API server from its parts.
 func newAPIServer(p serverParts) *api.Server {
 	srv := &api.Server{Catalog: p.catalog, Sessions: p.sessions, Store: p.store, UI: webui.FS(), Log: p.log, Version: version,
-		UserHeader: p.userHeader, OnTerminal: p.telemetry.Terminal, OnRating: p.telemetry.Rated, OnReject: p.telemetry.Rejected, Tutor: p.ai.tutor(p.log)}
+		UserHeader: p.userHeader, OnTerminal: p.telemetry.Terminal, OnRating: p.telemetry.Rated, OnReject: p.telemetry.Rejected,
+		Assistant: p.ai.assistant(p)}
 	if p.devOrigin != "" {
 		srv.AllowedOrigins = []string{p.devOrigin}
 	}

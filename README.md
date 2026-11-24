@@ -118,7 +118,9 @@ kubedojo version
 
 Useful flags for `up`: `--observability` (local Grafana with dashboards; ports and retention are in
 [docs/observability.md](docs/observability.md#the-local-stack)), `--addr`, `--no-open`,
-`--kubernetes-version`, `--registry-cache=false`. Set `ANTHROPIC_API_KEY` to enable the optional AI tutor.
+`--kubernetes-version`, `--registry-cache=false`. The optional AI assistant runs on Claude (set
+`ANTHROPIC_API_KEY`) or on any OpenAI-compatible server such as a local Ollama (`--ai --ai-provider openai
+--ai-base-url http://localhost:11434/v1 --ai-model llama3.2`): see [docs/assistant.md](docs/assistant.md).
 </details>
 
 macOS is the primary platform. Linux works the same way; `kubedojo doctor` tells you if the inotify limits

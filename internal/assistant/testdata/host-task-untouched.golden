@@ -1,0 +1,12 @@
+<context>
+<task title="Count the lines" domain="d" environment="a plain Linux host without Kubernetes">
+Count them.
+</task>
+<check_results>
+The learner has not run the checks yet.
+</check_results>
+<opened_hints opened="0" of="1"/>
+<solution opened_by_learner="no"/>
+</context>
+
+What went wrong, and what should I look at next?
