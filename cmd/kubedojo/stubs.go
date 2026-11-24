@@ -28,6 +28,7 @@ func telemetryHooks(t *telemetry.Telemetry) session.Hooks {
 			t.ExamDone(ctx, track, r.Percent, r.Passed)
 		},
 		Span:   t.Span,
+		Tracer: t,
 		Detach: telemetry.Detach,
 	}
 }
