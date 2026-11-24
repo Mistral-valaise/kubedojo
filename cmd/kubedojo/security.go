@@ -16,4 +16,5 @@ func registerSecFlags(fl *flag.FlagSet) *secFlags {
 
 // wrap puts the checks the flags configure in front of the handler. It is the
 // outermost handler of the server: a request it rejects reaches nothing else.
-func (f *secFlags) wrap(h http.Handler) http.Handler { return h }
+// p says how the server runs (its address, the dev origin, hosted or not).
+func (f *secFlags) wrap(h http.Handler, p serverParts) http.Handler { return h }

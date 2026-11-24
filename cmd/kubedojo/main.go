@@ -294,9 +294,11 @@ func cmdServe(ctx context.Context, args []string, local bool) error {
 		tel.ObserveSandboxes(sampleSandboxes(ctx, drv, log))
 	}
 
-	srv := newAPIServer(serverParts{catalog: cat, sessions: mgr, store: st, telemetry: tel, log: log,
-		userHeader: *userHeader, devOrigin: *devOrigin, ai: aiFl})
-	hs := newHTTPServer(ln.Addr().String(), sec.wrap(tel.HTTP(srv.Handler())))
+	parts := serverParts{catalog: cat, sessions: mgr, store: st, telemetry: tel, log: log,
+		userHeader: *userHeader, devOrigin: *devOrigin, ai: aiFl,
+		local: local, dataDir: c.dataDir, addr: ln.Addr().String(), sandboxHost: *hosts, localStack: stack != nil}
+	srv := newAPIServer(parts)
+	hs := newHTTPServer(ln.Addr().String(), sec.wrap(tel.HTTP(srv.Handler()), parts))
 	url := "http://" + ln.Addr().String()
 	log.Info("kubedojo is running", "url", url, "version", version)
 	if local {

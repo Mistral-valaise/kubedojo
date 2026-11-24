@@ -24,6 +24,13 @@ type serverParts struct {
 	userHeader string
 	devOrigin  string
 	ai         *aiFlags
+	// What the assistant and the security checks need to know about how this
+	// server runs.
+	local       bool   // `up`: one user on their own machine
+	dataDir     string // where kubedojo keeps its files
+	addr        string // the address the server listens on
+	sandboxHost string // local | kubernetes
+	localStack  bool   // the bundled observability stack is running
 }
 
 // newAPIServer builds the API server from its parts.
