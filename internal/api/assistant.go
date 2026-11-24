@@ -19,6 +19,11 @@ type Tutor interface {
 	Explain(ctx context.Context, q *catalog.Question, task string, res *checker.Result, state string, ask string) (string, error)
 }
 
+// registerAssistant registers the endpoints of the assistant.
+func (s *Server) registerAssistant(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/sessions/{id}/questions/{q}/tutor", s.tutor)
+}
+
 func (s *Server) tutor(w http.ResponseWriter, r *http.Request) {
 	v, q, qs := s.question(w, r)
 	if v == nil {

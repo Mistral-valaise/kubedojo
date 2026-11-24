@@ -83,7 +83,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/questions/{q}/check", s.check)
 	mux.HandleFunc("GET /api/sessions/{id}/questions/{q}/hints/{n}", s.hint)
 	mux.HandleFunc("GET /api/sessions/{id}/questions/{q}/solution", s.solution)
-	mux.HandleFunc("POST /api/sessions/{id}/questions/{q}/tutor", s.tutor)
+	s.registerAssistant(mux)
+	s.registerSettings(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeErr(w, 404, "not found") })
 	mux.Handle("/", s.spa())
 	return mux
