@@ -1,0 +1,55 @@
+name: codeql
+# Static analysis of the Go server and the TypeScript UI. Findings appear under
+# Security > Code scanning and on the pull request that introduces them.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Weekly: new queries find old code.
+  schedule:
+    - cron: "23 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write # upload the results to code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: manual
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        if: matrix.language == 'go'
+        with: {go-version-file: go.mod}
+      - uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+      # CodeQL reads the Go code that this build compiles. The UI is embedded
+      # from internal/webui/dist, which only has to exist: the built UI is
+      # analysed from its source by the other job. tools/obslint is a module
+      # of its own with nothing but a test, and stays out.
+      - name: Build
+        if: matrix.build-mode == 'manual'
+        run: |
+          mkdir -p internal/webui/dist && touch internal/webui/dist/.gitkeep
+          go build ./...
+      - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          category: /language:${{ matrix.language }}

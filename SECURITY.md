@@ -7,6 +7,49 @@ Please report security problems privately through GitHub's
 not in a public issue. Include what you found, how to reproduce it and which version you used.
 You can expect a first answer within a week.
 
+## Verifying a release
+
+Releases newer than v0.4.0 are signed with [Sigstore](https://www.sigstore.dev/) by the workflow
+that builds them. There is no key to trust: every signature carries a short-lived certificate that
+names the workflow and the tag it ran for, and is recorded in a public transparency log. The
+commands below need [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 3 or
+newer and take `v1.2.3` as the release.
+
+**Binaries.** `checksums.txt` lists every archive and its SBOM (`<archive>.sbom.json`, SPDX), and
+`checksums.txt.sigstore.json` is the signature of that list. Download both next to the archive:
+
+```sh
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/Mistral-valaise/kubedojo/\.github/workflows/release\.yaml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --check --ignore-missing checksums.txt   # macOS: shasum -a 256 --check --ignore-missing
+```
+
+**Images.** The same check for `kubedojo-server:v1.2.3`, `kubedojo-sandbox-host:v1.2.3`,
+`kubedojo-node:<kubernetes version>-v1.2.3`, `kubedojo-terminal:<kubernetes version>-v1.2.3` and
+`kubedojo-linux:trixie-v1.2.3`:
+
+```sh
+cosign verify ghcr.io/mistral-valaise/kubedojo-server:v1.2.3 \
+  --certificate-identity-regexp '^https://github\.com/Mistral-valaise/kubedojo/\.github/workflows/release\.yaml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+All but the sandbox host also carry an SBOM and build provenance as attestations:
+`docker buildx imagetools inspect <image> --format '{{ json .SBOM }}'` (or `.Provenance`).
+
+**Helm chart.** The chart's version has no `v`:
+
+```sh
+cosign verify ghcr.io/mistral-valaise/charts/kubedojo:1.2.3 \
+  --certificate-identity-regexp '^https://github\.com/Mistral-valaise/kubedojo/\.github/workflows/release\.yaml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+To accept one release only, replace the regular expression by `--certificate-identity` with the
+full value, which ends in `release.yaml@refs/tags/v1.2.3`.
+
 ## What to keep in mind when running kubedojo
 
 kubedojo gives its users a root shell on real Kubernetes nodes. That is the product, and it shapes the

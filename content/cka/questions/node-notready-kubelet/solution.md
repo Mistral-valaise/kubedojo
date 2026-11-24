@@ -21,6 +21,7 @@ vim /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
 systemctl daemon-reload
 systemctl restart kubelet
 systemctl status kubelet          # active (running)
+curl -s localhost:10248/healthz   # ok: the kubelet itself answers
 ```
 
 Back on the control plane, the node becomes `Ready` within a few seconds:

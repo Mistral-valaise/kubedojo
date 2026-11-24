@@ -1,0 +1,26 @@
+# Findings the gate of .github/workflows/trivy.yaml lets pass, each with a
+# reason and an end date. The report to code scanning does not read this file,
+# so everything listed here stays visible under Security > Code scanning.
+#
+# The server image carries the kind release binary (see the Dockerfile), built
+# upstream with Go 1.26.7. These are findings in that binary's Go standard
+# library. No kind release built with a newer Go exists yet (v0.33.0 is the
+# latest), so nothing in this repository can fix them. When the date passes the
+# gate fails again: update kind, or decide anew.
+vulnerabilities:
+  - id: CVE-2026-111943
+    paths: [usr/local/bin/kind]
+    expired_at: 2027-01-31
+    statement: Go standard library (crypto/x509) of the kind v0.33.0 release binary
+  - id: CVE-2026-78667
+    paths: [usr/local/bin/kind]
+    expired_at: 2027-01-31
+    statement: Go standard library (net/http) of the kind v0.33.0 release binary
+  - id: CVE-2026-78669
+    paths: [usr/local/bin/kind]
+    expired_at: 2027-01-31
+    statement: Go standard library (net/http) of the kind v0.33.0 release binary
+  - id: CVE-2026-97031
+    paths: [usr/local/bin/kind]
+    expired_at: 2027-01-31
+    statement: Go standard library (crypto/tls) of the kind v0.33.0 release binary
