@@ -311,6 +311,8 @@ type Provider struct {
 	ProviderName, ModelName string
 	// Deltas, when set, is the answer, piece by piece.
 	Deltas []string
+	// FinishReason, when set, is the reason the answer reports instead of "stop".
+	FinishReason string
 	// Err, when set, is returned after ErrAfter deltas were sent.
 	Err      error
 	ErrAfter int
@@ -355,6 +357,9 @@ func (p *Provider) Chat(ctx context.Context, req ai.Request, onDelta func(string
 	p.requests = append(p.requests, req)
 	p.mu.Unlock()
 	res := ai.Result{ID: "fake-1", Model: p.Model(), FinishReason: "stop", Usage: ai.Usage{InputTokens: 100, OutputTokens: 20}}
+	if p.FinishReason != "" {
+		res.FinishReason = p.FinishReason
+	}
 	if p.Started != nil {
 		p.once.Do(func() { close(p.Started) })
 	}

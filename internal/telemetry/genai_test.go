@@ -394,38 +394,60 @@ func TestContentIsNotRecordedByDefault(t *testing.T) {
 	}
 }
 
-// part returns the text of the only part of a recorded message, and its role.
-func part(t *testing.T, msg attribute.Value) (role, content string) {
+// recorded is a message as the content attributes record it.
+type recorded struct {
+	Role  string            `json:"role"`
+	Parts []json.RawMessage `json:"parts"`
+}
+
+// messages decodes a content attribute: a JSON text, so that Tempo can search
+// it, of messages in the shape the conventions define.
+func messages(t *testing.T, v attribute.Value) []recorded {
 	t.Helper()
-	if msg.Type() != attribute.MAP {
-		t.Fatalf("a message is recorded as %v, want a map", msg.Type())
+	if v.Type() != attribute.STRING {
+		t.Fatalf("content is recorded as %v, want JSON text", v.Type())
 	}
-	var parts []attribute.Value
-	for _, kv := range msg.AsMap() {
-		switch string(kv.Key) {
-		case "role":
-			role = kv.Value.AsString()
-		case "parts":
-			parts = kv.Value.AsSlice()
-		default:
-			t.Errorf("a message has the field %q", kv.Key)
-		}
+	var out []recorded
+	dec := json.NewDecoder(strings.NewReader(v.AsString()))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&out); err != nil {
+		t.Fatalf("content is no list of messages: %v\n%s", err, v.AsString())
 	}
-	if len(parts) != 1 {
-		t.Fatalf("a message has %d parts", len(parts))
+	return out
+}
+
+// parts decodes the system instructions: a JSON text of a list of parts.
+func parts(t *testing.T, v attribute.Value) []string {
+	t.Helper()
+	if v.Type() != attribute.STRING {
+		t.Fatalf("content is recorded as %v, want JSON text", v.Type())
 	}
-	return role, textOf(t, parts[0])
+	var raw []json.RawMessage
+	if err := json.Unmarshal([]byte(v.AsString()), &raw); err != nil {
+		t.Fatalf("content is no list of parts: %v", err)
+	}
+	out := make([]string, len(raw))
+	for i, p := range raw {
+		out[i] = textOf(t, p)
+	}
+	return out
+}
+
+// part returns the text of the only part of a recorded message, and its role.
+func part(t *testing.T, msg recorded) (role, content string) {
+	t.Helper()
+	if len(msg.Parts) != 1 {
+		t.Fatalf("a message has %d parts", len(msg.Parts))
+	}
+	return msg.Role, textOf(t, msg.Parts[0])
 }
 
 // textOf returns the content of a recorded text part.
-func textOf(t *testing.T, p attribute.Value) string {
+func textOf(t *testing.T, p json.RawMessage) string {
 	t.Helper()
-	fields := map[string]string{}
-	for _, kv := range p.AsMap() {
-		fields[string(kv.Key)] = kv.Value.AsString()
-	}
-	if p.Type() != attribute.MAP || fields["type"] != "text" || len(fields) != 2 {
-		t.Fatalf("a part is %v, want {type: text, content}", p.String())
+	var fields map[string]string
+	if err := json.Unmarshal(p, &fields); err != nil || fields["type"] != "text" || len(fields) != 2 {
+		t.Fatalf("a part is %s, want {type: text, content}", p)
 	}
 	return fields["content"]
 }
@@ -443,31 +465,35 @@ func TestContentIsRecordedWhenSwitchedOn(t *testing.T) {
 	}
 	a := teltest.Attrs(chatSpan(t, rec))
 
-	sys := a["gen_ai.system_instructions"]
-	if sys.Type() != attribute.SLICE || len(sys.AsSlice()) != 1 || textOf(t, sys.AsSlice()[0]) != "You are a tutor. "+marker+"-system" {
-		t.Errorf("gen_ai.system_instructions = %s", sys.String())
+	if sys := parts(t, a["gen_ai.system_instructions"]); len(sys) != 1 || sys[0] != "You are a tutor. "+marker+"-system" {
+		t.Errorf("gen_ai.system_instructions = %q", sys)
 	}
 
-	in := a["gen_ai.input.messages"]
-	if in.Type() != attribute.SLICE || len(in.AsSlice()) != 3 {
-		t.Fatalf("gen_ai.input.messages = %s", in.String())
+	in := messages(t, a["gen_ai.input.messages"])
+	if len(in) != 3 {
+		t.Fatalf("gen_ai.input.messages = %s", a["gen_ai.input.messages"].AsString())
 	}
 	for i, want := range []struct{ role, has string }{{"user", marker + "-old"}, {"assistant", marker + "-reply"}, {"user", "second question " + marker + "-new"}} {
-		role, content := part(t, in.AsSlice()[i])
+		role, content := part(t, in[i])
 		if role != want.role || !strings.Contains(content, want.has) {
 			t.Errorf("input message %d: %s %q", i, role, content)
 		}
 	}
 	// The password of the context block is gone, and only that.
-	if _, last := part(t, in.AsSlice()[2]); strings.Contains(last, "hunter2") || !strings.Contains(last, "password: [redacted]") {
+	// The text reads as it was sent: the context block keeps its brackets,
+	// and a TraceQL search can match the learner's words.
+	if raw := a["gen_ai.input.messages"].AsString(); !strings.Contains(raw, "<context>") || !strings.Contains(raw, "second question "+marker+"-new") {
+		t.Errorf("gen_ai.input.messages is not plain JSON text: %s", raw)
+	}
+	if _, last := part(t, in[2]); strings.Contains(last, "hunter2") || !strings.Contains(last, "password: [redacted]") {
 		t.Errorf("the newest message is not redacted: %q", last)
 	}
 
-	out := a["gen_ai.output.messages"]
-	if out.Type() != attribute.SLICE || len(out.AsSlice()) != 1 {
-		t.Fatalf("gen_ai.output.messages = %s", out.String())
+	out := messages(t, a["gen_ai.output.messages"])
+	if len(out) != 1 {
+		t.Fatalf("gen_ai.output.messages = %s", a["gen_ai.output.messages"].AsString())
 	}
-	role, answer := part(t, out.AsSlice()[0])
+	role, answer := part(t, out[0])
 	if role != "assistant" || !strings.HasSuffix(answer, marker+"-answer") || strings.Contains(answer, "eyJhbGci") {
 		t.Errorf("output message: %s %q", role, answer)
 	}
@@ -505,7 +531,7 @@ func TestRecordingContentDoesNotTouchTheAnswer(t *testing.T) {
 		t.Errorf("the caller got %d bytes of an answer of %d", got.Len(), len(deltas)*len(piece))
 	}
 	a := teltest.Attrs(chatSpan(t, rec))
-	_, out := part(t, a["gen_ai.output.messages"].AsSlice()[0])
+	_, out := part(t, messages(t, a["gen_ai.output.messages"])[0])
 	if len(out) > telemetry.ContentCap+len(telemetry.ContentTruncated) || !strings.HasSuffix(out, telemetry.ContentTruncated) || !a["kubedojo.assistant.content.truncated"].AsBool() {
 		t.Errorf("the span keeps %d bytes of the answer", len(out))
 	}
@@ -557,13 +583,13 @@ func TestContentIsCapped(t *testing.T) {
 			t.Errorf("%s: %d bytes, ends in %q", what, len(s), s[max(0, len(s)-20):])
 		}
 	}
-	sys := textOf(t, a["gen_ai.system_instructions"].AsSlice()[0])
+	sys := parts(t, a["gen_ai.system_instructions"])[0]
 	valid("system instructions", sys)
 	if !strings.HasPrefix(sys, "SYS") {
 		t.Errorf("system instructions start with %q", sys[:10])
 	}
 
-	msgs := a["gen_ai.input.messages"].AsSlice()
+	msgs := messages(t, a["gen_ai.input.messages"])
 	if len(msgs) != 3 {
 		t.Fatalf("%d input messages, want all 3", len(msgs))
 	}
@@ -581,7 +607,7 @@ func TestContentIsCapped(t *testing.T) {
 		t.Errorf("the input messages hold %d bytes", total)
 	}
 
-	_, out := part(t, a["gen_ai.output.messages"].AsSlice()[0])
+	_, out := part(t, messages(t, a["gen_ai.output.messages"])[0])
 	valid("output", out)
 }
 

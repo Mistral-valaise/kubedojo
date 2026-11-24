@@ -16,8 +16,8 @@ spec:
     metadata:
       labels: {app.kubernetes.io/name: kubedojo-lgtm, app.kubernetes.io/instance: {{ .Release.Name }}}
       annotations:
-        # Grafana reads provisioning files at start: a changed file restarts the Pod.
-        checksum/provisioning: {{ (.Files.Glob "observability/{datasources,dashboards-provider,grafana-alerts}.yaml").AsConfig | sha256sum }}
+        # Grafana and Tempo read these files at start: a changed file restarts the Pod.
+        checksum/provisioning: {{ (.Files.Glob "observability/{datasources,dashboards-provider,grafana-alerts,tempo}.yaml").AsConfig | sha256sum }}
     spec:
       securityContext:
         seccompProfile: {type: RuntimeDefault}
@@ -64,6 +64,8 @@ spec:
             - {name: provisioning, mountPath: /otel-lgtm/grafana/conf/provisioning/dashboards/kubedojo.yaml, subPath: dashboards-provider.yaml}
             - {name: provisioning, mountPath: /otel-lgtm/grafana/conf/provisioning/datasources/grafana-datasources.yaml, subPath: datasources.yaml}
             - {name: provisioning, mountPath: /otel-lgtm/grafana/conf/provisioning/alerting/kubedojo.yaml, subPath: grafana-alerts.yaml}
+            # Tempo with a higher limit for an attribute: see observability/tempo.yaml.
+            - {name: provisioning, mountPath: /otel-lgtm/tempo-config.yaml, subPath: tempo.yaml}
       volumes:
         - name: data
           {{- if (.Values.lgtm.persistence).enabled }}
@@ -76,14 +78,14 @@ spec:
         - name: dashboards
           configMap: {name: {{ $name }}-dashboards}
 ---
-# The same provisioning files `kubedojo up --observability` mounts.
+# The same provisioning and configuration files `kubedojo up --observability` mounts.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ $name }}-provisioning
   labels: {{- include "kubedojo.labels" . | nindent 4 }}
 data:
-  {{- range $path, $_ := .Files.Glob "observability/{datasources,dashboards-provider,grafana-alerts}.yaml" }}
+  {{- range $path, $_ := .Files.Glob "observability/{datasources,dashboards-provider,grafana-alerts,tempo}.yaml" }}
   {{ base $path }}: |-
     {{- $.Files.Get $path | nindent 4 }}
   {{- end }}
