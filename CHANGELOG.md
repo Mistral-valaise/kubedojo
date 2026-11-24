@@ -68,15 +68,18 @@ to the model; and a hardened local API.
   shown locked with the name of what sets them. On a hosted server the page is read-only. It is
   linked from the header of every page.
 - When the assistant cannot answer it says why in a sentence and offers what helps: to try again, with
-  the seconds to wait after a rate limit, or the way to the settings.
+  the seconds to wait after a rate limit, or the way to the settings. A model that reached its output
+  limit before it wrote a word (a reasoning model can spend the whole limit on thinking) is named as
+  the reason.
 - The home page starts with one clear next step: "Continue with <track>"
   leads back to an open session or to the track you have come furthest in,
   and "Browse all tracks" jumps to the track list. The learning path sits
   next to it as a compact card with the readiness of every step.
 - Every page has a footer with the version, a link to the source on GitHub
-  and the author. The practice and exam views keep their full height for the
-  terminal and show the same three items behind an "About kubedojo" button in
-  their header.
+  and the author ("Created by Mistral N", linking to https://mistraln.de). In
+  the practice and exam views it is one compact line below the workspace, so
+  that the terminal keeps its height; their header also has an "About kubedojo"
+  button with the same items and the way to the settings.
 - An address that leads nowhere shows a "Page not found" page with the way
   back, instead of the start page. A page that fails to render shows a message
   with a reload button instead of an empty window.
@@ -130,9 +133,13 @@ to the model; and a hardened local API.
   `kubedojo_assistant_context_duration_seconds`. The samples of an answer carry its trace as an
   exemplar. No label holds a session, a user or text.
 - Prompts and answers are recorded on the `chat` span only where `--ai-trace-content` allows it: by
-  default for the bundled local observability stack and nowhere else. What is recorded has the
-  structure the conventions define (`gen_ai.system_instructions`, `gen_ai.input.messages`,
-  `gen_ai.output.messages`), is redacted like the output of a check and cut at 32 KiB per attribute.
+  default for the bundled local observability stack and nowhere else. What is recorded is JSON text
+  in the structure the conventions define (`gen_ai.system_instructions`, `gen_ai.input.messages`,
+  `gen_ai.output.messages`), so that TraceQL can search it:
+  `{ span.gen_ai.input.messages =~ ".*kubectl.*" }` finds a conversation by what was said in it. It
+  is redacted like the output of a check and cut at 32 KiB per attribute. The bundled Tempo keeps up
+  to 256 KiB of an attribute instead of its default of 2 KiB, which would cut off the learner's
+  question at the end of a message.
 - A model provider gets no trace context: the HTTP request to it is a span of the trace, and it is
   sent without `traceparent` and `baggage` headers.
 - The `meta` event of an answer's stream carries `traceId` when the request is traced, so that a
@@ -186,9 +193,14 @@ to the model; and a hardened local API.
 - The report of an exam arranges its two columns by the room it has, not by the width of the window.
 - The web interface has a refreshed look on one set of design tokens: revised
   colours for the dark and the light theme with readable contrast everywhere
-  (at least 4.5:1 for text), one type scale with 12 px as its smallest size,
-  larger touch targets, and one look for cards, buttons and form fields. The
-  terminal stays dark in both themes.
+  (at least 4.5:1 for text, measured in a test for every pair), one type scale
+  with 12 px as its smallest size, larger touch targets, and one look for cards,
+  buttons and form fields. The dark theme sets text a little below white on
+  surfaces a little above black, which reads without glare. The terminal stays
+  dark in both themes.
+- Names, paths and commands in task texts, hints, solutions and answers stand
+  out as chips with a colour of their own in both themes; in a table a short
+  command stays on one line.
 - The fonts (Inter and JetBrains Mono) are shipped with kubedojo and served
   from its own address. No request leaves your machine for a font, and the
   interface looks the same without internet access. The terminal waits a
