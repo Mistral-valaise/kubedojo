@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Check, CheckCircle2, Circle, ExternalLink, Eye, XCircle } from "lucide-react";
 import type { ChoiceReview, ChoiceView } from "../api";
 import { t } from "../i18n";
@@ -84,7 +84,10 @@ function Options({ choice, value, onChange, onSubmit, hotkeys, disabled, label }
       case " ": e.preventDefault(); if (at >= 0) pick(at); break;
     }
   };
-  useEffect(() => {
+  // A layout effect: the keys work from the moment the options are on the
+  // page, not one task later. A learner who types ahead, and a test that
+  // presses a key as soon as it sees the options, both rely on that.
+  useLayoutEffect(() => {
     const handler = (e: KeyboardEvent) => onKey.current(e);
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
