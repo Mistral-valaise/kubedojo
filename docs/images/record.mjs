@@ -144,7 +144,7 @@ if (want("learn")) {
   await sleep(1500);
   await page.mouse.wheel(0, 380);
   await sleep(1400);
-  await page.getByRole("button", { name: "Lesson" }).first().click();
+  await page.getByRole("link", { name: /^Lesson: / }).first().click();
   await page.getByText("The 20% that solves 80%").waitFor();
   await sleep(1600);
   for (let i = 0; i < 7; i++) { await page.mouse.wheel(0, 150); await sleep(380); }
@@ -182,11 +182,11 @@ if (want("exam")) {
   await sleep(2500);
   const stop = recorder(page, "exam");
   await sleep(1800);
-  await page.getByRole("navigation", { name: "Questions" }).getByRole("button", { name: "2", exact: true }).click();
+  await page.getByRole("navigation", { name: "Questions" }).getByRole("button", { name: /^Task 2(,|$)/ }).click();
   await sleep(1800);
   await page.getByRole("button", { name: "Flag for review" }).click();
   await sleep(900);
-  await page.getByRole("navigation", { name: "Questions" }).getByRole("button", { name: "3", exact: true }).click();
+  await page.getByRole("navigation", { name: "Questions" }).getByRole("button", { name: /^Task 3(,|$)/ }).click();
   await sleep(1500);
   await page.getByPlaceholder("Private notes for this task ...").click();
   await page.keyboard.type("check the selector again", { delay: 30 });
