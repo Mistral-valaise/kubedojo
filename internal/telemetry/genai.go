@@ -135,7 +135,11 @@ func (g *genaiProvider) Chat(ctx context.Context, req ai.Request, onDelta func(s
 	if req.ConversationID != "" {
 		opening = append(opening, attribute.String(genaiConversationID, req.ConversationID))
 	}
-	ctx, sp := g.t.tracer.Start(ctx, genaiOperationChat+" "+model, trace.WithSpanKind(trace.SpanKindClient), trace.WithAttributes(opening...))
+	// The span starts at `start`, the clock of the time to the first chunk
+	// and of the duration metric: one origin, so the first chunk never comes
+	// after the end of the span.
+	ctx, sp := g.t.tracer.Start(ctx, genaiOperationChat+" "+model, trace.WithTimestamp(start),
+		trace.WithSpanKind(trace.SpanKindClient), trace.WithAttributes(opening...))
 	defer sp.End()
 	ctx = span.With(ctx, g.t)
 
