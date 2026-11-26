@@ -97,6 +97,9 @@ export function useAssistant(sid: string | null | undefined, qid: string, enable
   const busy = useRef(false);
   const history = useRef<Promise<boolean> | null>(null);
   const loadedFor = useRef<string | null>(null);
+  // The conversation whose stored messages have been asked for. Until then the hook reports
+  // "loading": the first render of a conversation must not look like an empty one.
+  const [asked, setAsked] = useState<string | null>(null);
   // Text that arrived and is not on the page yet: it is added once per frame, not once per token.
   const pending = useRef("");
   const frame = useRef(0);
@@ -171,6 +174,7 @@ export function useAssistant(sid: string | null | undefined, qid: string, enable
     const id = `${sid}/${qid}`;
     if (!enabled || !sid || loadedFor.current === id) return;
     loadedFor.current = id;
+    setAsked(id);
     void load();
   }, [sid, qid, enabled, load]);
 
@@ -308,6 +312,8 @@ export function useAssistant(sid: string | null | undefined, qid: string, enable
 
   const reload = useCallback(async () => { await load(); }, [load]);
 
-  return useMemo(() => ({ messages, state, error, limits, meta, announce, send, stop, retry, clear, reload }),
-    [messages, state, error, limits, meta, announce, send, stop, retry, clear, reload]);
+  // The effect that loads the conversation runs after the first render that could show it.
+  const phase: Phase = state === "idle" && enabled && !!sid && asked !== `${sid}/${qid}` ? "loading" : state;
+  return useMemo(() => ({ messages, state: phase, error, limits, meta, announce, send, stop, retry, clear, reload }),
+    [messages, phase, error, limits, meta, announce, send, stop, retry, clear, reload]);
 }

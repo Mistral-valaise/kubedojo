@@ -19,7 +19,9 @@ your skills sharp, or to prepare for the five exams on the road to Kubestronaut 
 
 ![Solving a question in kubedojo: task on the left, terminal on the right, per-check feedback](docs/images/practice.gif)
 
-[Watch the one-minute tour](docs/media/kubedojo-promo.mp4) (MP4, with sound; [credits](docs/media/CREDITS.md))
+[Watch the tour](docs/media/kubedojo-promo.mp4) (2:30) · [Watch how it is built](docs/media/kubedojo-architecture.mp4) (2:52)
+
+Both are MP4 files with sound; [credits](docs/media/CREDITS.md).
 
 </div>
 
@@ -111,6 +113,8 @@ kubedojo serve       Run the server only (containers, Kubernetes)
 kubedojo doctor      Check that this machine can run sandboxes
 kubedojo down        Remove every sandbox kubedojo created
 kubedojo ratings     Show the feedback learners left on questions
+kubedojo backup      Write a consistent copy of the progress database (the server may run)
+kubedojo restore     Replace the progress database by a backup (stop the server first)
 kubedojo observability up | status | stop | reset
 kubedojo content lint | test | export
 kubedojo version
@@ -188,6 +192,10 @@ next.
 | ![Track overview with readiness and recommendations](docs/images/track.png) | ![Exam report with score per domain](docs/images/report.png) |
 
 ## How it works
+
+The architecture in three minutes, from the system context down to the code:
+[watch how it is built](docs/media/kubedojo-architecture.mp4). The packages, the sandbox and the
+terminal in detail: [docs/architecture.md](docs/architecture.md).
 
 ```mermaid
 flowchart LR
