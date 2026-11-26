@@ -1,10 +1,13 @@
 # Architecture
 
+A video walks through this document's subject in three minutes, level by level:
+[kubedojo-architecture.mp4](media/kubedojo-architecture.mp4).
+
 ## Packages
 
 | Package | Responsibility |
 |---|---|
-| `cmd/kubedojo` | CLI: `up`, `serve`, `doctor`, `down`, `ratings`, `content lint/test/export`, `version` |
+| `cmd/kubedojo` | CLI: `up`, `serve`, `doctor`, `down`, `ratings`, `backup`, `restore`, `observability up/status/stop/reset`, `content lint/test/export`, `version` |
 | `internal/api` | REST API, terminal WebSocket, embedded UI |
 | `internal/session` | lifecycle of practice and exam sessions, grading, reports |
 | `internal/sandbox` | `Driver` interface and the kind driver: clusters and Linux hosts |
