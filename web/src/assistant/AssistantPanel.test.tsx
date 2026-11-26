@@ -140,6 +140,20 @@ describe("AssistantPanel", () => {
     expect(within(log()).queryByRole("button", { name: "Run in terminal" })).toBeNull();
   });
 
+  it("never shows an empty conversation while the stored one is on its way", async () => {
+    server.stored = [stored(1, "user", "Why does it fail?")];
+    // Everything that is ever put on the page, however briefly.
+    const added: string[] = [];
+    const watch = new MutationObserver((records) => {
+      for (const r of records) for (const n of r.addedNodes) added.push(n.textContent ?? "");
+    });
+    watch.observe(document.body, { childList: true, subtree: true });
+    await show();
+    await waitFor(() => expect(within(log()).getByText("Why does it fail?")).toBeTruthy());
+    watch.disconnect();
+    expect(added.filter((text) => text.includes("Stuck, or curious why something works?"))).toEqual([]);
+  });
+
   it("runs a command of an answer in the terminal, where there is one", async () => {
     const typed: string[] = [];
     const unregister = registerTerminal((text) => typed.push(text));
